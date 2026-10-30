@@ -1,0 +1,14 @@
+AGENTS.md
+  h_4526552a40cb15 1-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5df1662e7ccc092cf0cba78b27bc552bde44637d",
+  "prompts": {},
+  "humans": {
+    "h_4526552a40cb15": {
+      "author": "destinyTaoTao <517493385@qq.com>"
+    }
+  }
+}
