@@ -1,0 +1,27 @@
+docs/agents/issue-tracker.md
+  s_a73c12c3f368ad::t_e8d13aa0d3856f 13-18
+  s_a73c12c3f368ad::t_6bbe28b0fce669 1-12,19-48
+docs/agents/domain.md
+  s_a73c12c3f368ad::t_e8d13aa0d3856f 6
+  s_a73c12c3f368ad::t_6bbe28b0fce669 1-5,7-29
+docs/agents/triage-labels.md
+  s_a73c12c3f368ad::t_6bbe28b0fce669 1-13
+AGENTS.md
+  s_a73c12c3f368ad::t_6bbe28b0fce669 98-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7eafe077e66f7505a7d9aa1cedfec50dded0119d",
+  "prompts": {},
+  "sessions": {
+    "s_a73c12c3f368ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18c25-eb8c-7351-85dc-12a9d7b14027",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "destinyTaoTao <517493385@qq.com>"
+    }
+  }
+}
