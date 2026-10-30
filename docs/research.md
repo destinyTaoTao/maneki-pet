@@ -57,3 +57,15 @@ FastMCP + 视觉 LLM 的"智能阿尼亚"悬浮球：语音指令、能看屏幕
 社区还有"像素猫监视 Claude Code/Codex/Cursor"、"喂 token 长大"等玩法（见 [desktop-pet topic](https://github.com/topics/desktop-pet)），印证：
 1. "Agent 干活我盯梢"是被反复验证的高频需求 → 我们把它做成一等公民（Task Broker）
 2. 成长/养成系（喂 token）适合作为后期彩蛋，不进核心
+
+## 2026-10-30 复核补充
+
+上文保留为初始调研快照；以下修正影响架构判断的表述，不将外部项目能力当作 Maneki 已实现功能。
+
+- [dsh-pet 当前 README](https://github.com/PC2005-cloud/dsh-pet/blob/main/README.md) 已包含主动碎碎念、对话/持久化记忆、语音与待办提醒。前文“从被动展示升级为主动助理”的差异描述不准确；Maneki 计划重点验证跨 harness 的任务代理、明确授权及故障恢复，而不以其他项目没有主动能力为前提。
+- dsh-pet 的动画链、数据动作包、素材配方和 overlay/桌面复用仍值得借鉴；其 README 描述的本机无鉴权 HTTP 接口不沿用。Maneki 采用回环、令牌/scope、Host/Origin 检查，也不将宠物表达接口当作 harness 任务派发 API。
+- [Tauri Node sidecar](https://v2.tauri.app/learn/sidecar-nodejs/) 提供 TS 本地服务的部署参考，但需要另外验证打包、生命周期和总资源开销；浏览器/其他项目的透明播放效果不能替代 Maneki 的 WebView 三平台验收。
+- [MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) 区分 stdio 与 Streamable HTTP。Maneki 初期选 stdio 表达桥，双向任务接入另走经验证的 Adapter，不承诺一行 MCP 配置完成全部场景。
+- [Node VM 文档](https://nodejs.org/api/vm.html) 明确 VM 不用于不可信代码安全隔离；权限清单、Worker 或子进程本身也不作为 Maneki 的第三方代码沙箱承诺。
+
+这些条目来自官方说明/项目 README 静态核对，未执行外部项目。后续接入记录需补具体版本、平台、真实调用与审批拒绝证据，不能用调研笔记代替联调验收。

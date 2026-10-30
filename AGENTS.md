@@ -7,9 +7,9 @@
 
 **Maneki（小招）**——桌宠形态的个人助理 + AI 编程 harness 的任务中间人。招财猫的定位：主动招手迎接你，把结果叼回来。
 
-一句话架构：四层解耦（Pet Shell 渲染层 / Assistant Core 纯 TS 库 / Harness Gateway 适配网关 / Local Services 本地服务），三种运行形态（① Tauri 独立 App / ② harness overlay 插件 / ③ core npm 库），双向通道（harness 事件驱动宠物动画；宠物向 harness 派发任务）。
+一句话架构：Shell / Core / Gateway / Local Services 分工，Runtime 统一装配；Core 定义端口且不依赖具体 IO。三种运行形态（① Tauri 独立 App / ② harness overlay 插件 / ③ core npm 库）；双向通道按能力接入，MCP 表达工具不等于任务派发。
 
-**当前状态：M0 完成（2026-10），仓库只有设计文档，零代码。** 下一步是 M1（Tauri 透明窗 + 动画链 + 跨平台 spike）。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 当前里程碑的范围与验收标准，以及 [docs/architecture.md](./docs/architecture.md) 中与任务相关的章节。
+**当前状态：M0 设计基线 v0.2（2026-10-30），仓库只有设计文档，零代码。** 下一步是 M1（Tauri 透明窗 + 动画链 + 跨平台 spike）；文档设计完成不等于运行验收。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 当前里程碑的范围与验收标准，以及 [docs/architecture.md](./docs/architecture.md) 中与任务相关的章节。
 
 ## 文档体系与同步规则
 
@@ -23,13 +23,13 @@
 ## 技术栈（已定案，勿擅自更换）
 
 - TypeScript monorepo + pnpm workspace，Node ≥ 22 LTS，`strict` 模式
-- 桌面壳 Tauri v2（Electron 仅为备选；切换条件见 architecture §3.4，由 M1 spike 用证据定案，不凭感觉切）
+- 桌面壳 Tauri v2（Electron 仅为备选；切换条件见 architecture §3.3，由 M1 spike 用证据定案，不凭感觉切）；M2 验证 Node Runtime sidecar 打包与生命周期
 - 动画：透明视频（video-alpha）为主，spritesheet 兜底
 - 存储：SQLite 单文件，放用户数据目录
 - MCP：`@modelcontextprotocol/sdk`
-- 语音：whisper.cpp 本地优先，云端 ASR/TTS 可插拔
+- 语音：ASR / TTS 独立 Provider，whisper.cpp 为本地 ASR 优先项；模型/语音均可关闭，无云端静默回退；VAD/唤醒为可选增强
 
-依赖原则：优先主流成熟库；能不加就不加；token 生成、哈希验签等安全能力用标准库/成熟实现，不自己发明密码学。
+依赖原则：优先主流成熟库；能不加就不加；token 生成、哈希、签名验证用标准库/成熟实现，不自己发明密码学。哈希校验只证明完整性，不等于发布者身份验证。
 
 ## 目标仓库结构（随里程碑落地，禁止提前创建空目录）
 
@@ -38,8 +38,9 @@ apps/
   desktop/        # 形态①：Tauri v2 独立桌宠（M1 起）
   dsh-plugin/     # 形态②：dsh overlay 插件（M5 起）
 packages/
-  core/           # Assistant Core：纯 TS、无 UI、无直接 IO（M2 起，PetState 先行；Persona/记忆随 M3/M4）
-  gateway/        # Harness Gateway：Adapter Contract、事件总线、Task Broker、MCP Server（M2 起）
+  core/           # 纯 TS 规则与端口（M1 PetState 先行；任务策略 M2b，对话/记忆 M3/M4）
+  runtime/        # M2：装配、生命周期、鉴权、SQLite、本地服务和 Provider 实现
+  gateway/        # M2：Adapter 契约、事件归一、MCP 表达桥；Task Broker 策略放 Core
   adapters/       # 各 harness 适配器 npm 包：claude-code / dsh / generic-cli…（M2 起）
 ```
 
@@ -50,19 +51,21 @@ npm scope 统一为 `@maneki-pet/*`（如 `@maneki-pet/core`）。
 安全（完整威胁模型见 architecture §7，此处是不可妥协子集）：
 
 1. 本地 API 只绑 `127.0.0.1` + 安装期随机 token 鉴权。禁止绑 `0.0.0.0`、禁止"临时关掉鉴权调试"的提交进入仓库。
-2. Agent/harness 返回的内容一律按**数据**渲染；动作意图只能来自结构化工具调用并经 confirmPolicy 流程。防提示注入是设计约束，不是事后补丁。
-3. 破坏性操作 confirmPolicy 默认 `ask`；危险命令（删除/强推/付费 API）强制确认且向用户展示完整命令。
-4. 用户数据（记忆/语音/提醒/会话）默认全本地；云端能力必须显式配置、设置页可一键全关、日志默认脱敏。
-5. 动作包与技能插件必须带权限清单，安装时校验素材/内容哈希。
+2. Agent/harness 返回内容一律按**数据**渲染；结构化意图也需来源、参数与授权校验，不能修改策略或代批操作。
+3. 派发 confirmPolicy 默认 `ask`，危险操作（删除/强推/付费等）另经 harness 原生审批或可验证桥逐次确认并展示完整操作；未知/超时/失联默认拒绝。无审批保障的 Adapter 仅观察，不能派发。
+4. 用户数据默认全本地、录音默认不落盘；云端能力显式配置、设置页可一键全关，无静默云端回退，日志默认脱敏。
+5. 动作包为纯数据并校验权限清单、路径、资源与内容哈希；第三方可执行技能须隔离验收后开放。权限清单、普通子进程或 node:vm 不等于安全沙箱。
 6. 仓库不提交密钥与个人数据（`.env` 已 ignore）。
 
 架构不变量：
 
-- 依赖方向自上而下：Shell → Core → Gateway → Local Services。Core 不得依赖 UI 或具体 IO（IO 走接口注入），这是它能被三种形态复用、能单测的前提。
+- 编译依赖向 Core 收敛：Runtime 装配 Core/Gateway/Local Services，后两者实现 Core 端口；Core 不依赖 UI、Runtime 或具体 IO。见 architecture §2。
 - 新 harness 接入一律走 Adapter Contract 或 MCP 通道，不得在 Core/Shell 里写死特定 harness 的逻辑。
 - 主动性引擎中"是否打扰用户"（触发器 × 防打扰预算）是确定性规则；LLM 只负责生成话术，不得决定触发与否。
+- ASR、TTS、LLM 分别注入、分别禁用；不把语音/云端服务设为文字任务与提醒的前置依赖。
+- 默认静音时段不主动打扰，高优先级不自动穿透；重启/休眠后提醒补发。提交结果未知先对账，不能盲重试。
 
-性能预算（architecture §8）：空闲内存 < 150MB；harness 事件 → 动画切换 < 300ms；提醒命中 → 通知送达 < 1s。热路径改动需对照预算评估。
+性能预算（architecture §8）：空闲总内存 < 150MB（含 WebView/Runtime/桥）；正常负载下事件 → 动画 p95 < 300ms、提醒 → 通知调用 p95 < 1s。活跃模型资源另报；这些都是待测目标。热路径改动需对照预算评估。
 
 ## 代码与工程约定
 
@@ -82,7 +85,8 @@ npm scope 统一为 `@maneki-pet/*`（如 `@maneki-pet/core`）。
 
 ## 常见任务指引
 
-- **新增 harness 适配器**：实现 architecture §5.1 的 `HarnessAdapter` 接口，capabilities 如实声明，放 `packages/adapters/`；先打通事件方向（状态联动动画），再验证 submit/cancel。
-- **新增 MCP 工具**：命名 `maneki_<verb>`；只暴露表达类能力（说、演、通知、记提醒），永不暴露执行类能力（执行一律走 Adapter + confirmPolicy）。
+- **新增 harness 适配器**：实现 architecture §5.1 的 `HarnessAdapter`，能力与宿主版本如实登记，放 `packages/adapters/`；先验证事件，再验证派发/会话/审批/恢复。不把候选 API 当已支持。
+- **新增 Provider**：按 architecture §4.1 独立实现模型/ASR/TTS 端口，统一取消/超时/错误语义；初期放 runtime 内，不提前拆空包。
+- **新增 MCP 工具**：命名 `maneki_<verb>`；只暴露表达与被授权提醒，禁止执行/审批/策略修改；`maneki_remind` 随 M4 持久化与调度落地。
 - **动画/动作包**：状态名与 Core 的 PetState 枚举严格对齐，缺省回退 idle；素材走可复现管线（配方入库，渲染产物 ignore），不在仓库提交大二进制。
 - **新依赖**：说明用途与替代方案对比，安全相关依赖优先零依赖或标准实现。

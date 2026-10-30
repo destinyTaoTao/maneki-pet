@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-incubating-orange.svg)](./docs/roadmap.md)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
+[![Target platforms](https://img.shields.io/badge/targets-Windows%20%7C%20macOS%20%7C%20Linux-blue)](./docs/roadmap.md)
 
 </div>
 
@@ -16,64 +16,61 @@
 >
 > Maneki 也一样 —— 它会主动找你聊天、帮你记事到点提醒、把你的指令交给 AI 编程 Agent（dsh / Claude Code / pi / Codex …），盯着它们把活干完，再把结果叼回来交给你。
 
-## ✨ 它能做什么
+> **当前状态：M0 设计阶段，尚无可运行程序。** 下文是目标能力；平台兼容性、安全机制与性能均需实现后验收。
+
+## ✨ 目标能力
 
 | 能力 | 说明 |
 |---|---|
-| 🎨 自定义形象 | 动作包（Pack）驱动：透明视频 / 精灵图皆可，AI 素材管线全程可复现，支持社区动作包 |
+| 🎨 自定义形象 | 纯数据动作包驱动，透明视频 / 精灵图按平台选择；先支持本地换装，再建设社区生态 |
 | 🎭 预设可爱动作 | 待机呼吸、漫游、玩耍、庆祝、睡觉……按宠物状态与权重无缝衔接，交互带物理反馈（点击、拖拽、甩抛） |
 | 💬 主动交流 | 主动性引擎：到点提醒、任务完成、久等输入、节日问候；带防打扰预算（静音时段 + 频率上限） |
-| 🎙️ 语音对话 | 按键说话 / 可选唤醒词；本地（whisper.cpp）或云端 ASR/TTS 可插拔；任务完成主动语音播报 |
+| 🎙️ 可选语音 | ASR、TTS 独立启用和替换；本地优先、云端显式配置；按键说话、主动播报与邀请回应，可选增强唤醒/连续对话 |
 | 📝 记事与提醒 | 「小招帮我记一下……」→ 本地 SQLite 持久化，到点气泡 + 语音 + 系统通知多通道送达 |
 | 🤝 Agent 中间人 | 接收你的语音/文字指令 → 派发给 harness → 盯进度切动画 → 完成后通知你并交付产物 |
-| 🔌 多 harness 接入 | 适配器契约（Adapter Contract）+ MCP 双通道：dsh / Claude Code / pi / 任意 MCP 宿主 |
-| 🧩 插件化 | 技能（Skill）插件 + 动作包 + 皮肤，权限清单沙箱，全部本地安装 |
+| 🔌 多 harness 接入 | Adapter 按能力提供观察、派发、回答、取消与审批；MCP 提供表达工具，候选适配 dsh / Claude Code / pi 等 |
+| 🧩 扩展 | 形象包、语音/模型 Provider、harness Adapter 分开；第三方可执行技能须通过隔离验收后开放 |
 
 ## 🎯 设计原则
 
-- **安全第一**：API 只绑 127.0.0.1 + 安装期随机令牌；破坏性操作必须经你确认；Agent 输出永远只是数据不是指令（防提示注入）。
-- **可扩展**：渲染层 / 助理核心 / 适配网关 / 本地服务 四层解耦，动作包、技能、适配器皆可插拔。
-- **高性能**：桌面壳优先 Tauri v2（系统 WebView），空闲常驻内存目标 < 150MB，动画无解码抖动。
-- **易接入**：新 harness 只需一个适配器 npm 包，或零代码——一行 MCP 配置。
+- **安全第一**：API 只绑 127.0.0.1 + 随机令牌与分权；派发授权与具体操作审批分开，输出按数据处理。
+- **可扩展**：纯 TS Core 定义规则与端口，Runtime 装配具体实现；语音、模型、harness 和形象独立替换，关闭可选能力不影响文字入口。
+- **性能可测**：Tauri v2 优先；空闲总内存目标 < 150MB，计入 WebView、Runtime 和桥接进程；活跃模型资源另报。
+- **按能力接入**：支持 MCP 的宿主可接入表达工具；完整任务代理另需经过会话路由与执行审批验收的 Adapter。
 
 ## 🏗️ 架构总览
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Pet Shell  渲染层（Tauri v2 透明窗 / 浏览器 overlay）      │
-│  透明视频·精灵图动画链 · 气泡对话 · 语音面板 · 托盘           │
-├──────────────────────────────────────────────────────────┤
-│  Assistant Core  助理核心（纯 TS，可独立成库嵌入宿主）        │
-│  人设与对话(LLM) · 主动性引擎 · 记忆与提醒 · 技能系统          │
-├──────────────────────────────────────────────────────────┤
-│  Harness Gateway  适配网关                                 │
-│  Harness Adapter Contract · 事件总线(WS) · Task Broker     │
-│  adapters: dsh / claude-code / pi / generic-cli / MCP     │
-├──────────────────────────────────────────────────────────┤
-│  Local Services  本地服务（仅 127.0.0.1）                   │
-│  HTTP+WS API(OpenAPI/令牌鉴权) · ASR/TTS 管道 · SQLite 存储  │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  Shell[桌宠 Shell：桌面 / overlay] -. 应用接口 / IPC .-> Runtime[Runtime：装配、鉴权、生命周期]
+  Shell --> Core
+  Runtime --> Core[纯 TS Core：状态、对话与任务规则、主动性、提醒]
+  Runtime --> Gateway[Gateway：harness Adapter / MCP 表达桥]
+  Runtime --> Local[Local Services：可插拔模型与语音 / SQLite / 通知]
+  Gateway --> Core
+  Local --> Core
 ```
 
-完整设计见 [docs/architecture.md](./docs/architecture.md)。
+实线表示依赖，虚线表示跨进程调用；Shell 不导入 Node 服务实现，Core 不依赖具体 IO。桌面部署基线为 Tauri Shell + Node Runtime sidecar，每个用户配置目录一个 Runtime。完整设计见 [docs/architecture.md](./docs/architecture.md)。
 
 ## 🔌 接入方式（三种运行形态）
 
 | 形态 | 适用场景 |
 |---|---|
-| ① 独立桌宠 App（默认） | 双击即用，通过本地 API / MCP / hooks 配合**任何** harness |
-| ② harness 内嵌 overlay 插件 | 以 dsh 插件等形式嵌入 harness 的 web 视口，共享会话事件 |
-| ③ core 库模式 | `@maneki-pet/core` 作为 npm 包被其他宿主直接集成 |
+| ① 独立桌宠 App（默认目标） | Tauri 透明窗 + Runtime，按已验证的 API / MCP / hooks 能力接入 harness |
+| ② harness 内嵌 overlay 插件 | 以 dsh 插件等形式嵌入 web 视口，连接同一个本机 Runtime |
+| ③ core 库模式 | 第三方嵌入 `@maneki-pet/core` 并注入端口，可只使用所需规则，无需桌面壳或语音服务 |
 
-**双向通道**：harness → 宠物（状态事件驱动动画、完成通知）；宠物 → harness（派发任务、取消、查询进度）。
+**双向通道是不同能力**：harness → 宠物为状态/表达/通知；宠物 → harness 的派发、补充输入、查询与取消由 Adapter 提供。具体宿主、版本和平台通过验收后才列为已支持。
 
 ## 🛡️ 安全模型（摘要）
 
-- 本机回环 + 随机令牌鉴权 + CORS 白名单，不暴露公网。
-- 任务派发带确认策略（auto / ask / deny），破坏性命令必须经宠物 UI 显式确认。
-- Agent 返回内容以数据渲染，动作意图只能来自结构化工具调用，防提示注入。
-- 记忆、语音、提醒全部本地存储；使用云端 LLM/ASR/TTS 需显式配置，并在设置页可见可关。
-- 技能与动作包带权限清单（可访问哪些 API、文件、网络），安装时明示。
+- 本机回环 + 令牌/scope + Host/Origin 校验；CORS 不能代替鉴权。
+- 任务派发默认 ask；危险操作通过 harness 原生审批或可验证的审批桥逐次确认，无法保证时只开放观察。
+- Agent 输出不执行；结构化调用也要校验和授权。模型或语音不能代批危险操作。
+- 数据本地优先，录音默认不落盘；云端能力独立配置、可一键全关，失败不静默切云端。
+- 动作包为纯数据，验证内容哈希与路径；哈希不等于来源签名，权限清单不等于代码沙箱。
+- 默认静音时段不主动打扰，过期提醒恢复后补发；审批等待超时拒绝，不自动放行。
 
 ## 🗺️ Roadmap（摘要）
 
@@ -81,11 +78,12 @@
 |---|---|
 | M0 ✅ | 仓库 + 设计文档（本仓库当前状态） |
 | M1 | 最小桌宠：透明窗 + 动画链 + 托盘 + 拖拽点击 |
-| M2 | 本地 API + MCP Server + 首个 harness 适配（状态联动 + 完成通知） |
-| M3 | 对话与语音：LLM 气泡聊天 + ASR/TTS + 主动播报 |
-| M4 | 记忆与提醒：SQLite 持久化 + 定时提醒 + 主动搭话引擎 |
-| M5 | Task Broker：语音/文字指令 → 派发 harness → 交付通知（含安全确认流） |
-| M6 | 生态：技能插件系统 + 动作包格式与社区市场 + 多宠 |
+| M2 | Runtime + 本地 API + MCP 表达桥 + harness 状态联动与接入 spike |
+| M2b | 提前验证文字派发 → 执行审批 → 结果交付的最小闭环 |
+| M3 | 独立可选的模型 / ASR / TTS + 主动语音邀请回应 |
+| M4 | 记忆与可靠提醒 + `maneki_remind` + 防打扰与恢复 |
+| M5 | 完整任务体验 + dsh overlay + 经验证的其他适配器 |
+| M6 | 隔离验收后的第三方技能 + 社区动作包工具 + 多宠 |
 
 详见 [docs/roadmap.md](./docs/roadmap.md)。
 
