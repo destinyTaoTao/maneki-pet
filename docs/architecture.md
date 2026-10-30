@@ -1,7 +1,8 @@
 # Maneki 架构设计
 
-> 状态：v0.2 设计基线（M0），修订于 2026-10-30；尚无应用实现。
+> 状态：v0.3 设计基线（M0），修订于 2026-10-30；尚无应用实现。
 > 本文是架构、契约和安全规则的唯一事实来源。示例是待实现契约，不代表已经支持某个产品或平台；路线图中的验收通过后才可声明支持。
+> 领域用语见 [CONTEXT.md](../CONTEXT.md)，历史取舍见 [ADR](./adr/0001-shared-local-runtime.md)，本轮审计与处置见 [审计报告](./audits/2026-10-30-design-audit.md)。术语与 ADR 不另立一份实现规范。
 
 ## 1. 目标、范围与不变量
 
@@ -11,11 +12,13 @@ Maneki（小招）是以桌宠为交互入口的本地个人助理，也是用�
 |---|---|---|
 | 陪伴与形象 | 自定义动作包、点击/拖拽、主动搭话 | 形象不绑定模型、语音或 harness；素材不执行代码 |
 | 对话 | 文字或语音输入，文字和可选语音回答 | 文字始终可用；关闭语音后不加载语音模型、不占用麦克风 |
-| 记事提醒 | 用户确认的内容与时间，持久化并到点送达 | 时间不明确先确认；重启可恢复；静音策略统一 |
+| 记事提醒 | 用户确认的内容与时间，持久化并到点送达 | 时间不明确先确认；重启可恢复；勿扰与通道策略统一 |
 | 任务代理 | 选择项目/会话，派发、跟踪、补充输入、返回产物 | 路由明确；派发授权与执行审批分开；不重复执行未知结果的提交 |
 | harness 接入 | 适配器或 MCP 驱动宠物 | 能力如实声明；不把单向表达接入宣传为完整双向代理 |
 
 非目标：云端多用户 SaaS、通用 IM/完整项目管理、移动端、重造 harness 的模型推理与工具执行系统。社区市场和多宠不是首个可用版本的前置条件。
+
+首个可用版本优先交付 **可换装桌宠 + 一个真实 harness 的文字任务中间人 + 插件入口**；语音、主动陪伴与记事提醒继续作为独立增量，不阻塞该版本。首个目标先验证 dsh，pi 为第二目标；这是验证优先级，不是已支持声明。首版为派发任务新建受控会话，已有会话只观察；任务内补充输入仍回到原任务，不接管其他正在工作的会话。危险操作先使用可实际到达的 harness 原生审批界面，宠物内审批桥留作后续扩展。
 
 架构不变量：
 
@@ -23,7 +26,7 @@ Maneki（小招）是以桌宠为交互入口的本地个人助理，也是用�
 - 只有 Runtime 装配具体依赖、管理生命周期和执行本机策略；Shell 负责交互，不能直接持有数据库或 Provider 密钥。
 - 主动行为的触发、防打扰、权限与路由由确定性规则裁决；LLM 只能生成候选意图、内容和摘要，不能修改这些规则。
 - 模型输出、harness 输出、记忆、插件内容都视为不可信数据；结构化工具调用也必须校验来源、参数和授权。
-- 本地优先；启用外部服务必须显式选择并展示将发送的数据。关闭云端后禁止静默切到其他云服务。
+- 本地优先；启用外部服务必须显式选择并展示将发送的数据。“关闭 Maneki 云端能力”只控制自身 Provider；harness 的云端使用与数据去向单独授权，不能把本机 CLI 描述为本地推理。任何一侧均不通过静默回退更换数据目的地。
 
 ## 2. 模块分工、依赖与运行形态
 
@@ -61,7 +64,7 @@ flowchart TB
 ```text
 apps/
   desktop/              # M1：Tauri v2 Shell 与受限原生桥
-  dsh-plugin/           # M5：overlay Shell 与 dsh 宿主接入
+  dsh-plugin/           # M2b：首个插件入口，不等待语音与提醒
 packages/
   core/                 # M1：PetState 先行，逐步加入纯 TS 规则与端口
   runtime/              # M2：应用装配、本地服务、存储及 Provider 实现
@@ -73,16 +76,17 @@ packages/
 
 ### 2.3 进程与生命周期
 
-桌面版采用 **Tauri v2 Shell + 本地 Node Runtime sidecar** 的部署基线：Shell 保持轻量，TS 网关/MCP/SQLite 集中在 Runtime。M1 验证透明窗；M2 必须验证 sidecar 打包、启动、IPC、关闭与总内存，达不到预算再依据证据修订。Tauri WebView 不假定存在 Node 环境。[官方 sidecar 说明](https://v2.tauri.app/learn/sidecar-nodejs/)
+Maneki 安装一次 **共享本地 Node Runtime**，桌面与插件均可连接或受控启动它，不要求先打开桌宠 App。桌面版仍采用 Tauri v2 Shell，Runtime 可随安装包以 sidecar 分发，但其生命周期不绑定某个窗口或插件宿主进程。M1 验证透明窗；M2 必须验证无桌宠窗口的 Runtime 启动/连接、发行打包、IPC、关闭与总内存，达不到预算再依据证据修订。Tauri WebView 不假定存在 Node 环境。[官方 sidecar 说明](https://v2.tauri.app/learn/sidecar-nodejs/)
 
 - 每个本地用户配置目录只运行一个 Runtime；通过本机实例锁与受控发现元数据避免重复进程，SQLite 连接仅由 Runtime 拥有。崩溃后核验锁持有者，不盲删锁。
-- 桌面端负责启动/连接 Runtime；关闭宠物窗口可留托盘继续提醒；显式“退出助理”终止 Runtime、子进程、麦克风和定时器。退出期间不会发通知，下次启动按 §4.4 补发；后台运行/自启动须用户启用。
-- overlay 是 Runtime 的客户端，依赖本机 Runtime 已启动；断开后显示未连接，不私建另一份记忆/任务数据库。具体安装与启动命令在 M5 验证后写入用户文档。
+- 关闭窗口、关闭插件或宿主退出只断开该客户端，不停止已授权任务的后台跟踪；安装与首次启用时明示此行为，并提供受信本机管理入口查看状态和“退出助理”。该入口不能依赖先打开桌宠窗口；具体托盘/管理命令随 M2 验证，开机自启动默认关闭。
+- 共享启动器只启动已安装、来源可信且版本相容的 Runtime 固定入口；使用实例锁合并并发启动，不运行插件/模型给出的命令。首次配对通过本机受信入口确认；缺安装、版本不匹配或配对失败要明确提示，不静默下载/提权/安装。启动描述与凭证见 §6.1。
+- overlay 连接共享 Runtime，不私建另一份记忆/任务数据库；本机服务未运行时可走已安装启动器按需启动。卸载/撤销某个插件仅撤销该客户端连接与凭证，不删除共享数据、不关闭其他客户端的任务。具体安装与启动命令在 M2b 验证后写入用户文档。
 - npm 库模式可以仅嵌入 Core 并注入自己的端口；不必启动 Node 服务、监听端口或安装语音模型。需要完整本地能力时再嵌入/连接 Runtime。
-- Runtime 负责结构化关闭：停止接受新任务、保存状态、撤销待决审批、取消 Provider 请求、停止音频、释放数据库与实例锁。重启不恢复已批准的一次性危险操作。
+- “退出助理”负责结构化关闭：停止接收新任务、保存状态、撤销本机待决审批、取消 Provider 请求、停止音频、释放数据库与实例锁。只终止助理自己的服务/推理进程；harness 执行进程不能作为普通 sidecar 一并杀掉，退出前提示外部任务可能继续、跟踪会停止。需要取消任务须另走 Adapter 并确认结果。退出期间不通知，下次启动按 §4.4 与 §5.3 恢复；原生审批仍由 harness 决定超时/拒绝，Maneki 不自动放行。
 - 每个已启用 Module 具备启动/就绪/降级/停止状态；不支持或初始化失败应显式呈现。配置更换只影响对应能力；不在任务中途自动更换 harness 或把本地请求转给云端。
 
-sidecar 采用发行包自带的运行时或自包含二进制；用户无需手动安装 Node。具体打包工具、SQLite 驱动、OS 通知桥在 M2 以最小 spike 验证后落定；不得把未验证的打包能力当已完成。
+Runtime 采用发行包自带的运行时或自包含二进制；用户无需手动安装 Node。若平台的 sidecar 进程随 Shell 关闭而必然终止，M2 必须采用能独立维持生命周期的受信启动方式并验证，不能声称仅修改关闭按钮便已支持后台 Runtime。具体打包工具、SQLite 驱动、OS 通知桥在 M2 以最小 spike 验证后落定；不得把未验证的打包能力当已完成。
 
 ## 3. Pet Shell 与动作包
 
@@ -190,6 +194,10 @@ interface SpeechSynthesizer {
 
 Provider 的本地/云端声明由受信实现与实际端点配置共同核验；禁止本地实现隐式转发外网。云端关闭会中止在途云请求、丢弃迟到响应并阻止新请求，已经发出的数据无法撤回。默认不把项目源码、长期记忆或原始音频整包发送给对话模型。
 
+设置使用准确名称“关闭 Maneki 云端能力”，不承诺阻止外部 harness 联网。任务派发另展示已选 harness 的数据目的地与授权范围；去向未知时明确标注，不可冒充全本地。用户未授予该目标的数据授权时不派发，授权后也不能静默改目标或扩大数据范围。严格离线执行不在首版承诺内；以后支持时需验证执行环境与 Adapter，不能仅看回环地址。
+
+**收费调用与支付行为分开**：配置密钥不等于授权调用；用户明确启用某 Provider、调用类型与范围后，交互调用可持续使用，不逐轮弹支付审批。主动收费调用默认关闭，需单独开启并设置非零的次数/token/音频时长等可执行限额；不清楚单次成本或无法给出保守上界时禁止主动收费调用。达到限额或计量失效即停止后续调用并提示，不能切换账号/Provider 绕过。金额估算与真实账单分开，无法实时结算时不承诺绝对金额封顶。harness 发起的购买、支付、开通服务仍属于 §5.4 的逐次操作审批，Maneki 的 Provider 预算不代表约束 harness 自身账单。
+
 ### 4.2 对话与主动语音交互
 
 ```text
@@ -200,9 +208,11 @@ Provider 的本地/云端声明由受信实现与实际端点配置共同核验�
 ```
 
 - 默认文字 + 按键说话，麦克风仅在明确采集阶段开启；用户可以分别开启 ASR/TTS，允许“文字输入、语音回答”或“语音输入、文字回答”。
-- 主动对话由事件触发邀请：宠物先以气泡/可选 TTS 开口，用户点击回应或在已明确授权的短时对话模式中回答；每轮完成、超时、静音或取消立即释放采集。主动播报本身不能自动授权常驻麦克风。
+- 主动对话由事件触发邀请：宠物先以气泡/可选 TTS 开口，用户点击回应或在已明确授权的短时对话模式中回答；每轮完成、超时、麦克风禁用或取消立即释放采集。勿扰生效时终止尚未由用户主动回应的邀请采集，但不终止用户主动按键发起的一轮。主动播报本身不能自动授权常驻麦克风。
 - 半双工为首个可用版本：播报时不把自身声音再次提交为用户命令；用户点击/按键可打断播放并开始一轮采集。回声抑制、VAD 插话和全双工需要独立设备验证，作为可选增强，不宣称已支持。
 - 开启唤醒/连续对话必须显示持续状态、提供一键停止和采集超时，原始音频默认仅在内存中使用；设备拒绝、被占用、ASR 失败均回到文字入口。语音不能自动批准危险操作，审批需受信 UI 明确动作。
+
+多个 Shell 表示同一助理的多个视图。Runtime 为一次语音交互分配唯一 owner 与有时限的租约：用户在某界面发起时由该界面持有，其他界面只显示文字；主动 TTS 仅发往用户选定的可用输出端，无可用端则退为文字。客户端凭租约才能采集/播放，失联、过期或被明确切换时停止设备并释放；Runtime 不确认旧 owner 已停用或租约已过期前不发放第二份。M3 验证断网时客户端也能按租约到期自行停止，不用隐式抢麦/抢播解决冲突。
 
 ### 4.3 PetState 与主动性
 
@@ -217,7 +227,15 @@ idle ↔ sleeping
 
 主动性 = `已验证触发器 × 防打扰预算 × 可用通道`。触发器包括提醒、任务完成/需输入、用户明确允许的存在感知和问候；存在感知不默认截屏或监听内容。LLM 失败时用固定文案，不阻止真实提醒。
 
-默认静音时段对 **Maneki 发出的**气泡弹出、声音、系统通知和抢注意动作全部抑制，只记录待查看事项；不影响用户主动打开的面板。高优先级默认不穿透；用户可在设置中单独授权特定类别/通道例外。外部 MCP 客户端不能通过 `urgency` 绕过规则。静音导致审批无人响应时按审批超时拒绝，不能自动放行。Maneki 不承诺控制 harness 自己发出的系统提示。
+三个偏好独立且不共用“静音”一词：
+
+| 偏好 | 生效范围 | 用户主动交互 |
+|---|---|---|
+| 勿扰 | 抑制 Maneki 主动气泡弹出、声音、系统通知和抢注意动作，保留待查看事项 | 主动打开面板、按键说话可以使用已启用通道 |
+| 语音输出关闭 | 禁止所有 TTS/交互音效，并停止在播声音 | 保留文字与已获授权的语音输入 |
+| 麦克风禁用 | 所有模式禁止采集，立即关闭设备/唤醒与在途录音处理 | 仅文字输入，不能由按键或模型绕过 |
+
+默认勿扰时段高优先级不穿透；用户可单独授权特定类别/通道例外，但例外不能覆盖语音输出关闭或麦克风禁用。外部 MCP 客户端不能通过 `urgency` 绕过规则。勿扰导致审批无人响应时保持阻塞，bridge 超时拒绝，原生审批按 harness 的拒绝/等待规则处理，不能自动放行。Maneki 不承诺控制 harness 自己发出的系统提示。
 
 ### 4.4 记忆与提醒可靠性
 
@@ -225,7 +243,7 @@ idle ↔ sleeping
 - 单次提醒为 v1 基线：存 UTC 到期时间、原始时区和用户确认的文案；相对时间锚定创建时刻。歧义日期/时区先确认；重复日程与夏令时规则在扩展时另定，不默默猜测。
 - 提醒记录及待投递记录在同一数据库事务写入；调度按最近到期唤醒，并在启动、恢复休眠和时钟变动后重新扫描逾期项。并发调度以数据库约束认领，不能两个 Shell 各自触发。
 - 使用稳定 `reminderId + occurrenceId + channel` 去重。承诺本地至少一次投递尝试，不承诺用户一定看见或外部通知严格一次；发送后、记账前崩溃可能重投，Shell 应按 ID 合并。
-- 静音期间到期的提醒保留待处理，恢复后合并补发并显示原到期时间；用户可选择忽略过期提醒。未确认重提默认关闭，启用时次数/间隔受预算限制。
+- 勿扰期间到期的提醒保留待处理，恢复后合并补发并显示原到期时间；用户可选择忽略过期提醒。语音输出关闭时仅跳过声音，不阻塞其他已授权通道。未确认重提默认关闭，启用时次数/间隔受预算限制。
 - 发送成功、系统通知受理、用户确认是不同状态；OS 拒绝通知时显示投递失败/待查看，不伪报“已提醒”。
 
 ### 4.5 技能扩展
@@ -236,7 +254,7 @@ idle ↔ sleeping
 
 ### 5.1 能力声明与最小 Adapter Interface
 
-适配器转换宿主协议，不成为第二个 Agent。事件观察、新建任务、继续会话、回答输入、状态查询、取消、审批桥接是不同能力；每个适配器记录已验证的宿主版本、平台与限制。
+适配器转换宿主协议，不成为第二个 Agent。事件观察、新建任务、继续会话、回答输入、状态查询、取消、审批桥接是不同能力；每个适配器记录已验证的宿主版本、平台、数据边界与限制。首版只开放新建受控会话、自己的任务输入/取消与已有会话观察；`continueSession` 和 bridge 字段为后续扩展，不是首版必需实现项。
 
 ```ts
 interface HarnessSession {
@@ -245,14 +263,14 @@ interface HarnessSession {
 }
 
 interface TaskRequest {
-  requestId: string;
+  brokerRequestId: string;
   prompt: string;
   target: { kind: "new"; workdir: string }
         | { kind: "existing"; sessionId: string; workdir: string };
 }
 
 interface TaskRef {
-  requestId: string;
+  brokerRequestId: string;
   taskId: string;
   sessionId: string;
 }
@@ -260,38 +278,75 @@ interface TaskRef {
 type TaskStatus = "queued" | "running" | "waiting_input" | "waiting_permission"
                 | "completed" | "failed" | "cancelled" | "unknown";
 
+interface TaskSnapshot {
+  ref: TaskRef;
+  status: TaskStatus;
+  completeness: "full" | "status_only";
+  sourcePosition?: { streamId: string; sequence: number };
+  result?: { summary?: string; artifacts: string[] };
+  pendingInput?: { inputId: string; question: string };
+  pendingApproval?: { mode: "native"; routeId: string }
+                  | { mode: "bridge"; request: PermissionRequest };
+}
+
+type TaskQueryResult = { outcome: "found"; snapshot: TaskSnapshot }
+                     | { outcome: "not_found" | "unknown" };
+
 interface PermissionDecision {
+  operationId: string;
   permissionId: string;
   operationDigest: string;
   decision: "allow_once" | "deny";
 }
 
+interface OperationSnapshot {
+  operationId: string;
+  operationDigest: string;
+  approval: "pending" | "allowed" | "denied" | "expired";
+  execution: "not_started" | "in_progress" | "completed" | "unknown";
+  result?: { outcome: "succeeded" | "failed"; summary?: string };
+}
+
+type OperationQueryResult = { outcome: "found"; snapshot: OperationSnapshot }
+                          | { outcome: "not_found" | "unknown" };
+
 interface HarnessAdapter {
   id: string;
   apiVersion: 1;
+  dataBoundary: {
+    processing: "local" | "cloud" | "unknown";
+    destinations: string[];
+  };
   capabilities: {
     events: boolean;
     newTask: boolean;
     continueSession: boolean;
     reply: boolean;
-    query: boolean;
+    query: "full" | "status_only" | "none";
     cancel: boolean;
     deduplicateSubmit: boolean;
     approval: "native" | "bridge" | "none";
   };
   discover(ctx: CallContext): Promise<HarnessSession[]>;
-  onEvent(cb: (event: HarnessEvent) => void): () => void;
+  subscribe(cb: (event: HarnessEvent) => void, ctx: CallContext): Promise<() => void>;
   submit?(req: TaskRequest, ctx: CallContext): Promise<TaskRef>;
-  query?(key: { requestId: string }, ctx: CallContext): Promise<{ ref?: TaskRef; status: TaskStatus }>;
+  query?(key: { brokerRequestId: string }, ctx: CallContext): Promise<TaskQueryResult>;
   reply?(ref: TaskRef, input: { inputId: string; text: string }, ctx: CallContext): Promise<void>;
   cancel?(ref: TaskRef, ctx: CallContext): Promise<void>;
-  decidePermission?(decision: PermissionDecision, ctx: CallContext): Promise<void>;
+  decidePermission?(decision: PermissionDecision, ctx: CallContext): Promise<OperationSnapshot>;
+  queryOperation?(key: { operationId: string }, ctx: CallContext): Promise<OperationQueryResult>;
 }
 ```
 
-能力与方法在注册时一致性校验；未声明/未实现的操作返回 `UNSUPPORTED`，不运行兜底命令。`discover` 不支持自动发现时返回显式配置的会话列表，空列表不代表接入已就绪。`CallContext` 见 §4.1；`HarnessEvent` 见 §5.2。`TaskRequest` 不接受外部传入的 `confirmPolicy`；策略由 Runtime 根据用户设置与当次授权计算。
+能力与方法在注册时一致性校验；未声明/未实现的操作返回 `UNSUPPORTED`，不运行兜底命令。`discover` 不支持自动发现时返回显式配置的会话列表，空列表不代表接入已就绪。`CallContext` 见 §4.1，仅作调用关联/取消，不替代业务幂等键；`HarnessEvent` 见 §5.2。`TaskRequest` 不接受外部传入的 `confirmPolicy`；策略由 Runtime 根据用户设置与当次授权计算。dataBoundary 来自受信 Adapter 与用户实际端点配置，未知目的地明确告知并单独确认，不根据 CLI 在本机或模型自述推断本地处理。
+
+`query: full` 要求恢复与当前状态相符的完整快照：completed 必须有 result（允许明确的空产物集合）；waiting_input 必须有待答问题与 inputId；waiting_permission 必须有可用的原生路由或 bridge 请求。不能恢复的字段不填虚构值，应返回 status_only/unknown 并标明交付或等待详情缺失；not_found 也不能自动推出“从未执行”。首个可用版本的执行 Adapter 必须通过完整快照恢复验收，否则仅作为有限观察接入，不宣称可靠任务闭环。事件重放可用于实现该快照，但不新增一套通用历史总线。
+
+上游 harness → Runtime 的恢复也必须无缝衔接，不能只保证 Shell → Runtime：`subscribe` 成功表示上游订阅已就绪，此时 Runtime 已缓冲事件，再调用 query 取快照。Adapter 应提供同会话流的 sourcePosition，让快照与后续事件按位置合并；若宿主没有可用版本/游标，Adapter 必须验证另一种等效的一致快照与订阅衔接方式，不能仅凭本地到达计数假造源位置。无法证明无遗漏或无法排除旧待输入事件重开时，不声明 full。订阅初始化超时不进入已连接状态；成功后由返回的注销函数、signal 或源断线结束订阅，deadline 仅限制建立阶段。
 
 任务派发至少需要经验证的 `native` 或 `bridge` 执行审批模式；`approval: none` 只允许观察/表达。`native` 表示危险操作由 harness 原生机制阻塞并在其受信 UI 确认，Maneki 不代替批准；`bridge` 表示操作在执行前暂停，并能按 §5.4 往返确认。两者均需真实危险操作的拒绝测试，不能仅凭字段声明启用派发。普通 hooks/MCP 能收到事件不代表具备这些能力。
+
+首版以 native 为出口：验证任务会话中真实的审批提示可被用户到达、拒绝确实阻止操作、无人响应不自动放行；不能以无人可交互的 CLI 参数模式冒充原生审批。Maneki 对原生操作不发 `decidePermission`。bridge 是 M5 以后按真实宿主能力评估的可选项，只有 `decidePermission + queryOperation + 执行侧持久化单次消费` 全部验证后才能声明支持。
 
 ### 5.2 归一事件与路由
 
@@ -301,13 +356,15 @@ interface HarnessEvent {
   adapterId: string;
   sessionId: string;
   taskId?: string;
-  requestId?: string;
+  brokerRequestId?: string;
   occurredAt: string;
   sequence?: number;
+  streamId?: string;
   payload:
     | { type: "task.started" | "task.progress"; summary?: string }
     | { type: "task.needs_input"; inputId: string; question: string }
-    | { type: "permission.requested"; request: PermissionRequest }
+    | { type: "permission.requested"; mode: "native"; routeId: string }
+    | { type: "permission.requested"; mode: "bridge"; request: PermissionRequest }
     | { type: "task.completed"; summary?: string; artifacts?: string[] }
     | { type: "task.error"; message: string }
     | { type: "task.cancelled" }
@@ -316,9 +373,10 @@ interface HarnessEvent {
 }
 ```
 
-- task/permission 事件必须携带 `taskId`；已由 Maneki 提交的任务还需映射到持久化 `requestId`。Runtime 根据适配器连接身份绑定 `adapterId`，不接受客户端冒充其他来源。
+- task/permission 事件必须携带 `taskId`；已由 Maneki 提交的任务还需映射到持久化 `brokerRequestId`。Runtime 根据适配器连接身份绑定 `adapterId`，不接受客户端冒充其他来源。
+- 原生审批事件只提供受限路由让用户返回 harness，bridge 才提供待批操作快照；二者不可混用。Adapter 不得把权限提示伪装为可通过普通 reply/语音回答的问题，task.needs_input 只承载非审批的任务补充输入。
 - 使用 `adapterId + sessionId + taskId` 定位任务，workdir 规范化后绑定目标；UI 派发前显示项目与会话，歧义时要求选择，不自动发往“最近会话”。路径校验见 §7.4。
-- `eventId` 在重放时保持稳定；来源无法提供稳定 ID 时由 Adapter 结合宿主记录定位生成，重复任务终态另以状态与副作用 ID 防重。有 `sequence` 时在同会话流内单调校验，宿主重启导致序列复位须先重新校准；没有序列时靠状态转换约束与查询校准，不以时间戳猜测严格顺序。终态不能被迟到 progress 覆盖。
+- `eventId` 在重放时保持稳定；来源无法提供稳定 ID 时由 Adapter 结合宿主记录定位生成，重复任务终态另以状态与副作用 ID 防重。有 `sequence` 时在同 sessionId + streamId 流内单调校验，快照位置与事件位置使用同一语义；宿主重启导致序列复位须更换 streamId 并重新校准。没有源位置时靠已验证的 Adapter 一致性机制与查询校准，不以时间戳猜测严格顺序。终态不能被迟到 progress 覆盖。
 - 高频 progress 可合并；开始、需输入、审批、终态与确认结果持久化。WS 断线后取同一一致性边界的任务快照与 Runtime 游标，再订阅该游标之后的增量，避免快照与订阅间漏事件；游标有界缓冲已丢失时要求重取快照，不承诺无限历史回放。
 - 输出摘要、产物路径和跳转链接都按数据处理；宿主特有状态转换集中在各 Adapter，不泄露到 Core/Shell。
 
@@ -326,20 +384,24 @@ interface HarnessEvent {
 
 ```text
 文字/转写 → 意图候选 → 校验目标、能力与用户策略 → 用户确认派发
-  → 先持久化 requestId/目标/授权 → Adapter.submit
+  → 入口幂等键映射 brokerRequestId，持久化目标/授权 → Adapter.submit
   → 已接收 / 提交结果未知 → 事件或查询校准
   → 需输入 / 需审批 → 指定任务响应
   → 已完成 / 已失败 / 已取消 → 验证产物引用 → 通知交付
 ```
 
 - 派发 `confirmPolicy` 默认 `ask`，`deny` 禁止派发，`auto` 仅在用户明确配置的任务范围内免除整任务确认；它们均不能豁免危险操作逐步审批。模型、MCP 客户端、普通插件不能修改策略。
-- Shell 在一次派发动作时生成 requestId，网络重发沿用原 ID；Runtime 在调用外部服务前持久化该 ID、不可变请求快照及授权。重复请求按客户端身份与 requestId 合并，同 ID 不同目标/内容拒绝；自动重试提交必须同时满足 Adapter 可按 requestId 去重、请求内容一致且结果可核查。提交超时/崩溃后先查询，无法核查时标为 `unknown`，提示用户处理，不重新执行。不同 ID 的相似文字不靠模型猜测合并。
-- 同会话默认串行派发；并发上限与队列有界。不同会话可并发，任务状态与动画仲裁分开。一次输入/审批按 ID 绑定原请求，重发不得被当作新指令。
+- Shell 为一次派发生成 clientRequestId，网络重发沿用该 ID；Runtime 按受信客户端身份 + clientRequestId 唯一约束认领，在同一事务中分配全局唯一 brokerRequestId，保存不可变请求快照与授权后才提交。相同入口键但内容/目标不同拒绝；Adapter 的 submit/query/去重一律使用 brokerRequestId，不使用客户端裸 ID，映射重启后仍保留。
+- 自动重试提交必须同时满足 Adapter 可按 brokerRequestId 去重、请求内容一致且结果可核查。提交超时/崩溃后先查询，not_found/unknown 或不可核查时均不盲重发。不同入口 ID 的相似文字不靠模型猜测合并。
+- 首版新建受控会话，保留项目绑定与任务内补充输入，不向其他已有会话发送新工作。Maneki 管理的同一项目默认串行派发，队列有界，避免新建多个会话后并行修改同一工作区；不同项目可在限额内并发。此约束不能替用户锁住其他独立启动的 harness/编辑器，发现占用或冲突时提示用户处理。
+- 一次输入以客户端幂等键认领并绑定原 task/inputId；收到问题的原任务才能消费，不能将未确认结果的输入自动重发或送到另一个任务。后续支持接管已有会话前需另验其繁忙/队列/续接语义。
 - 超时/取消表示请求中止，不代表外部已停止。取消成功确认后才标 `cancelled`；无确认则保留未知/待核查，并提示去 harness 查看。不得把进程断线标成任务成功。
-- Runtime 重启先恢复记录并向 Adapter 对账；无查询能力时显示中断/未知，不声称仍被跟踪。pending 审批过期拒绝，已消费的批准不重放。
+- Runtime 重启先恢复本地记录，await Adapter.subscribe 并缓冲，再查询 TaskSnapshot；按 §5.1 的源位置/等效一致性机制合并缓冲与后续事件后恢复展示，不能在查询后才订阅。仅查到 completed 但无交付信息时显示“任务完成，结果暂不可恢复”，不能伪造交付。无查询能力时显示中断/未知，不声称仍被跟踪。bridge pending 审批过期拒绝，原生审批恢复只查询/跳转，不重放批准。
 - 交付包括任务结果、摘要与经校验的本地产物引用；打开文件/会话走受限路由，不从产物字符串执行 shell。未找到产物应标明，不将摘要等同于验收成功。
 
 ### 5.4 执行审批契约
+
+首版使用原生审批；以下是未来 bridge 开放前必须满足的协议约束，不要求 M2b 实现宠物审批桥。
 
 ```ts
 interface PermissionRequest {
@@ -367,7 +429,10 @@ interface PermissionRequest {
 - 按 kind 校验必需字段：process 提供 executable/args 或完整 rawCommand；file_write 提供待写内容/差异的 contentDigest，UI 可查看实际变更；payment 提供精确金额/币种及收款目标。摘要必须覆盖这些执行数据，不能只批准一句 description 或一个文件名。
 - Runtime 对完整操作快照绑定摘要、适配器/会话/任务/permission ID 与过期时间；采用标准 SHA-256 与稳定序列化，不能仅相信展示文案。执行前需由宿主校验实际操作与批准快照一致，变化必须重新审批。
 - 仅受信交互界面可返回 `allow_once / deny`；用户批准一次只覆盖该操作。语音转写、Agent 文本或 MCP 工具调用不能发审批决策。重复决策幂等，过期、断线、退出、重启默认拒绝。
-- 决策先持久化再传递；批准回执丢失时不重放执行，先对账，不确定则要求新审批。拒绝/超时由执行侧保持阻塞；无法证明确实阻塞的 Adapter 不得声明 bridge 就绪。
+- 决策先持久化再传递；执行侧按 operationId + operationDigest 持久化认领一次执行权，多次 permissionId 不能获得多次执行权。批准已接收、执行进行中、执行完成和结果未知是不同状态；执行失败也不能未经新任务授权自动重做副作用。
+- 批准回执丢失时先 queryOperation，不重放操作。执行中/已完成不能再次批准执行；not_found/unknown 或执行侧在调用外部副作用后崩溃均保留未知并人工核查，不能改 permissionId/operationId 后重试。同一操作只有经查询证明尚未执行且仍被阻塞时，才可因旧批准过期发新审批；新请求仍保留原 operationId 与完整快照。
+- 执行侧的持久化单次认领防重复启动，不承诺外部支付/系统副作用严格一次。无法判断真实外部结果时宁可保持未知，不重新消费批准。拒绝/超时由执行侧保持阻塞；无法验证操作级查询与单次消费的 Adapter 不得声明 bridge 就绪。
+- operationId 在 Adapter 范围内持久唯一，并绑定会话/任务与 operationDigest；重启或更换 permissionId 不改变原操作身份，不能在另一会话复用该 ID。Runtime 按已保存来源路由操作查询，不接受客户端任意指定其他任务的操作 ID。
 - 删除、强推、付费及未知风险操作必须确认；危险命令模式清单只作附加检查，不能覆盖任意脚本、间接调用或任意 harness 的行为。原生审批也不得启用跳过权限/全局自动批准选项。
 - 审计记录关联 ID、来源、操作摘要、决策、时间和结果；命令中的凭证按敏感字段脱敏。用户界面可展示完整待执行命令，默认日志不保留含密钥原文。
 
@@ -391,12 +456,14 @@ MCP 调用按客户端身份授权、校验参数与限流；提醒是有持久�
 
 | harness | 候选接入路线 | 验证与发布约束 |
 |---|---|---|
-| Claude Code | hooks 观察；官方 CLI/结构化接口评估派发 | M2 优先验证事件；M2b 验证派发和原生/桥接审批，未通过只开放观察 |
-| dsh | 宿主插件事件与 API；overlay 为独立 Shell | M2 记录真实版本/会话/派发/审批证据；M5 发布插件，不假定 dsh-pet 的表达接口就是任务 API |
-| pi | 宿主扩展/结构化接口优先，CLI 作为候选 | M2 做接入 spike，记录能力与限制；不笼统假定“支持 MCP 即双向可用” |
+| dsh | 宿主插件事件与 API；overlay 为独立 Shell | 首个验证目标；M2 记录版本/新会话/原生审批/完整快照证据，M2b 发布最小插件。不假定 dsh-pet 表达接口就是任务 API |
+| pi | 宿主扩展/结构化接口优先，CLI 作为候选 | 第二接入目标；M2 可做轻量可行性对照，M5 按证据开放，不笼统假定“支持 MCP 即双向可用” |
+| Claude Code | hooks 观察；官方 CLI/结构化接口作为候选 | 按需要作事件/接入对照，不默认取代 dsh 的首个目标；需通过同样的审批与恢复 gate |
 | 其他宿主 | MCP 表达桥或专用 Adapter | 能力按验收开放；先观察后执行 |
 
 generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传文本，不把用户 prompt 插入 shell 模板；输出按受限结构解析。没有可验证原生/桥接审批的 CLI 不能获得通用执行能力。有 CLI 不等于安全可派发。
+
+若 dsh 无法满足首版的新会话、原生审批或完整恢复要求，保留未完成项并记录具体版本/调用证据，明确提出收缩能力或调整适配目标；不擅自换成另一个宿主后宣称原目标已完成。契约因真实宿主证据需要修订时先改本文，不靠空实现“通过”能力检查。
 
 ## 6. Local Services、配置与可观测性
 
@@ -406,7 +473,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 - 表达、任务操作、审批和设置分权。MCP 桥只获得表达/被授权提醒权限；任务与审批仅受信 Shell 可调用。WS 握手鉴权、Host/Origin 检查与 HTTP 一致，CORS 不是鉴权替代。
 - 浏览器 WS 不在 URL/query 放 token；用已鉴权 HTTP 换取一次性短期连接票据，绑定客户端、Origin 与 scope；用后失效，票据与 header 不进入日志。无 Origin 的本地工具仍须 token 与 Host 校验。
 - 控制请求 Schema 限制未知字段、长度、枚举、消息/音频大小与并发；所有入口共享 Core 校验，不能只在 UI 禁用按钮。
-- 发现元数据只含端口、协议版本、实例 ID，不含令牌。长效根令牌保存在 OS 凭证存储或用户私有权限文件中；配对由本机受信界面发放可撤销、最小 scope 凭证，overlay 不持有根令牌。
+- 连接发现元数据只含端口、协议版本、实例 ID，不含令牌；启动描述由安装器写入受控位置，固定到已安装 Runtime 的真实路径、版本与来源校验信息，插件不能任意替换。长效根令牌保存在 OS 凭证存储或用户私有权限文件中；配对由独立于桌宠窗口的本机受信管理入口发放可撤销、最小 scope 凭证，overlay 不持有根令牌。
 
 ### 6.2 持久化、配置与故障
 
@@ -453,7 +520,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 
 ### 7.6 隐私与数据删除
 
-记忆、提醒、对话和任务记录默认本地；录音默认不落盘。用户可关闭全部云端、单独禁用 ASR/TTS/唤醒、查看并删除历史。云端调用仅发送所需最小数据并展示目的地，语音/源码/记忆不能借“可插拔”绕过授权。删除需覆盖数据库关联记录与应用缓存；SQLite 备份与 OS 缓存的保留边界须告知，不承诺已发往外部服务的数据可被本地删除撤回。
+记忆、提醒、对话和任务记录默认本地；录音默认不落盘。用户可关闭 Maneki 云端能力、单独禁用 ASR/TTS/唤醒、查看并删除历史。外部 harness 的云端使用按 §4.1 独立授权，不能被设置页的 Provider 开关误导。云端调用仅发送所需最小数据并展示目的地，语音/源码/记忆不能借“可插拔”绕过授权。删除需覆盖数据库关联记录与应用缓存；SQLite 备份与 OS 缓存的保留边界须告知，不承诺已发往外部服务的数据可被本地删除撤回。
 
 ## 8. 性能、可维护性与验证
 
@@ -464,7 +531,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 | 空闲常驻内存 | < 150MB；统计 Shell、WebView、Runtime、桥与存储相关进程，不含外部 harness；空闲已释放语音模型 |
 | 活跃模型资源 | ASR/TTS/本地对话模型单独报告峰值、加载时间与释放时间，不藏在空闲数字之外 |
 | harness 事件到动画 | 正常负载 p95 < 300ms；覆盖网关接收、仲裁与首帧，另记录输入洪泛时降级 |
-| 真实提醒到通知调用 | 已运行、非静音且 OS 允许时 p95 < 1s；休眠补发与系统展示延迟分别报告 |
+| 真实提醒到通知调用 | 已运行、非勿扰且 OS 允许时 p95 < 1s；休眠补发与系统展示延迟分别报告 |
 | 本地 ASR | 基准设备/模型上，从结束采集到转写返回 p95 < 1.5s，冷启动另计 |
 | 一轮语音回答 | 基准设备/模型/输入长度下，结束采集到开始播报目标 < 5s；不作为任意 Provider 的保证 |
 
@@ -472,9 +539,9 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 
 验证分层：
 
-1. Core 使用可注入时钟/存储/Provider 的行为测试：静音、任务状态、审批过期、迟到结果、提醒恢复。
+1. Core 使用可注入时钟/存储/Provider 的行为测试：勿扰/音频开关、调用授权/预算、任务状态、审批过期、迟到结果、提醒恢复。
 2. 每个 Adapter/Provider 跑契约测试：能力与实际方法一致、取消/超时/错误语义、数据转换与资源释放；至少用两个不同实现或一个真实实现与故障替身验证替换 seam。
-3. 集成测试覆盖本地鉴权、来源隔离、数据库事务/迁移、事件重放、提交结果未知、拒绝审批后确实不执行。
+3. 集成测试覆盖本地鉴权、来源隔离、跨客户端请求 ID、数据库事务/迁移、完整任务快照恢复、提交结果未知、原生审批拒绝后确实不执行；bridge 开放前另验操作级对账与执行一次认领，M3 另验多 Shell 音频租约。
 4. 真实桌面验收覆盖透明窗/素材、音频权限、休眠恢复、OS 通知与多平台；CI/静态测试不冒充人工设备验收。
 
 有代码后执行 `pnpm -r build && pnpm -r test`，补充涉及包的类型检查与最小集成验收。公共 Interface 与 Schema 有版本；主版本不兼容时显式拒绝并提供迁移说明，不能靠猜字段兼容。日志与审计分层，架构文档随决策先行更新。
@@ -485,7 +552,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 |---|---|
 | TypeScript strict + pnpm workspace，Node ≥ 22 LTS | 复用 Web/CLI 生态；Node 是 Runtime 的运行环境，不渗入 Core |
 | Tauri v2，Electron 备选 | 保持现有选型；以 §3.3 实测决定平台支持与是否切换 |
-| Node Runtime sidecar | TS 网关与 Provider 复用；M2 验证打包和进程开销，失败再修订 |
+| 共享 Node Runtime，桌面安装包可附带分发 | TS 网关与 Provider 复用，插件无需桌宠窗口；M2 验证独立生命周期、打包和进程开销，失败再修订 |
 | SQLite 单文件 | 本地事务与恢复；只允许 Runtime 管理，不提前支持其他数据库 |
 | `@modelcontextprotocol/sdk` | 标准 MCP 表达接入；SDK/协议版本在实现时锁定并验证 |
 | ASR 本地优先、ASR/TTS/LLM 分离注入 | 默认可关闭、独立替换；不绑定具体厂商，不静默云端回退 |
@@ -495,10 +562,13 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 | 问题 | 最迟落定与证据 |
 |---|---|
 | 三平台透明窗、视频格式、通知桥 | M1/M2：真实平台矩阵；本机仅 Windows，macOS/Linux 另验 |
-| Runtime 打包工具、SQLite 驱动、空闲总占用 | M2：安装包启动/退出/恢复 spike 与进程树测量 |
-| Claude Code / dsh / pi 会话与执行审批能力 | M2 记录版本化 spike；M2b 只开放通过验收的派发方式 |
+| Runtime 启动器/管理入口、打包工具、SQLite 驱动、空闲总占用 | M2：无桌宠窗口启动、双入口并发启动、后台退出/恢复 spike 与进程树测量 |
+| dsh 新会话/原生审批/完整恢复，pi 第二目标可行性 | M2 记录版本化 spike；M2b 只开放通过验收的 dsh 派发，失败明确记录且不偷偷更换目标 |
 | 首个本地 TTS 模型/引擎与许可/硬件要求 | M3：音质、资源、取消、打断与离线验收 |
 | 持续语音、VAD/唤醒/全双工 | M3 基线后：用户启用方式与设备回声/误唤醒验收 |
 | 第三方代码隔离与签名/撤销机制 | M6 安装入口开放前：拒绝越权与资源耗尽测试 |
+| 宠物内审批桥与已有任意会话接管 | M5 以后按需：桥接完整对账/单次认领；已有会话的繁忙/续接语义，均不阻塞原生审批首版 |
 
 v0.1 → v0.2 为设计期变更：Core 不再依赖具体网关/本地 IO；新增 Runtime 装配；任务请求/事件/审批与动作包加版本约束，`maneki_remind` 移到 M4。当前无已发布客户端，无运行数据迁移；未来实现必须以本文基线生成契约与测试。
+
+v0.2 → v0.3：Runtime 改为可由插件独立启动的共享本地进程；首版 dsh/新会话/原生审批及插件入口前移；入口 clientRequestId 映射为下游 brokerRequestId；任务查询返回完整 TaskSnapshot，未来 bridge 增加操作级对账。勿扰、语音输出关闭、麦克风禁用与 Provider/harness 云端授权分开。仍无已发布客户端和运行数据，无需数据迁移；后续代码以 v0.3 生成契约，旧示例不得直接沿用。

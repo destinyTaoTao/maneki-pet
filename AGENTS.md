@@ -9,7 +9,7 @@
 
 一句话架构：Shell / Core / Gateway / Local Services 分工，Runtime 统一装配；Core 定义端口且不依赖具体 IO。三种运行形态（① Tauri 独立 App / ② harness overlay 插件 / ③ core npm 库）；双向通道按能力接入，MCP 表达工具不等于任务派发。
 
-**当前状态：M0 设计基线 v0.2（2026-10-30），仓库只有设计文档，零代码。** 下一步是 M1（Tauri 透明窗 + 动画链 + 跨平台 spike）；文档设计完成不等于运行验收。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 当前里程碑的范围与验收标准，以及 [docs/architecture.md](./docs/architecture.md) 中与任务相关的章节。
+**当前状态：M0 设计基线 v0.3（2026-10-30），仓库只有设计文档，零代码。** 首个可用版本优先可换装桌宠 + dsh 文字任务与插件入口，pi 第二；语音/提醒独立增量。下一步是 M1（Tauri 透明窗 + 动画链 + 跨平台 spike）；Windows 阶段出口与 macOS/Linux 支持矩阵分开。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 和 [docs/architecture.md](./docs/architecture.md) 相关章节；文档定案不等于运行验收。
 
 ## 文档体系与同步规则
 
@@ -19,11 +19,14 @@
 | docs/roadmap.md | 里程碑与验收标准 | 完成一项勾一项并补日期；范围调整在这里记录 |
 | docs/research.md | 调研快照（2026-10） | 历史文档，不随实现更新；发现重要新参考可追加条目 |
 | README.md | 对外门面 | 用户可见的能力/承诺变化时同步 |
+| CONTEXT.md | 纯领域术语 | 明确词义，不承载实现规范，术语变更与架构同步 |
+| docs/adr/ | 已确认的重大取舍与原因 | 不取代 architecture.md，后续变更保留历史并注明取代关系 |
+| docs/audits/ | 指定基线的审计证据与处置 | 区分文档修正、运行验证与未决事实，不冒充验收 |
 
 ## 技术栈（已定案，勿擅自更换）
 
 - TypeScript monorepo + pnpm workspace，Node ≥ 22 LTS，`strict` 模式
-- 桌面壳 Tauri v2（Electron 仅为备选；切换条件见 architecture §3.3，由 M1 spike 用证据定案，不凭感觉切）；M2 验证 Node Runtime sidecar 打包与生命周期
+- 桌面壳 Tauri v2（Electron 仅为备选，切换条件见 architecture §3.3）；共享 Node Runtime 可由插件独立启动，M2 验证打包/生命周期，不依赖先打开桌宠窗口
 - 动画：透明视频（video-alpha）为主，spritesheet 兜底
 - 存储：SQLite 单文件，放用户数据目录
 - MCP：`@modelcontextprotocol/sdk`
@@ -36,7 +39,7 @@
 ```
 apps/
   desktop/        # 形态①：Tauri v2 独立桌宠（M1 起）
-  dsh-plugin/     # 形态②：dsh overlay 插件（M5 起）
+  dsh-plugin/     # 形态②：dsh overlay 插件（M2b 首版，不依赖语音/提醒）
 packages/
   core/           # 纯 TS 规则与端口（M1 PetState 先行；任务策略 M2b，对话/记忆 M3/M4）
   runtime/        # M2：装配、生命周期、鉴权、SQLite、本地服务和 Provider 实现
@@ -52,8 +55,8 @@ npm scope 统一为 `@maneki-pet/*`（如 `@maneki-pet/core`）。
 
 1. 本地 API 只绑 `127.0.0.1` + 安装期随机 token 鉴权。禁止绑 `0.0.0.0`、禁止"临时关掉鉴权调试"的提交进入仓库。
 2. Agent/harness 返回内容一律按**数据**渲染；结构化意图也需来源、参数与授权校验，不能修改策略或代批操作。
-3. 派发 confirmPolicy 默认 `ask`，危险操作（删除/强推/付费等）另经 harness 原生审批或可验证桥逐次确认并展示完整操作；未知/超时/失联默认拒绝。无审批保障的 Adapter 仅观察，不能派发。
-4. 用户数据默认全本地、录音默认不落盘；云端能力显式配置、设置页可一键全关，无静默云端回退，日志默认脱敏。
+3. 派发 confirmPolicy 默认 `ask`；首版新建任务会话、危险操作原生审批先行，不接管任意已有会话。后续 bridge 须操作级查询/执行侧单次认领通过才开放；未知操作结果不改 ID 重试。无审批保障的 Adapter 仅观察。
+4. 用户数据默认本地、录音默认不落盘；“关闭 Maneki 云端能力”仅控制自身 Provider，外部 harness 数据去向另获授权，无静默云端回退。交互收费调用需显式启用，主动收费调用单独授权与限额；购买/支付仍逐次审批。日志默认脱敏。
 5. 动作包为纯数据并校验权限清单、路径、资源与内容哈希；第三方可执行技能须隔离验收后开放。权限清单、普通子进程或 node:vm 不等于安全沙箱。
 6. 仓库不提交密钥与个人数据（`.env` 已 ignore）。
 
@@ -63,7 +66,9 @@ npm scope 统一为 `@maneki-pet/*`（如 `@maneki-pet/core`）。
 - 新 harness 接入一律走 Adapter Contract 或 MCP 通道，不得在 Core/Shell 里写死特定 harness 的逻辑。
 - 主动性引擎中"是否打扰用户"（触发器 × 防打扰预算）是确定性规则；LLM 只负责生成话术，不得决定触发与否。
 - ASR、TTS、LLM 分别注入、分别禁用；不把语音/云端服务设为文字任务与提醒的前置依赖。
-- 默认静音时段不主动打扰，高优先级不自动穿透；重启/休眠后提醒补发。提交结果未知先对账，不能盲重试。
+- 勿扰只抑制主动打扰，不禁用户主动交互；语音输出关闭、麦克风禁用独立，不能被例外覆盖。多 Shell 语音交互一个 owner，不重复采集/播报。
+- 入口 clientRequestId 映射全局 brokerRequestId；恢复必须区分完整快照与仅状态，未知结果先对账，不盲重试/假交付。
+- 关闭窗口/插件只断开客户端，后台继续跟踪；明确退出助理才停止自身服务，不能伪报外部任务取消。开机启动默认关。
 
 性能预算（architecture §8）：空闲总内存 < 150MB（含 WebView/Runtime/桥）；正常负载下事件 → 动画 p95 < 300ms、提醒 → 通知调用 p95 < 1s。活跃模型资源另报；这些都是待测目标。热路径改动需对照预算评估。
 
