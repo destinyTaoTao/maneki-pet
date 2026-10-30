@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+out/
+target/
+*.tsbuildinfo
+
+# Package manager
+.pnpm-debug.log*
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Local databases / runtime data
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Media pipeline scratch (generated assets, not source recipes)
+scratch/
+renders/
+
+# Testing & coverage
+coverage/
+.vitest/
+
+# IDE & OS
+.idea/
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+npm-debug.log*
