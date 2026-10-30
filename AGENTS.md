@@ -95,3 +95,20 @@ npm scope 统一为 `@maneki-pet/*`（如 `@maneki-pet/core`）。
 - **新增 MCP 工具**：命名 `maneki_<verb>`；只暴露表达与被授权提醒，禁止执行/审批/策略修改；`maneki_remind` 随 M4 持久化与调度落地。
 - **动画/动作包**：状态名与 Core 的 PetState 枚举严格对齐，缺省回退 idle；素材走可复现管线（配方入库，渲染产物 ignore），不在仓库提交大二进制。
 - **新依赖**：说明用途与替代方案对比，安全相关依赖优先零依赖或标准实现。
+
+## Agent skills
+
+### Issue tracker
+
+需求、Bug 与规格票据统一记录在 GitHub Issues。
+见 docs/agents/issue-tracker.md。
+
+### Triage labels
+
+使用五个默认状态标签。
+见 docs/agents/triage-labels.md。
+
+### Domain docs
+
+采用 single-context：根目录 CONTEXT.md 与 docs/adr/。
+见 docs/agents/domain.md。
