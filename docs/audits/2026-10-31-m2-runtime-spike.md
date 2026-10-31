@@ -152,9 +152,6 @@ M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算�
 - 票 #47 Core skill-pack v1：清单校验（kebab id / semver / 脚本路径穿越拒绝 / SHA-256）+ 哈希核对，9 条测试。
 - 票 #48 平台对接器：platform-core（DraftFlow 六步逐次确认门控、元数据/运营数据契约校验）+ platform-bilibili（exportPackage 四件套导出+双重校验、manual-export 运营数据解析、JSON Schema 两份），d40d93f / 404a74b——竖切②③。
 - CLI @maneki-pet/cli：platform draft（交互+文件双模）/ package / receipt / ops-import / experience-span。调试后修复：stdout 污染（提示移 stderr）、shim stdin 事件结构（source 嵌套）、附件分块元组、experience-span 取值。竖切④⑤⑥真机全过：输入→tool_call→tool_result+元数据附件（gaps=0）→EvidenceSpan（BVID 精确坐标）→读回一致；证据摘要 C:\maneki-lab\evernook-vertical-evidence.json。
-<<<<<<< HEAD
 - 全仓测试 190 条绿（core 81 + adapter-dsh 21 + platform-core 8 + platform-bilibili 5 + cli 2 + runtime 52 + desktop 24）。
-=======
 - 全仓测试 193 条绿（core 81 + adapter-dsh 21 + platform-core 8 + platform-bilibili 5 + cli 2 + runtime 52 + desktop 24）。
->>>>>>> 020a5d8 (docs: record extension domain vertical slice completion (six checks passed))
 - 红线核验：无 biliup / 协议模拟 / UI 自动化；写操作逐次确认；无全自动档；EverNook 零改动。
