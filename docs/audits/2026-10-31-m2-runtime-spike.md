@@ -117,6 +117,20 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 - **方法面（生成绑定实测）**：session.cancel → {accepted:true}（**取消能力存在，修正此前配置层的 ✗**）；session.control → projections{asOfSeq, inbox, workingDirectory, title, todos,…}（**TaskSnapshot 等价物，asOfSeq 与 §5.1 sourcePosition 语义对齐**）；approval.allow / approval.reject / permission.access（审批可经网关应答）；session.new / fork / archive / search / hierarchy。
 - **派发路线 (a) 定案：可行**。M2b dsh 适配器的正确形态 = 连接（或受控启动）web profile，经官方生成客户端走网关完成派发/快照/取消，审批 native routeId 指向 dsh web UI 的审批页。实现量 = M2b 里程碑本体（网关客户端接线 + Task Broker + 运行器），实现方式二选一：运行时动态 import 用户安装内的官方生成客户端（版本绑定已装 dsh），或按 zod schema 自实现最小客户端（协议自担）。
 
+
+## 网关活体派发链路探针（2026-10-31 续6，M2b 前置探针完成）
+
+纯 HTTP unary（无需 WS）即可驱动完整派发链：`POST /api/<endpoint>`，body 为 `{type:"client-request", rpcId, method, payload:{args:{<参数名>: request}}}`（参数名因方法而异：list=`_request`、create/prompt/page/projections=`request`、control 为 stream 方法不可 unary），鉴权 = Cookie 围栏。实测链路：
+
+1. `session/create {cwd}` → sessionId
+2. `session/prompt {sessionId, requestId(客户端幂等键), mode:"queue", content:[{type:"text",text}], clientTimeZone}` → `{accepted:true}`
+3. 轮询 `session/list`（running/asOfSeq/tokenUsage）+ `session/projections` → turnOutline 实录 **{turn:1, seq:4, prompt:"Reply with exactly: M2B-OK", response:"M2B-OK"}**，tokenUsage {uncachedInput:9375, output:6}，sessionStats {llmMs:1153, ttftMs:1139}
+4. modelSelection 投影含 provider/model/reasoningEffort（deepseek-flash/high）
+
+**注意点**：① 网关 unary 的 envelope 校验严格（payload 形状/参数名逐方法不同——权威来源是生成描述符的 `parameters[].name`）；② `session/control` 是 stream 方法（mux WS 专用），unary 取快照用 `session/projections`；③ 新会话即用默认模型（deepseek-flash），无需显式 initializeDefaultModel；④ prompt 的 requestId 即 dsh 原生幂等键——与 Maneki clientRequestId 哲学对齐。
+
+**M2b 实现路径定稿**：DshAdapter 派发层 = HTTP unary 网关客户端（本探针协议）+ headless `--json` 事件流（异步任务）双通道；approval: native（routeId 指向 dsh web UI）；asOfSeq 快照对账用 session/projections。剩余实现 = Core Task Broker + 适配器派发层 + 运行器，全部无需再探协议。
+
 ## 结论（更新）
 
 M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 三轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地（161 条测试绿）；网关派发路线定案可行。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。
