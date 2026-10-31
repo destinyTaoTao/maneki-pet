@@ -625,3 +625,28 @@ v0.2 → v0.3：Runtime 改为可由插件独立启动的共享本地进程；�
 2026-10-31 M1 契约细化：固定 PetState、动画 playback ID/打断/回退语义，以及动作包描述文件、独立 SHA-256 清单、路径和资源上限。此次只补齐 v1 实现契约，没有已发布包或数据需要迁移。
 
 2026-10-31 第二轮目标对齐（grilling）：新增主/子会话模型、会话总览与介入分级（§5.1）、外挂记忆分层与写回三档（§4.4）、用量与上下文三层限额（§4.1）、murmur/每日简报触发器与“当日失效、无料不发”原则（§4.3）、统一插件接口承诺（§4.5）。均为设计定案，实现按 roadmap 落位；无已发布客户端，无数据迁移。
+
+## 10. 扩展功能域：技能包体系与平台对接（EverNook 共建，2026-10-31 定稿）
+
+定位：平台运营（B站先行）与技能包体系是 Maneki 的**扩展功能域**——默认不启用、显式安装、不进核心路径；完全复用既有安全模型（127.0.0.1+随机令牌分权、任务派发默认 ask、Agent 输出不执行、模型/语音不能代批危险操作）。与 EverNook 记忆仓库的共同设计共识见 EverNook `docs/adr/0006`（技能包归外壳，记忆只存经验与引用）与本节；EverNook 契约为对接权威规范，术语冲突以其为准。
+
+### 10.1 技能包体系
+
+- **包格式**：`SKILL.md`（说明书面）+ `scripts/`（脚本目录，渐进披露惯例）+ `skill-pack.json` 清单。清单为纯数据：`schemaVersion/id/name/version/experienceId（EverNook 经验回链）/entry/scripts[{path,bytes,sha256}]`，内容哈希逐文件校验，路径校验复用 §3.2 的穿越/绝对路径拒绝规则。清单不含可执行语义。
+- **生命周期**：显式安装 → 启用/停用 → 注入清单登记。注入清单由**用户手动维护**（技能包启用/停用时登记 experience_ids），不做自动相关性选择；注入时映射为 EverNook `ContextPolicy.experience_ids`（至多 64 项，显式选择）。
+- **物化**：脚手架命令从 EverNook **已启用**的 `skill_draft` 经验生成骨架（标题/结论/适用条件/`experience_id` 回链自动填），正文人工定稿。不存在"记忆自动变成技能包"的路径，物化永远是用户显式触发；经验仍是不可信记忆数据。
+- **执行门槛**：技能包执行前必须过 §7.5 的隔离验收（M6）；本期只交付格式/清单/物化/注入，不开放任何脚本执行。模型输出永不直接执行。
+
+### 10.2 平台对接器（Gateway 层新 Adapter 类型）
+
+- **接口**：`PlatformAdapter { id; capabilities 枚举(草稿/发布就绪包导出/回执采集/只读数据解析); exportPublishReadyPackage(draft); buildReceipt(...); parseOpsData(raw) }`——平台无关核心 + 平台实现包。B站为第一个实现范本；QQ 官方机器人入口为第二阶段（个人认证 bot、独立 bot 身份——**永不冒充用户个人账号**；主动消息限额必须计入主动性引擎的勿扰与频率预算）。
+- **发布就绪包流程**：内容草稿（选题/脚本/标题/简介/标签/封面建议）→ 用户**逐次确认** → 生成发布就绪包（视频文件+封面+元数据 JSON+分步发布指引）→ 用户在 B站创作中心**人工发布** → 稿件信息经显式人工确认入口采集回 EverNook。
+- **合规红线（继承 EverNook spec 增量节，违反即打回）**：不集成 biliup/biliup-rs 等 cookie 投稿工具；不做协议模拟；不做 QQ OneBot/NapCat 类真实账号接管；不做客户端 UI 自动化。平台动作只有两类：官方开放平台 API（需相应主体资质）与"AI 备料 + 人工发布 + 证据回流"。对外互动（回评论/私信）只做汇总+建议草稿，发送永远人工；发布/删除类写操作逐次确认，不提供全自动档。
+- **元数据 JSON 与运营数据模板**是 Maneki 与 EverNook 共同的数据契约：字段定义在本文与扩展文档，JSON Schema 随实现入库（`packages/adapters/platform-bilibili/schemas/`）；视频成片等大资产不进 EverNook 账本，仅以路径/哈希/时长元数据引用。
+
+### 10.3 EverNook 集成形态（零 EverNook 改动）
+
+- **Python shim**：`packages/adapters/evernook/`（模块 `maneki_evernook_adapter`，运行于 EverNook venv）实现 `evernook.adapters.surface.AdapterSurface`：pair（`HARNESS_DEFAULT_SCOPES=(recall,capture)`，独立调用端身份，不复用其他外壳 access）、capture（整轮缓冲后发布、原文保真、幂等、敏感分流原样呈现）、inject（ContextBuilder + 注入清单 experience_ids，真实 tokenizer 计数、超预算显式 omitted）、attempt_out_of_scope（维护作用域必须 permission_denied）、covered/gaps 结构化披露（covered ∩ gaps = ∅ 且 gaps 非空）。
+- **验收**：`evernook.adapters.conformance.ConformanceSuite` 全套件通过 = 新外壳验收标准（§5 七项检查）。
+- **TS 侧调用**：Runtime/CLI 以 JSON stdin/stdout 子进程调用 shim（沿用 EverNook CLI 惯例），EverNook 侧操作全部经配对身份进入，未配对/越权以核心回执原样失败。
+- **回执采集链**：用户输入事件（submit）→ tool_call（`tool_name=generate-publish-ready-package`，关联输入）→ 人工发布后 tool_result（`tool_name=manual-publish-bilibili`，元数据 JSON 为附件 ≤1MiB application/json）；运营数据回流感知人工来源标注。EverNook 账本零改动；需要 EverNook 新接口时停止并在两仓库分别开 issue。
