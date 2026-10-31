@@ -19,7 +19,7 @@
 | docs/roadmap.md | 里程碑与验收标准 | 完成一项勾一项并补日期；范围调整在这里记录 |
 | docs/research.md | 调研快照（2026-10） | 历史文档，不随实现更新；发现重要新参考可追加条目 |
 | README.md | 对外门面 | 用户可见的能力/承诺变化时同步 |
-| CONTEXT.md | 纯领域术语 | 明确词义，不承载实现规范，术语变更与架构同步 |
+| GLOSSARY.md | 纯领域术语 | 明确词义，不承载实现规范，术语变更与架构同步 |
 | docs/adr/ | 已确认的重大取舍与原因 | 不取代 architecture.md，后续变更保留历史并注明取代关系 |
 | docs/audits/ | 指定基线的审计证据与处置 | 区分文档修正、运行验证与未决事实，不冒充验收 |
 
@@ -112,5 +112,5 @@ npm scope 统一为 `@maneki-pet/*`（如 `@maneki-pet/core`）。
 
 ### Domain docs
 
-采用 single-context：根目录 CONTEXT.md 与 docs/adr/。
+采用 single-context：根目录 GLOSSARY.md 与 docs/adr/。
 见 docs/agents/domain.md。

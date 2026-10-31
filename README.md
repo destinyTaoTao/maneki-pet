@@ -90,7 +90,7 @@ flowchart TB
 
 详见 [docs/roadmap.md](./docs/roadmap.md)。
 
-领域词义见 [CONTEXT.md](./CONTEXT.md)；共享运行时取舍见 [ADR](./docs/adr/0001-shared-local-runtime.md)；本轮整体目标与架构复核见 [审计报告](./docs/audits/2026-10-30-design-audit.md)。
+领域词义见 [GLOSSARY.md](./GLOSSARY.md)；共享运行时取舍见 [ADR](./docs/adr/0001-shared-local-runtime.md)；本轮整体目标与架构复核见 [审计报告](./docs/audits/2026-10-30-design-audit.md)。
 
 ## 💡 灵感与致谢
 

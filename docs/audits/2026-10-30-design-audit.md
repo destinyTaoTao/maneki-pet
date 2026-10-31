@@ -6,7 +6,7 @@
 
 结论：产品目标与模块方向保留，优先交付“可换装桌宠 + dsh 文字任务中间人 + 插件入口”。v0.2 的恢复、幂等、音频协调和发布边界存在缺口，已在 v0.3 规范中修订；这表示设计处置完成，不代表代码、安全机制、harness 能力或性能已经验收。仓库仍无应用实现。
 
-规范以 [architecture.md](../architecture.md) 为准；[CONTEXT.md](../../CONTEXT.md) 只定义词义，[ADR-0001](../adr/0001-shared-local-runtime.md) 记录共享 Runtime 的取舍原因，本报告保存审计证据与处置，不作为第二份实现规范。
+规范以 [architecture.md](../architecture.md) 为准；[GLOSSARY.md](../../GLOSSARY.md) 只定义词义，[ADR-0001](../adr/0001-shared-local-runtime.md) 记录共享 Runtime 的取舍原因，本报告保存审计证据与处置，不作为第二份实现规范。
 
 ## 用户已确认的九项决策
 
