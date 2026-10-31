@@ -57,6 +57,8 @@ Windows 阶段出口：
 
 依赖：M1。目标：harness 干活时宠物能正确表达状态，完成本机运行与接入可行性验证。
 
+当前进度：`packages/runtime` 底座已实现并通过 43 条测试（生命周期/单实例锁、SQLite 迁移与单一拥有者、127.0.0.1+token/scope/Host/Origin 鉴权矩阵、一次性 WS 票据、MCP 表达桥四工具与勿扰门控）；无窗口启动、双入口拒绝、管理入口优雅退出、无遗留进程已真机验证；安装器已附带 Runtime sidecar（无须另装 Node）并真机验证安装布局与运行（见 [审计记录](./audits/2026-10-31-m2-runtime-spike.md)，2026-10-31）。内存预算按进程树口径未达标（Private ~244MB），已作为架构决策点记录。dsh spike 与外部记忆协议 spike 仍为硬 gate。
+
 - [ ] 共享 Node Runtime 打包、已安装固定入口启动器与受控 IPC；一个用户配置目录一个 Runtime、SQLite 单一拥有者
 - [ ] 启动/连接/关闭/崩溃恢复流程、就绪与降级状态；默认不加载语音或模型
 - [ ] HTTP/WS 127.0.0.1 + token/scope + Host/Origin 校验，受信客户端配对、凭证撤销、短期 WS 票据

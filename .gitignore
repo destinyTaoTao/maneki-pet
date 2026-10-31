@@ -47,3 +47,7 @@ desktop.ini
 logs/
 *.log
 npm-debug.log*
+
+# Tauri sidecar / resources: rebuilt by packages/runtime/scripts/build-runtime-bundle.mjs
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/resources/

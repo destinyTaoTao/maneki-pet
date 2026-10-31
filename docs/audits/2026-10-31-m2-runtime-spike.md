@@ -27,6 +27,24 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 - **macOS/Linux**：未验证，平台矩阵另验。
 - **受控 IPC/启动器管理入口 UI**：当前以 HTTP + root 令牌文件代行；正式管理入口与凭证迁移到 OS 凭证存储为后续项。
 
-## 结论
+## 安装器打包与内存测量（2026-10-31 续）
 
-M2 底座代码与可自动化验证的出口项完成并有证据；M2 里程碑整体未完成——dsh spike 与安装器/性能验收是下一步硬 gate。
+**打包管线**：`packages/runtime/scripts/build-runtime-bundle.mjs` —— esbuild 把 CLI（含 @maneki-pet/core）打包成 639.7KB 单文件 JS + 复制 Node v24.12.0 为带 target triple 的 sidecar（89MB）；`tauri.conf.json` 声明 `externalBin: [binaries/maneki-runtime]` + `resources`，beforeBuildCommand 串联构建。产物已 gitignore（可重建）。
+
+**安装器**：NSIS `Maneki_0.1.0_x64-setup.exe` 24.7MB / MSI 36.7MB（构建 EXIT=0）。静默安装（/S）后布局含 `maneki-desktop.exe`、`maneki-runtime.exe`（sidecar）、`resources/maneki-runtime-bundle.js`。**从安装目录直接运行 sidecar+bundle：ready + health OK**——运行时即安装器自带的 node.exe，无须用户另装 Node（M2 出口项前半，真机证据 2026-10-31）。双入口锁拒绝此前已真机验证；"桌面+插件两种 Shell 入口"接线未做，该项整体不勾选。
+
+**内存测量（预算 <150MB，§8；按进程树原始统计，不缩减范围）**：
+
+| 进程 | 工作集(WS) | 私有内存(Private) |
+|---|---|---|
+| Runtime（空闲 10 采样稳定） | 51.3MB | 61.6MB |
+| Shell 树（maneki-desktop + 6×msedgewebview2，含空闲动画） | 393–402MB | 182.2MB |
+| **合计** | **402.6MB** | **243.7MB** |
+
+**两种口径均超 150MB 预算**。与 M1 记录的"约 29MB（CDP 口径）"是不同统计口径——CDP 侧数字不覆盖 WebView2 多进程基线与 GPU/网络辅助进程。按 §8"记录原因与后续决策，不缩减统计范围"：这是**架构级决策点**而非测量遗漏——(a) 预算统计口径需明确（进程树 WS / Private / CDP JS 堆之一）；(b) WebView2 的多进程基线（本机实测 Private ~182MB）使 150MB 目标在 Tauri+WebView2 技术栈下按全树口径不可达，需要在"重定义预算口径"与"§3.3 的 WebView 选型复核"之间决策。决策前不勾选内存出口项。
+
+**卸载**：/S 卸载正常；运行中的 runtime 文件被锁残留，停止后可清除——正式验收需先提示退出再卸载。
+
+## 结论（更新）
+
+M2 出口项"安装包无须用户另装 Node"已有真机证据；**内存预算未达标并上升为架构决策点**。剩余硬 gate：dsh spike（本机未装 dsh）、外部记忆协议 spike（待用户提供服务端点）、内存口径决策。

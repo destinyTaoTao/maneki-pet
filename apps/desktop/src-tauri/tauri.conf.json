@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "corepack pnpm --filter @maneki-pet/desktop generate:icons && corepack pnpm --filter @maneki-pet/core build && corepack pnpm --filter @maneki-pet/desktop dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "corepack pnpm --filter @maneki-pet/desktop generate:icons && corepack pnpm --filter @maneki-pet/core build && corepack pnpm --filter @maneki-pet/desktop build",
+    "beforeBuildCommand": "corepack pnpm --filter @maneki-pet/desktop generate:icons && corepack pnpm --filter @maneki-pet/core build && corepack pnpm --filter @maneki-pet/runtime build && corepack pnpm --filter @maneki-pet/desktop build && node ../../packages/runtime/scripts/build-runtime-bundle.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -38,6 +38,12 @@
       "icons/128x128.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/maneki-runtime"
+    ],
+    "resources": [
+      "resources/maneki-runtime-bundle.js"
     ]
   }
 }
