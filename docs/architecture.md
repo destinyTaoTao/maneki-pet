@@ -574,7 +574,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 | `@modelcontextprotocol/sdk` | 标准 MCP 表达接入；SDK/协议版本在实现时锁定并验证 |
 | ASR 本地优先、ASR/TTS/LLM 分离注入 | 默认可关闭、独立替换；不绑定具体厂商，不静默云端回退 |
 
-M1 工程依赖选择（2026-10-31）：Vitest 用于与 TypeScript/Vite 一致的公共接口行为测试，相比 Node 内置 runner 省去额外 TS 转换配置；Vite 只承担 vanilla TS Shell 的开发与打包，相比引入 UI 框架和自定义构建链保持最小依赖；Ajv 用于执行动作包 JSON Schema，相比手写通用 Schema 校验减少规则遗漏，它不进行文件 IO，业务交叉检查仍由 Core 自己验证。
+M1 工程依赖选择（2026-10-31）：Vitest 用于与 TypeScript/Vite 一致的公共接口行为测试，相比 Node 内置 runner 省去额外 TS 转换配置；Vite 只承担 vanilla TS Shell 的开发与打包，相比引入 UI 框架和自定义构建链保持最小依赖；Ajv 用于执行动作包 JSON Schema，相比手写通用 Schema 校验减少规则遗漏，它不进行文件 IO，业务交叉检查仍由 Core 自己验证。素材管线使用 FFmpeg/libvpx 生成 VP9 alpha WebM，相比自写编码器采用成熟实现；它是重建素材的外部工具，不进入 Core 或浏览器运行时。
 
 以下问题保持待验证，不把候选方案写成现成能力：
 
