@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: maneki-evernook-adapter
+Version: 0.1.0
+Summary: Maneki 桌宠的 EverNook 适配器 shim：官方 AdapterSurface 的实现（运行于 EverNook venv）
+Requires-Python: >=3.14

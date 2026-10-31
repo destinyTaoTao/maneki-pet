@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maneki-evernook-adapter"
+version = "0.1.0"
+description = "Maneki 桌宠的 EverNook 适配器 shim：官方 AdapterSurface 的实现（运行于 EverNook venv）"
+requires-python = ">=3.14"
+# 注意：不声明 evernook 依赖——EverNook 未发布到 PyPI；本包必须安装在
+# 已 `pip install -e <evernook-checkout>` 的虚拟环境中（见 README）。
+
+[tool.setuptools.packages.find]
+include = ["maneki_evernook_adapter*"]

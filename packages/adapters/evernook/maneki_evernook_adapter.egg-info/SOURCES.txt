@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+maneki_evernook_adapter/__init__.py
+maneki_evernook_adapter/__main__.py
+maneki_evernook_adapter/cli.py
+maneki_evernook_adapter/surface.py
+maneki_evernook_adapter.egg-info/PKG-INFO
+maneki_evernook_adapter.egg-info/SOURCES.txt
+maneki_evernook_adapter.egg-info/dependency_links.txt
+maneki_evernook_adapter.egg-info/top_level.txt
+tests/test_maneki_surface.py
