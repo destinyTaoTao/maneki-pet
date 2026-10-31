@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
 
-import { DailyQuotaPolicy } from "@maneki-pet/core";
+import { DailyQuotaPolicy, MemoryContextService } from "@maneki-pet/core";
 
 import { generateToken, hashToken, TicketIssuer } from "./auth.js";
 import { EventFeed } from "./events.js";
 import { LocalHttpApi } from "./http-api.js";
 import { InstanceLock, RuntimeLifecycle, type RuntimeState } from "./lifecycle.js";
 import { McpExpressionBridge, type ExpressionSinks } from "./mcp-bridge.js";
+import { McpMemoryClient } from "./mcp-memory-client.js";
 import { loadRuntimeConfig, NotificationBudget } from "./quota.js";
 import { RuntimeStore } from "./store.js";
 import { WsHub } from "./ws.js";
@@ -31,6 +32,8 @@ export interface StartedRuntime {
   rootTokenPath: string;
   feed: EventFeed;
   store: RuntimeStore;
+  /** 配置了 externalMemory 时可用（票据 #46）；未配置为 undefined。 */
+  memory?: MemoryContextService;
   state(): RuntimeState;
   startMcpStdioBridge(): Promise<void>;
   stop(): Promise<void>;
@@ -122,6 +125,22 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       notifications,
     });
 
+    // 外挂记忆（票据 #46）：配置了 stdio 启动命令才创建；客户端按需拉起服务进程，
+    // 关闭/故障降级由 Core MemoryContextService 承担，不影响提醒与派发。
+    let memoryClient: McpMemoryClient | undefined;
+    let memoryService: MemoryContextService | undefined;
+    if (config.externalMemory) {
+      const external = config.externalMemory;
+      memoryClient = new McpMemoryClient({
+        command: external.command,
+        ...(external.args ? { args: external.args } : {}),
+        ...(external.searchTool ? { searchTool: external.searchTool } : {}),
+        ...(external.writeTool ? { writeTool: external.writeTool } : {}),
+        ...(external.providerId ? { providerId: external.providerId } : {}),
+      });
+      memoryService = new MemoryContextService({ provider: memoryClient });
+    }
+
     lifecycle.transition("ready");
     feed.publish("runtime.ready", { port, instanceId });
     store.audit("runtime.started", instanceId, { port, configDir: options.configDir }, new Date().toISOString());
@@ -135,6 +154,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       rootTokenPath: root.path,
       feed,
       store,
+      ...(memoryService ? { memory: memoryService } : {}),
       state: () => lifecycle.state,
       startMcpStdioBridge: async () => {
         if (mcpStarted) {
@@ -152,6 +172,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
         hub.detach();
         await api.stop();
         await bridge.close();
+        await memoryClient?.stop();
         store.audit("runtime.stopped", instanceId, {}, new Date().toISOString());
         store.close();
         lock.release();

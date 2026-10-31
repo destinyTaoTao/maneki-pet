@@ -57,6 +57,47 @@ describe("Runtime 装配与生命周期", () => {
   });
 });
 
+describe("外挂记忆装配（#46 的 Runtime 层）", () => {
+  it("配置 externalMemory 后 runtime.memory 可用并经真实子进程检索", async () => {
+    const dir = makeTempDir();
+    const { writeFileSync } = await import("node:fs");
+    const stub = join(import.meta.dirname, "fixtures", "memory-stub-server.mjs");
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        limits: { proactiveDailyTokenLimit: 100_000, interactiveDailyTokenLimit: null, maxNotificationsPerHour: 30 },
+        externalMemory: { command: process.execPath, args: [stub] },
+      }),
+      "utf8",
+    );
+    const runtime = await startRuntime({ configDir: dir, log: () => undefined });
+    runtimes.push(runtime);
+    expect(runtime.memory).toBeDefined();
+    const writeCtx = { requestId: "w1", signal: new AbortController().signal, deadlineAtMs: Date.now() + 5_000 };
+    const written = await runtime.memory!.writeback(
+      { kind: "note", summary: "装配层检索验证", occurredAt: "2026-10-31T14:00:00Z" },
+      writeCtx,
+    );
+    expect(written.outcome).toBe("ok");
+    const result = await runtime.memory!.retrieveContext(
+      { text: "装配层" },
+      { requestId: "r1", signal: new AbortController().signal, deadlineAtMs: Date.now() + 5_000 },
+    );
+    expect(result.outcome).toBe("ok");
+    if (result.outcome === "ok") {
+      expect(result.items[0]?.text).toBe("装配层检索验证");
+    }
+    await runtime.stop();
+  });
+
+  it("未配置 externalMemory 时 memory 为 undefined，启动照常", async () => {
+    const runtime = await startRuntime({ configDir: makeTempDir(), log: () => undefined });
+    runtimes.push(runtime);
+    expect(runtime.memory).toBeUndefined();
+  });
+});
+
 describe("CLI 启动器（无桌宠窗口、SIGTERM 优雅退出）", () => {
   const runtimeRoot = join(import.meta.dirname, "..");
   const distCli = join(runtimeRoot, "dist", "cli.js");

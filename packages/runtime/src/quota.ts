@@ -6,6 +6,14 @@ import { DailyQuotaPolicy } from "@maneki-pet/core";
 import type { RuntimeStore } from "./store.js";
 import { validateObject } from "./validate.js";
 
+export interface ExternalMemoryConfigFile {
+  command: string;
+  args?: string[];
+  searchTool?: string;
+  writeTool?: string;
+  providerId?: string;
+}
+
 export interface RuntimeLimitsConfig {
   schemaVersion: 1;
   limits: {
@@ -13,6 +21,8 @@ export interface RuntimeLimitsConfig {
     interactiveDailyTokenLimit: number | null;
     maxNotificationsPerHour: number;
   };
+  /** 可选：外挂记忆服务的 stdio 启动配置（票据 #46）；缺省不接入。 */
+  externalMemory?: ExternalMemoryConfigFile;
 }
 
 export const defaultRuntimeConfig: RuntimeLimitsConfig = {
@@ -50,13 +60,14 @@ export function loadRuntimeConfig(configDir: string): { config: RuntimeLimitsCon
   }
   const container = parsed as Record<string, unknown>;
   for (const key of Object.keys(container)) {
-    if (key !== "schemaVersion" && key !== "limits") {
+    if (key !== "schemaVersion" && key !== "limits" && key !== "externalMemory") {
       throw new ConfigError(`unknown config field "${key}"`);
     }
   }
   if (container.schemaVersion !== 1) {
     throw new ConfigError(`config schemaVersion ${String(container.schemaVersion)} is not supported (need 1); refusing to run`);
   }
+  const externalMemory = parseExternalMemoryConfig(container.externalMemory);
   // null 表示"交互总额关闭"，与缺省字段等价；先归一为缺省再校验。
   const limitsInput = { ...((container.limits ?? {}) as Record<string, unknown>) };
   if (limitsInput.interactiveDailyTokenLimit === null) {
@@ -78,8 +89,47 @@ export function loadRuntimeConfig(configDir: string): { config: RuntimeLimitsCon
       interactiveDailyTokenLimit: limits.interactiveDailyTokenLimit ?? null,
       maxNotificationsPerHour: limits.maxNotificationsPerHour,
     },
+    ...(externalMemory ? { externalMemory } : {}),
   };
   return { config, configPath, created: false };
+}
+
+function parseExternalMemoryConfig(raw: unknown): ExternalMemoryConfigFile | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ConfigError("externalMemory must be an object");
+  }
+  const input = raw as Record<string, unknown>;
+  for (const key of Object.keys(input)) {
+    if (!["command", "args", "searchTool", "writeTool", "providerId"].includes(key)) {
+      throw new ConfigError(`unknown externalMemory field "${key}"`);
+    }
+  }
+  if (typeof input.command !== "string" || input.command.trim().length === 0 || input.command.length > 2000) {
+    throw new ConfigError('externalMemory.command must be a non-empty string (<= 2000 chars)');
+  }
+  let args: string[] | undefined;
+  if (input.args !== undefined) {
+    if (!Array.isArray(input.args) || input.args.some((arg) => typeof arg !== "string" || arg.length > 2000)) {
+      throw new ConfigError("externalMemory.args must be an array of strings (each <= 2000 chars)");
+    }
+    args = input.args as string[];
+  }
+  for (const field of ["searchTool", "writeTool", "providerId"] as const) {
+    const value = input[field];
+    if (value !== undefined && (typeof value !== "string" || value.length === 0 || value.length > 100)) {
+      throw new ConfigError(`externalMemory.${field} must be a non-empty string (<= 100 chars)`);
+    }
+  }
+  return {
+    command: input.command,
+    ...(args ? { args } : {}),
+    ...(input.searchTool !== undefined ? { searchTool: input.searchTool as string } : {}),
+    ...(input.writeTool !== undefined ? { writeTool: input.writeTool as string } : {}),
+    ...(input.providerId !== undefined ? { providerId: input.providerId as string } : {}),
+  };
 }
 
 export class NotificationBudget {
