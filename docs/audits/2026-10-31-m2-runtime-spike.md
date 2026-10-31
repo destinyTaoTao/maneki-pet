@@ -45,6 +45,22 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 
 **决策记录（2026-10-31，用户三选一拍板）**：采用"修订预算 + 钉死口径"——预算改为**全相关进程树私有内存（Private Bytes）≤ 250MB，其中 Runtime ≤ 75MB**，口径写入 architecture §8 并同步 AGENTS.md/roadmap；§3.3 选型复核不再单独进行（Electron 更重，WebView2 已是 Tauri v2 在 Windows 的现实下限，182MB 即技术栈基线）。按新口径实测 243.7MB（Runtime 61.5 + Shell 树 182.2）**达标**，内存出口项已勾选。
 
+## Shell ↔ Runtime 接线（2026-10-31 续2）
+
+**实现**：Rust setup 自动拉起 runtime sidecar（CREATE_NO_WINDOW、stdin 管道保持 MCP 桥待客户端、**Shell 退出不杀 Runtime**）；Tauri 命令 `runtime_info / read_root_token / spawn_runtime / sync_tray_dnd`；托盘勿扰开关发出 `maneki://dnd-changed` 事件由 Shell 转写为 `POST /v1/dnd`（双向：连接时反向对齐托盘勾选）；TS `runtime-client.ts`（健康发现→必要时拉起→root 配对+令牌缓存→WS 一次性票据订阅，断线 3s 自动重连）；设置面板呈现连接状态、今日限额剩余、通知预算、勿扰状态；`notification.sent` 事件进状态气泡。CSP connect-src 放行 127.0.0.1:18100；Runtime 增加白名单 Origin 的 CORS 回显与 OPTIONS 预检（CORS 非鉴权替代，鉴权仍逐请求）。
+
+**真机证据（NSIS 静默安装后，2026-10-31）**：
+1. Shell 启动自动拉起 Runtime：`maneki-desktop.exe` 与 `maneki-runtime.exe` 同时在跑，`GET /v1/health` 18100 OK
+2. Shell 自动配对：`/v1/clients` 出现 `desktop-shell`（express+notify），创建时间在 root 之后 0.5s
+3. **强杀 Shell → Runtime 存活并继续服务**（health 仍 OK）——红线"关闭窗口只断开客户端，后台继续跟踪"真机证据
+4. 显式退出（root `POST /v1/shutdown`）→ Runtime 干净退出
+
+**测试**：runtime 50 条（新增白名单 Origin 的 CORS 预检/回显用例）；全仓 build/test 绿。
+
+**待人工验收**：托盘点击→勿扰联动与事件气泡的视觉确认（托盘菜单人工验收为 M1 遗留项）；WS 事件气泡的实际显示效果。
+
+**结论（更新）**：#43/#44 的 Shell 呈现与接线层完成并有真机证据；两票保持 open 的剩余项为人工视觉确认与 M4 主动内容本体（碎碎念/简报）。dsh spike 与外部记忆对接仍等用户。
+
 **卸载**：/S 卸载正常；运行中的 runtime 文件被锁残留，停止后可清除——正式验收需先提示退出再卸载。
 
 ## 结论（更新）

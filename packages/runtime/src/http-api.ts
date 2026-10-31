@@ -94,9 +94,25 @@ export class LocalHttpApi {
       this.sendJson(res, originCheck.status, { error: originCheck.reason });
       return;
     }
-
+    // 白名单内的浏览器来源回显 CORS 头；CORS 不是鉴权替代（§7.1），鉴权仍逐请求进行。
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader("access-control-allow-origin", origin);
+      res.setHeader("vary", "origin");
+      res.setHeader("access-control-allow-credentials", "true");
+    }
     const url = (req.url ?? "").split("?")[0] ?? "";
     const method = req.method ?? "";
+
+    if (method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-methods": "GET,POST,OPTIONS",
+        "access-control-allow-headers": "authorization,content-type",
+        "access-control-max-age": "600",
+      });
+      res.end();
+      return;
+    }
 
     if (method === "GET" && url === "/v1/health") {
       // 发现元数据只含端口、协议版本、实例 ID，不含令牌（§6.1）。

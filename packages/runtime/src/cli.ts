@@ -16,6 +16,7 @@ if (!configDir) {
 }
 
 const portArg = argValue("--port");
+const originArg = argValue("--origin-allowlist");
 const log = (line: string): void => {
   process.stderr.write(`${new Date().toISOString()} ${line}\n`);
 };
@@ -23,6 +24,7 @@ const log = (line: string): void => {
 const runtime = await startRuntime({
   configDir,
   port: portArg ? Number(portArg) : 0,
+  originAllowlist: originArg ? originArg.split(",").map((origin) => origin.trim()).filter((origin) => origin.length > 0) : [],
   log,
 });
 

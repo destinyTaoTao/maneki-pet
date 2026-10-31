@@ -6,9 +6,11 @@ import {
   type ValidatedPetPack,
 } from "@maneki-pet/core";
 
+import { invoke } from "@tauri-apps/api/core";
 import { PetPlayer } from "./player.js";
 import { BoundedReadError, readBounded } from "./bounded-fetch.js";
 import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
+import * as runtimeClient from "./runtime-client.js";
 import { uiText } from "./ui-text.js";
 import "./style.css";
 import packIds from "../config/builtin-packs.json" with { type: "json" };
@@ -53,7 +55,16 @@ for (const state of petStates) {
   stateSelect.append(option);
 }
 stateLabel.append(stateSelect);
-panel.append(packLabel, stateLabel);
+const runtimeSectionLabel = document.createElement("label");
+runtimeSectionLabel.textContent = uiText.runtimeSection;
+const runtimeStateLine = document.createElement("div");
+runtimeStateLine.className = "runtime-line";
+runtimeStateLine.textContent = uiText.runtimeConnecting;
+const runtimeLimitsLine = document.createElement("div");
+runtimeLimitsLine.className = "runtime-line";
+const runtimeDndLine = document.createElement("div");
+runtimeDndLine.className = "runtime-line";
+panel.append(packLabel, stateLabel, runtimeSectionLabel, runtimeStateLine, runtimeLimitsLine, runtimeDndLine);
 app.append(status, petButton, settingsButton, panel);
 
 const player = new PetPlayer(playerRoot, () => {
@@ -222,4 +233,83 @@ async function start(): Promise<void> {
   }
 }
 
+function showBubble(text: string): void {
+  status.textContent = text;
+  status.dataset.visible = "true";
+  window.setTimeout(() => {
+    status.dataset.visible = "false";
+  }, 4_000);
+}
+
+async function refreshRuntimePanel(token: string): Promise<void> {
+  try {
+    const limits = await runtimeClient.getLimits(token);
+    runtimeLimitsLine.textContent =
+      `${uiText.limitsLabel}：${limits.proactive.remaining}/${limits.proactive.limit}` +
+      ` · ${uiText.notificationsLabel}：${limits.notifications.usedThisHour}/${limits.notifications.maxPerHour}`;
+    const dnd = await runtimeClient.getDnd(token);
+    runtimeDndLine.textContent = `${uiText.dndStateLabel}：${dnd ? uiText.dndOn : uiText.dndOff}`;
+  } catch {
+    // 刷新失败保持上次内容，连接状态由事件流回调维护。
+  }
+}
+
+async function connectRuntime(): Promise<void> {
+  if (!isTauriRuntime()) {
+    runtimeSectionLabel.remove();
+    runtimeStateLine.remove();
+    runtimeLimitsLine.remove();
+    runtimeDndLine.remove();
+    return;
+  }
+  const ready = await runtimeClient.ensureRuntime();
+  if (!ready) {
+    runtimeStateLine.textContent = uiText.runtimeUnavailable;
+    return;
+  }
+  let token: string;
+  try {
+    token = await runtimeClient.pairIfNeeded();
+  } catch {
+    runtimeStateLine.textContent = uiText.runtimePairFailure;
+    return;
+  }
+  runtimeStateLine.textContent = uiText.runtimeConnected;
+  try {
+    const dnd = await runtimeClient.getDnd(token);
+    await invoke("sync_tray_dnd", { enabled: dnd });
+    runtimeDndLine.textContent = `${uiText.dndStateLabel}：${dnd ? uiText.dndOn : uiText.dndOff}`;
+  } catch {
+    // 托盘对齐失败不阻塞连接。
+  }
+  await runtimeClient.watchTrayDnd(token);
+  await refreshRuntimePanel(token);
+  settingsButton.addEventListener("click", () => {
+    void refreshRuntimePanel(token);
+  });
+  await runtimeClient.connectEvents(
+    token,
+    (event) => {
+      if (event.kind === "notification.sent") {
+        const title = String(event.payload.title ?? "");
+        const body = String(event.payload.body ?? "");
+        showBubble(`${title}：${body}`);
+        void refreshRuntimePanel(token);
+        return;
+      }
+      if (event.kind === "dnd.changed") {
+        void refreshRuntimePanel(token);
+        return;
+      }
+      if (event.kind === "runtime.ready") {
+        runtimeStateLine.textContent = uiText.runtimeConnected;
+      }
+    },
+    (connected) => {
+      runtimeStateLine.textContent = connected ? uiText.runtimeConnected : uiText.runtimeDisconnected;
+    },
+  );
+}
+
 void start();
+void connectRuntime();

@@ -41,14 +41,17 @@ function rawRequest(
   port: number,
   path: string,
   headers: Record<string, string>,
+  method = "GET",
 ): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
-    const req = httpRequest({ host: "127.0.0.1", port, path, headers, method: "GET" }, (res) => {
+    const req = httpRequest({ host: "127.0.0.1", port, path, headers, method }, (res) => {
       let raw = "";
       res.on("data", (chunk: Buffer) => {
         raw += chunk.toString("utf8");
       });
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(raw) as any }));
+      res.on("end", () =>
+        resolve({ status: res.statusCode ?? 0, body: raw.length > 0 ? (JSON.parse(raw) as any) : null }),
+      );
     });
     req.on("error", reject);
     req.end();
@@ -92,6 +95,32 @@ describe("本地 HTTP API 鉴权矩阵", () => {
       origin: "https://evil.example",
     });
     expect(badOrigin.status).toBe(403);
+  });
+
+  it("白名单 Origin 获得 CORS 回显与预检响应（Shell WebView 场景）", async () => {
+    const { runtime, base } = await makeRuntime(["http://tauri.localhost"]);
+    const pair = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "shell", scopes: "express" } });
+    const token = (pair.body as { token: string }).token;
+
+    const preflight = await rawRequest(
+      runtime.port,
+      "/v1/pair",
+      {
+        host: `127.0.0.1:${runtime.port}`,
+        origin: "http://tauri.localhost",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type",
+      },
+      "OPTIONS",
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.body).toBeNull();
+
+    const actual = await fetch(`${base}/v1/limits`, {
+      headers: { authorization: `Bearer ${token}`, origin: "http://tauri.localhost" } as Record<string, string>,
+    });
+    expect(actual.status).toBe(200);
+    expect(actual.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
   });
 
   it("配对流程：root 签发 express 客户端，签发 admin 范围被拒绝", async () => {
