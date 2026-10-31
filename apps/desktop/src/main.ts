@@ -5,10 +5,10 @@ import {
   type PetState,
   type ValidatedPetPack,
 } from "@maneki-pet/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { PetPlayer } from "./player.js";
 import { BoundedReadError, readBounded } from "./bounded-fetch.js";
+import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
 import { uiText } from "./ui-text.js";
 import "./style.css";
 import packIds from "../config/builtin-packs.json" with { type: "json" };
@@ -61,15 +61,16 @@ const player = new PetPlayer(playerRoot, () => {
   status.dataset.visible = "true";
 });
 const packs = new Map<string, ValidatedPetPack>();
+const dragHandle = isTauriRuntime() ? attachWindowDrag(petButton) : undefined;
 
 settingsButton.addEventListener("click", () => {
   panel.hidden = !panel.hidden;
   settingsButton.textContent = panel.hidden ? uiText.settings : uiText.closeSettings;
 });
-petButton.addEventListener("pointerdown", (event) => {
-  if (event.button === 0) void getCurrentWindow().startDragging();
+petButton.addEventListener("click", () => {
+  if (dragHandle?.consumeRecentDrag()) return;
+  player.playAction("wave");
 });
-petButton.addEventListener("click", () => player.playAction("wave"));
 stateSelect.addEventListener("change", () => {
   player.setState(stateSelect.value as PetState);
 });
