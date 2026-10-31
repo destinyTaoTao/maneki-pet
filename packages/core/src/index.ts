@@ -1,4 +1,28 @@
 export { AnimationChain, type Playback } from "./animation-chain.js";
+export {
+  checkCapabilityConsistency,
+  type AdapterCapabilities,
+  type AdapterDataBoundary,
+  type HarnessAdapter,
+  type HarnessEvent,
+  type HarnessEventPayload,
+  type HarnessSession,
+  type OperationQueryResult,
+  type OperationSnapshot,
+  type PendingApprovalBridge,
+  type PendingApprovalNative,
+  type PermissionDecision,
+  type PermissionOperationKind,
+  type PermissionRequest,
+  type SessionOverviewItem,
+  type TaskCompleteness,
+  type TaskQueryResult,
+  type TaskRef,
+  type TaskRequest,
+  type TaskSnapshot,
+  type TaskStatus,
+  type TaskTarget,
+} from "./harness-adapter.js";
 export type {
   CallContext,
   ChatMessage,
