@@ -1,5 +1,12 @@
 export { AnimationChain, type Playback } from "./animation-chain.js";
 export {
+  validateScriptHashes,
+  validateSkillPack,
+  type SkillPackManifest,
+  type SkillPackScript,
+  type ValidateResult,
+} from "./skill-pack.js";
+export {
   checkCapabilityConsistency,
   type AdapterCapabilities,
   type AdapterDataBoundary,

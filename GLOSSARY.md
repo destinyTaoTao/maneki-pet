@@ -69,3 +69,24 @@ _Avoid_: 退出助理、任务取消
 
 **退出助理（Quit Assistant）**：用户明确结束本机助理后台服务；已经交给外部 harness 的工作是否停止需要另行核实。
 _Avoid_: 仅关闭窗口、默认取消外部任务
+
+**外壳技能包（Skill Pack）**：存放于 Maneki 外壳、由已启用经验草案经用户显式触发物化的版本化能力单元（SKILL.md+脚本+清单）。它不是记忆资产，不进 EverNook 账本，执行前须过隔离验收。
+_Avoid_: 已启用技能、经验记忆、自动生成的插件
+
+**技能包清单（Skill Pack Manifest）**：技能包的纯数据描述文件（schemaVersion/id/name/version/experienceId 回链/入口/脚本哈希清单），内容哈希逐文件校验。
+_Avoid_: 可执行配置、权限清单即沙箱
+
+**物化（Materialization）**：从已启用的 skill_draft 经验经用户显式触发生成技能包骨架（标题/结论/适用条件/回链自动填，正文人工定稿）的一次性动作。
+_Avoid_: 记忆自动转技能、自动升级为规则
+
+**平台对接器（Platform Adapter）**：Gateway 层面向平台运营的适配器类型，能力限定为草稿、发布就绪包导出、回执采集与只读数据解析；不做发送类自动化。
+_Avoid_: 代发工具、账号接管
+
+**发布就绪包（Publish-Ready Package）**：人工发布所需的完整备料目录——视频文件、封面、元数据 JSON 与分步发布指引；由 AI 备料生成、用户逐次确认后产出。
+_Avoid_: 自动投稿包、定时发布
+
+**运营数据模板（Ops Data Template）**：Maneki 与 EverNook 共同约定的人工导出数据 JSON 结构（日期/视频/播放/点赞/评论/收藏/投币/分享），解析后作为 tool_result 证据采集并标注人工来源。
+_Avoid_: 平台抓取、自动同步
+
+**回执采集（Receipt Capture）**：人工发布/运营数据经显式人工确认入口，以 tool_result 工具事件（稳定 tool_name、关联输入、附件为元数据 JSON）进入 EverNook 证据账本的采集动作。
+_Avoid_: 自动回执、发布成功即采集

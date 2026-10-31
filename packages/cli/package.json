@@ -1,0 +1,22 @@
+{
+  "name": "@maneki-pet/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "maneki": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@maneki-pet/core": "workspace:*",
+    "@maneki-pet/platform-bilibili": "workspace:*",
+    "@maneki-pet/platform-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}

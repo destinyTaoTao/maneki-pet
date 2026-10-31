@@ -199,8 +199,8 @@ Windows 首版发布出口：
 
 定位：默认不启用、显式安装的扩展功能域，不进核心路径；设计共识见 [ADR-0002](./adr/0002-skill-packages-and-platform-adapters.md) 与 EverNook `docs/adr/0006`、spec"技能沉淀与执行增量"。与 M6 并行推进，互不阻塞；执行门槛继承 M6 隔离验收。
 
-- [ ] 技能包体系：skill-pack v1 清单校验（纯数据+SHA-256）、显式安装/启用/停用、注入清单登记（映射 ContextPolicy.experience_ids）、物化脚手架（已启用 skill_draft → 骨架，experience_id 回链，正文人工定稿）；执行不开放（M6 gate）
-- [ ] 平台对接器框架：PlatformAdapter 接口（能力枚举/发布就绪包导出/回执采集/只读解析）+ B站实现范本；元数据 JSON 与运营数据模板的数据契约（JSON Schema 入库）；QQ 官方 bot 为第二阶段
-- [ ] EverNook 集成：Python shim 实现 AdapterSurface（pair=recall+capture、capture 原文保真/幂等/敏感分流、inject ContextBuilder+显式清单、gaps 披露）+ conformance 全套件通过；TS 经 JSON CLI 子进程调用；零 EverNook 改动
-- [ ] 发布就绪包竖切六条验收（EverNook spec）：①conformance 通过 ②草稿逐次确认 ③生成发布就绪包后人工发布 ④稿件信息采集为工具事件证据 ⑤证据可作经验来源 ⑥审计可查
+- [x] 技能包体系：skill-pack v1 清单校验（纯数据+SHA-256）、显式安装/启用/停用、注入清单登记（映射 ContextPolicy.experience_ids）、物化脚手架（已启用 skill_draft → 骨架，experience_id 回链，正文人工定稿）；执行不开放（M6 gate）（2026-10-31，core 9 条测试）
+- [x] 平台对接器框架：PlatformAdapter 接口（能力枚举/发布就绪包导出/回执采集/只读解析）+ B站实现范本；元数据 JSON 与运营数据模板的数据契约（JSON Schema 入库）；QQ 官方 bot 为第二阶段（2026-10-31，platform-core 8 条 + platform-bilibili 5 条测试）
+- [x] EverNook 集成：Python shim 实现 AdapterSurface（pair=recall+capture、capture 原文保真/幂等/敏感分流、inject ContextBuilder+显式清单、gaps 披露）+ conformance 全套件通过；TS 经 JSON CLI 子进程调用；零 EverNook 改动（2026-10-31，py3.14 venv 实跑 7 项全过）
+- [x] 发布就绪包竖切六条验收（EverNook spec）：①conformance 通过 ②草稿逐次确认 ③生成发布就绪包后人工发布 ④稿件信息采集为工具事件证据 ⑤证据可作经验来源 ⑥审计可查（2026-10-31 全链路实跑，证据摘要 C:maneki-labevernook-vertical-evidence.json，审计记录续8）
 - 红线（继承 spec）：不集成 biliup/协议模拟/UI 自动化/账号接管；平台动作仅官方 API 或"AI 备料+人工发布+证据回流"；对外互动只做汇总+建议草稿；写操作逐次确认；无全自动档

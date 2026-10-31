@@ -34,13 +34,16 @@ def _read_stdin_json() -> dict:
 
 def _surface(args: argparse.Namespace) -> ManekiSurface:
     experience_ids = tuple(filter(None, (args.experience_ids or "").split(",")))
-    return ManekiSurface(
+    surface = ManekiSurface(
         Path(args.config),
         Path(args.access) if args.access else None,
         client_id=args.client_id,
         entry=args.entry,
         experience_ids=experience_ids,
     )
+    # pair_client 幂等（重复配对返回原身份）：每条命令自动就绪配对状态。
+    surface.pair(args.client_id, args.entry)
+    return surface
 
 
 def _event_from_json(value: dict) -> object:
@@ -97,7 +100,7 @@ def main(argv: list[str] | None = None) -> None:
         event = _event_from_json(envelope["event"])
         attachments = tuple(
             __import__("evernook", fromlist=["AttachmentInput"]).AttachmentInput(
-                item["attachment_id"], item["label"], item["mime_type"], item["bytes"].encode("utf-8")
+                item["attachment_id"], item["label"], item["mime_type"], (item["bytes"].encode("utf-8"),)
             )
             for item in envelope.get("attachments", [])
         )
@@ -145,7 +148,7 @@ def main(argv: list[str] | None = None) -> None:
         text = stored.event.text
         span = EvidenceSpan(
             args.message_id,
-            stored.state_version,
+            1,
             stored.receipt.representation,
             stored.receipt.content_version,
             args.start,

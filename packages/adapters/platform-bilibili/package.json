@@ -1,5 +1,5 @@
 {
-  "name": "@maneki-pet/adapter-platform-bilibili",
+  "name": "@maneki-pet/platform-bilibili",
   "version": "0.1.0",
   "private": true,
   "type": "module",
