@@ -52,6 +52,11 @@ export class ChatCallBudget {
     return { allowed: true };
   }
 
+  /**
+   * 输出方向是事后用量核对：Core 端口不限制生成长度，Provider Adapter
+   * 必须在自己的请求参数中设置输出上限；本检查在响应返回后核对，
+   * 超限响应按阻止处理（丢弃/降级由调用方执行）。
+   */
   admitOutput(providerId: string, kind: CallKind, text: string): BudgetDecision {
     const limit = this.limitFor(providerId);
     const outputTokens = this.estimator.estimateTokens(text);

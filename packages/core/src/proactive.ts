@@ -1,3 +1,5 @@
+import { utcDayKey } from "./day-key.js";
+
 /**
  * 主动性引擎（architecture §4.3）：主动性 = 已验证触发器 × 防打扰预算 × 可用通道。
  * 触发决策全部由确定性规则做出；LLM 仅在触发后生成话术，失败回退固定文案，
@@ -30,6 +32,8 @@ export interface BriefingCategoryConfig {
   enabled: boolean;
   scheduledHour: number;
   scheduledMinute: number;
+  /** 防打扰预算：每日最多送达份数（默认 1，即"每天一份"）。 */
+  maxPerDay: number;
 }
 
 export interface ProactiveConfig {
@@ -41,7 +45,7 @@ export interface ProactiveConfig {
 /** 出厂默认：碎碎念低频开启，每日简报默认关闭（2026-10-31 决策）。 */
 export const defaultProactiveConfig: ProactiveConfig = {
   murmur: { enabled: true, idleThresholdMs: 45 * 60 * 1000 },
-  daily_briefing: { enabled: false, scheduledHour: 9, scheduledMinute: 0 },
+  daily_briefing: { enabled: false, scheduledHour: 9, scheduledMinute: 0, maxPerDay: 1 },
   murmurBudget: { minIntervalMs: 2 * 60 * 60 * 1000, maxPerHour: 1 },
 };
 
@@ -81,8 +85,8 @@ export interface ProactiveEngineDeps {
 
 export class ProactiveEngine {
   private readonly config: ProactiveConfig;
-  private readonly murmurFireTimes: number[] = [];
-  private lastBriefingDayKey: string | null = null;
+  private murmurFireTimes: number[] = [];
+  private briefingFireDays: string[] = [];
   private readonly deps: ProactiveEngineDeps;
 
   constructor(deps: ProactiveEngineDeps) {
@@ -95,8 +99,8 @@ export class ProactiveEngine {
     return channels.bubble || channels.notification || channels.tts;
   }
 
-  /** 碎碎念：确定性触发（空闲时长规则），预算与勿扰内静默。 */
-  evaluateMurmur(input: { idleMs: number }): TriggerDecision {
+  /** 碎碎念：确定性触发（空闲时长达标，或出现新任务事件），预算与勿扰内静默。 */
+  evaluateMurmur(input: { idleMs: number; hasNewTaskEvents?: boolean }): TriggerDecision {
     if (!this.config.murmur.enabled) {
       return { fire: false, reason: "disabled" };
     }
@@ -107,6 +111,7 @@ export class ProactiveEngine {
       return { fire: false, reason: "no-channel" };
     }
     const nowMs = this.deps.clock().getTime();
+    this.pruneMurmurFireTimes(nowMs);
     const withinMinInterval = this.murmurFireTimes.some(
       (time) => nowMs - time < this.config.murmurBudget.minIntervalMs,
     );
@@ -114,7 +119,9 @@ export class ProactiveEngine {
     if (withinMinInterval || perHour >= this.config.murmurBudget.maxPerHour) {
       return { fire: false, reason: "budget" };
     }
-    if (input.idleMs < this.config.murmur.idleThresholdMs) {
+    const idleTriggered = input.idleMs >= this.config.murmur.idleThresholdMs;
+    const eventTriggered = input.hasNewTaskEvents === true;
+    if (!idleTriggered && !eventTriggered) {
       return { fire: false, reason: "no-trigger" };
     }
     return { fire: true };
@@ -122,7 +129,15 @@ export class ProactiveEngine {
 
   /** 触发并送达后记账（由 Shell 调用，保持 evaluate 纯决策）。 */
   noteMurmurFired(): void {
-    this.murmurFireTimes.push(this.deps.clock().getTime());
+    const nowMs = this.deps.clock().getTime();
+    this.pruneMurmurFireTimes(nowMs);
+    this.murmurFireTimes.push(nowMs);
+  }
+
+  /** 只保留预算窗口内的触发记录，长期运行不无界增长。 */
+  private pruneMurmurFireTimes(nowMs: number): void {
+    const keepMs = Math.max(this.config.murmurBudget.minIntervalMs, 3_600_000);
+    this.murmurFireTimes = this.murmurFireTimes.filter((time) => nowMs - time < keepMs);
   }
 
   /**
@@ -148,7 +163,8 @@ export class ProactiveEngine {
     if (!due) {
       return { fire: false, reason: "not-due" };
     }
-    if (this.lastBriefingDayKey === this.dayKey()) {
+    const sentToday = this.briefingFireDays.filter((day) => day === this.dayKey()).length;
+    if (sentToday >= briefing.maxPerDay) {
       return { fire: false, reason: "already-sent" };
     }
     if (source.collect(now).length === 0) {
@@ -157,14 +173,17 @@ export class ProactiveEngine {
     return { fire: true };
   }
 
-  /** 送达后标记当日已发；次日自动失效（当日单次）。 */
+  /** 送达后计入当日防打扰预算；次日自动失效（当日单次）。 */
   markBriefingSent(): void {
-    this.lastBriefingDayKey = this.dayKey();
+    this.briefingFireDays.push(this.dayKey());
   }
 
   briefingStatus(): { dayKey: string; sentToday: boolean } {
     const dayKey = this.dayKey();
-    return { dayKey, sentToday: this.lastBriefingDayKey === dayKey };
+    return {
+      dayKey,
+      sentToday: this.briefingFireDays.some((day) => day === dayKey),
+    };
   }
 
   /** 话术生成：LLM 仅写话术；未配置或失败回退固定文案。 */
@@ -181,6 +200,6 @@ export class ProactiveEngine {
   }
 
   protected dayKey(): string {
-    return this.deps.clock().toISOString().slice(0, 10);
+    return utcDayKey(this.deps.clock);
   }
 }

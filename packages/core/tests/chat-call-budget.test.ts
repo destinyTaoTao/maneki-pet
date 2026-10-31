@@ -45,6 +45,33 @@ describe("ChatProvider 端口", () => {
       text: "be nice|hello",
     });
   });
+
+  it("取消与超时是可区分的两类终止语义", async () => {
+    const abortController = new AbortController();
+    abortController.abort();
+    await expect(
+      new FakeChatProvider().reply(
+        { messages: smallMessages },
+        { requestId: "r1", signal: abortController.signal, deadlineAtMs: Number.MAX_SAFE_INTEGER },
+      ),
+    ).rejects.toThrow("call aborted");
+
+    class DeadlineCheckingProvider implements ChatProvider {
+      readonly info = { id: "fake", apiVersion: 1 as const, locality: "local" as const };
+      async reply(_input: { messages: ChatMessage[] }, ctx: CallContext) {
+        if (Date.now() > ctx.deadlineAtMs) {
+          throw new Error("deadline exceeded");
+        }
+        return { text: "ok" };
+      }
+    }
+    await expect(
+      new DeadlineCheckingProvider().reply(
+        { messages: smallMessages },
+        { requestId: "r2", signal: new AbortController().signal, deadlineAtMs: 0 },
+      ),
+    ).rejects.toThrow("deadline exceeded");
+  });
 });
 
 describe("ChatCallBudget 单次调用限额", () => {

@@ -21,6 +21,7 @@ export {
 export { LatestResultGate } from "./latest-result.js";
 export {
   ConversationContextAssembler,
+  defaultContextBudgetConfig,
   type ContextAssembly,
   type ContextAssemblyResult,
   type ContextBudgetConfig,
@@ -28,6 +29,7 @@ export {
   type ContextSessionKind,
   type Summarizer,
 } from "./context-window.js";
+export { MemoryAwareContextAssembler, type MemoryAwareAssemblyInput } from "./memory-context-assembly.js";
 export {
   DailyQuotaPolicy,
   defaultDailyQuotaConfig,

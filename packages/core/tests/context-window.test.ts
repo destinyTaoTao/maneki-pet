@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ConversationContextAssembler,
+  defaultContextBudgetConfig,
   type ChatMessage,
   type ContextBudgetConfig,
   type Summarizer,
@@ -25,6 +26,12 @@ const fixedSummarizer: Summarizer = {
 const config: ContextBudgetConfig = { maxTokens: 40, strategy: "summarize" };
 
 describe("ConversationContextAssembler 会话上下文预算", () => {
+  it("出厂默认预算为保守值且默认摘要压缩", () => {
+    expect(defaultContextBudgetConfig.strategy).toBe("summarize");
+    expect(defaultContextBudgetConfig.maxTokens).toBeGreaterThan(0);
+    expect(defaultContextBudgetConfig.maxTokens).toBeLessThanOrEqual(8192);
+  });
+
   it("预算内原样通过，主/子会话共用同一规则", async () => {
     const assembler = new ConversationContextAssembler({
       estimator: perCharEstimator,

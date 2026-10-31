@@ -37,7 +37,7 @@ const taskItems: BriefingItem[] = [
 describe("ProactiveEngine 每日简报触发", () => {
   const enabledConfig = {
     ...defaultProactiveConfig,
-    daily_briefing: { enabled: true, scheduledHour: 9, scheduledMinute: 0 },
+    daily_briefing: { enabled: true, scheduledHour: 9, scheduledMinute: 0, maxPerDay: 1 },
   };
 
   it("默认关闭时不触发", () => {
@@ -114,6 +114,28 @@ describe("ProactiveEngine 每日简报触发", () => {
     advanceMs(24 * 60 * 60 * 1000);
     expect(engine.briefingStatus().sentToday).toBe(false);
     expect(engine.evaluateBriefing(briefingSource(taskItems))).toEqual({ fire: true });
+  });
+
+  it("简报占用防打扰预算：maxPerDay 内可发，超过后当日拦截", () => {
+    const { clock } = makeClockAt(Date.UTC(2026, 9, 31, 9, 0));
+    const engine = new ProactiveEngine({
+      clock,
+      config: {
+        ...defaultProactiveConfig,
+        daily_briefing: { enabled: true, scheduledHour: 9, scheduledMinute: 0, maxPerDay: 2 },
+      },
+      channels: () => channelsOn,
+      dnd: () => false,
+      fallbackCopy,
+    });
+    expect(engine.evaluateBriefing(briefingSource(taskItems))).toEqual({ fire: true });
+    engine.markBriefingSent();
+    expect(engine.evaluateBriefing(briefingSource(taskItems))).toEqual({ fire: true });
+    engine.markBriefingSent();
+    expect(engine.evaluateBriefing(briefingSource(taskItems))).toEqual({
+      fire: false,
+      reason: "already-sent",
+    });
   });
 
   it("勿扰内完全静默，通道全关不触发", () => {

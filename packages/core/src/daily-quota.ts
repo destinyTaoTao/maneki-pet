@@ -3,6 +3,8 @@
  * 默认仅约束主动收费调用，交互调用总额显式开启；到达限额即停，
  * 计量失效立即停止所有调用；额度按日共享，更换 Provider 不能绕过。
  */
+import { utcDayKey } from "./day-key.js";
+
 export type QuotaKind = "interactive" | "proactive";
 
 export interface DailyQuotaConfig {
@@ -35,7 +37,7 @@ export class DailyQuotaPolicy {
 
   /** 当前记账日（UTC 日界，跨实现一致）。 */
   dayKey(): string {
-    return this.clock().toISOString().slice(0, 10);
+    return utcDayKey(this.clock);
   }
 
   admit(kind: QuotaKind, estimatedTokens: number): QuotaDecision {

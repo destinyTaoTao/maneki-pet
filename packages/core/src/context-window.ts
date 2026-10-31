@@ -1,5 +1,5 @@
 import type { UsageEstimator } from "./chat-call-budget.js";
-import type { CallContext, ChatMessage } from "./chat-provider.js";
+import type { ChatMessage } from "./chat-provider.js";
 
 /** 主会话与子会话共用同一上下文预算规则（2026-10-31 决策）。 */
 export type ContextSessionKind = "main" | "sub";
@@ -9,13 +9,18 @@ export type ContextOverflowStrategy = "summarize" | "truncate" | "reject";
 
 /** 摘要端口：由注入实现完成压缩；摘要文本按数据处理，不承载权限指令。 */
 export interface Summarizer {
-  summarize(messages: ChatMessage[], ctx?: CallContext): Promise<string>;
+  summarize(messages: ChatMessage[]): Promise<string>;
 }
 
 export interface ContextBudgetConfig {
   maxTokens: number;
   strategy: ContextOverflowStrategy;
 }
+
+export const defaultContextBudgetConfig: ContextBudgetConfig = {
+  maxTokens: 8192,
+  strategy: "summarize",
+};
 
 export interface ContextAssembly {
   messages: ChatMessage[];

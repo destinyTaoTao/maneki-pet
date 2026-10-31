@@ -52,6 +52,11 @@ describe("ProactiveEngine 碎碎念触发（确定性规则）", () => {
     expect(engine.evaluateMurmur({ idleMs: 10 * 60 * 1000 })).toEqual({ fire: false, reason: "no-trigger" });
   });
 
+  it("出现新任务事件时，空闲未达阈值也可触发", () => {
+    const { engine } = makeEngine();
+    expect(engine.evaluateMurmur({ idleMs: 0, hasNewTaskEvents: true })).toEqual({ fire: true });
+  });
+
   it("类别单独关闭时不触发", () => {
     const { clock } = makeClock();
     const engine = new ProactiveEngine({
