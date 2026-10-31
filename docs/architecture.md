@@ -603,6 +603,8 @@ M1 工程依赖选择（2026-10-31）：Vitest 用于与 TypeScript/Vite 一致�
 
 动作包校验选型修订（2026-10-31，Tauri 真机验收发现）：初版选 Ajv 执行动作包 JSON Schema；但 Ajv 在运行时以 `new Function` 即时编译校验器，被桌面壳 CSP（`script-src 'self'`，无 `unsafe-eval`）拦截，打包后整个校验模块崩溃，桌宠白屏。CSP 不放宽（避免开放 eval 注入面），也不引入 Ajv standalone 构建期 codegen 管线（增加构建顺序复杂度）。改为 Core 内手写的结构校验器：零运行时依赖、无 eval，v1 契约字段固定且行为测试完整覆盖结构拒绝与语义拒绝；JSON Schema 语义以手写校验器与测试为准，Schema 升级到 v2 时再重新评估是否引入构建期 codegen。业务交叉检查仍由 Core 自己验证。
 
+M2 Runtime 选型记录（2026-10-31）：SQLite 驱动采用 Node 内置 `node:sqlite`（DatabaseSync，本机 Node 24 实测可用），零外部原生依赖，进程内单一拥有者不变；实验标记随 Node 升级复核。stdio MCP 表达桥在当前环境无法锁定 `@modelcontextprotocol/sdk` 版本（npm registry 不可达），先以手写 JSON-RPC 2.0 子集实现（`initialize / tools/list / tools/call`，stdio 按行分帧，stdout 仅协议消息）；协议一致性以契约测试为准，SDK 在可安装时另验替换，工具面与鉴权约束不变。dsh 接入 spike 依赖本机安装 dsh，当前设备未检出 dsh（见审计记录），真实事件 Adapter 的版本化 spike 在安装后补做。
+
 以下问题保持待验证，不把候选方案写成现成能力：
 
 | 问题 | 最迟落定与证据 |
