@@ -50,6 +50,19 @@ export {
   type MemoryWriteResult,
   type WritebackGranularity,
 } from "./external-memory.js";
+export {
+  ProactiveEngine,
+  defaultProactiveConfig,
+  type BriefingCategoryConfig,
+  type MurmurCategoryConfig,
+  type PhrasingProvider,
+  type PhrasingRequest,
+  type ProactiveCategory,
+  type ProactiveChannelState,
+  type ProactiveConfig,
+  type TriggerBlockReason,
+  type TriggerDecision,
+} from "./proactive.js";
 export type {
   AssetManifest,
   AssetManifestEntry,
