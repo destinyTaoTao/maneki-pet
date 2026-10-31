@@ -1,8 +1,8 @@
 # Maneki 架构设计
 
-> 状态：v0.3 设计基线（M1 契约细化），修订于 2026-10-31；尚无应用实现。
+> 状态：v0.3 设计基线（M1 实现中），修订于 2026-10-31；Core 与前端已验证，原生桌面尚未验收。
 > 本文是架构、契约和安全规则的唯一事实来源。示例是待实现契约，不代表已经支持某个产品或平台；路线图中的验收通过后才可声明支持。
-> 领域用语见 [CONTEXT.md](../CONTEXT.md)，历史取舍见 [ADR](./adr/0001-shared-local-runtime.md)，本轮审计与处置见 [审计报告](./audits/2026-10-30-design-audit.md)。术语与 ADR 不另立一份实现规范。
+> 领域用语见 [GLOSSARY.md](../GLOSSARY.md)，历史取舍见 [ADR](./adr/0001-shared-local-runtime.md)，本轮审计与处置见 [审计报告](./audits/2026-10-30-design-audit.md)。术语与 ADR 不另立一份实现规范。
 
 ## 1. 目标、范围与不变量
 
@@ -573,6 +573,8 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 | SQLite 单文件 | 本地事务与恢复；只允许 Runtime 管理，不提前支持其他数据库 |
 | `@modelcontextprotocol/sdk` | 标准 MCP 表达接入；SDK/协议版本在实现时锁定并验证 |
 | ASR 本地优先、ASR/TTS/LLM 分离注入 | 默认可关闭、独立替换；不绑定具体厂商，不静默云端回退 |
+
+M1 工程依赖选择（2026-10-31）：Vitest 用于与 TypeScript/Vite 一致的公共接口行为测试，相比 Node 内置 runner 省去额外 TS 转换配置；Vite 只承担 vanilla TS Shell 的开发与打包，相比引入 UI 框架和自定义构建链保持最小依赖；Ajv 用于执行动作包 JSON Schema，相比手写通用 Schema 校验减少规则遗漏，它不进行文件 IO，业务交叉检查仍由 Core 自己验证。
 
 以下问题保持待验证，不把候选方案写成现成能力：
 
