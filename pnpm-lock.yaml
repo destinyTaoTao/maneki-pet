@@ -198,6 +198,25 @@ importers:
         specifier: workspace:*
         version: link:../../core
 
+  packages/adapters/platform-bilibili:
+    dependencies:
+      '@maneki-pet/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@maneki-pet/platform-core':
+        specifier: workspace:*
+        version: link:../platform-core
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+
+  packages/adapters/platform-core:
+    dependencies:
+      '@maneki-pet/core':
+        specifier: workspace:*
+        version: link:../../core
+
   packages/core: {}
 
   packages/runtime:

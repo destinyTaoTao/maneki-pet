@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://maneki-pet.dev/schemas/bilibili-ops-data.v1.json",
+  "title": "B站运营数据人工导出模板 v1",
+  "description": "Maneki 与 EverNook 共同的数据契约：用户从创作中心人工导出/复制后按本模板提交采集；source 恒为 manual-export，防抓取自动来源混入。",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "platform": { "const": "bilibili" },
+    "videoId": { "type": "string", "minLength": 1, "maxLength": 64, "description": "BVID 或稿件标识。" },
+    "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "数据所属日期（导出口径）。" },
+    "plays": { "type": "integer", "minimum": 0 },
+    "likes": { "type": "integer", "minimum": 0 },
+    "comments": { "type": "integer", "minimum": 0 },
+    "coins": { "type": "integer", "minimum": 0 },
+    "shares": { "type": "integer", "minimum": 0 },
+    "source": { "const": "manual-export" }
+  },
+  "required": ["schemaVersion", "platform", "videoId", "date", "plays", "likes", "comments", "coins", "shares", "source"],
+  "additionalProperties": false
+}

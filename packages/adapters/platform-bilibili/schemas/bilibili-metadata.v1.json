@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://maneki-pet.dev/schemas/bilibili-metadata.v1.json",
+  "title": "B站发布就绪包元数据 v1",
+  "description": "Maneki 与 EverNook 共同的数据契约：发布就绪包的元数据 JSON。大资产（视频/封面）仅以路径与哈希引用，不进 EverNook 账本。",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "platform": { "const": "bilibili" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 80, "description": "B站标题上限 80 字符。" },
+    "intro": { "type": "string", "maxLength": 2000 },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 20 },
+      "minItems": 1,
+      "maxItems": 10
+    },
+    "video": {
+      "type": "object",
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "durationSeconds": { "type": "number", "minimum": 0 }
+      },
+      "required": ["file", "bytes", "sha256"],
+      "additionalProperties": false
+    },
+    "cover": {
+      "type": "object",
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "required": ["file", "bytes", "sha256"],
+      "additionalProperties": false
+    },
+    "experienceId": { "type": "string", "minLength": 1, "maxLength": 100, "description": "EverNook 已启用 skill_draft 经验回链（调用端记录，账本无一等字段——ADR-0006）。" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "required": ["schemaVersion", "platform", "title", "intro", "tags", "video", "cover", "createdAt"],
+  "additionalProperties": false
+}
