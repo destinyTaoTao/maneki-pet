@@ -101,6 +101,8 @@ npm scope 统一为 `@maneki-pet/*`（如 `@maneki-pet/core`）。
 ### Issue tracker
 
 需求、Bug 与规格票据统一记录在 GitHub Issues。
+操作时优先使用已连接的 GitHub 插件工具，其次使用 gh CLI
+（显式指定 --repo destinyTaoTao/maneki-pet）。
 见 docs/agents/issue-tracker.md。
 
 ### Triage labels
