@@ -188,6 +188,9 @@ importers:
       vite:
         specifier: ^7.3.7
         version: 7.3.7
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7
 
   packages/core:
     dependencies:

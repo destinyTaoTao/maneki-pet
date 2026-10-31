@@ -8,7 +8,7 @@
     "prebuild": "node scripts/generate-packs.mjs",
     "build": "tsc -p tsconfig.json && vite build",
     "pretest": "node scripts/generate-packs.mjs",
-    "test": "node scripts/validate-packs.mjs",
+    "test": "vitest run && node scripts/validate-packs.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "generate:packs": "node scripts/generate-packs.mjs",
     "generate:icons": "node scripts/generate-packs.mjs && tauri icon src-tauri/icons/icon-source.png",
@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.0",
-    "vite": "^7.3.7"
+    "vite": "^7.3.7",
+    "vitest": "^3.2.4"
   }
 }
