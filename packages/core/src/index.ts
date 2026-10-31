@@ -36,6 +36,20 @@ export {
   type QuotaKind,
   type QuotaLedger,
 } from "./daily-quota.js";
+export {
+  MemoryContextService,
+  defaultExternalMemoryConfig,
+  type AssistantMemoryRecord,
+  type AssistantRecordKind,
+  type ExternalMemoryConfig,
+  type ExternalMemoryProvider,
+  type MemoryContextResult,
+  type MemoryItem,
+  type MemoryQuery,
+  type MemorySourceTag,
+  type MemoryWriteResult,
+  type WritebackGranularity,
+} from "./external-memory.js";
 export type {
   AssetManifest,
   AssetManifestEntry,
