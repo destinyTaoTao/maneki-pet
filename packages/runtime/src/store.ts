@@ -1,7 +1,7 @@
 import { copyFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import type { QuotaLedger } from "@maneki-pet/core";
+import type { BrokerTask, QuotaLedger, TaskBrokerStore } from "@maneki-pet/core";
 
 export interface ClientRecord {
   clientId: string;
@@ -12,6 +12,8 @@ export interface ClientRecord {
   revokedAt: string | null;
 }
 
+export type BrokerTaskRow = BrokerTask;
+
 export class MigrationError extends Error {
   constructor(message: string) {
     super(message);
@@ -19,7 +21,7 @@ export class MigrationError extends Error {
   }
 }
 
-const KNOWN_SCHEMA_VERSION = 1;
+const KNOWN_SCHEMA_VERSION = 2;
 
 /**
  * Runtime 单一 SQLite 拥有者（architecture §6.2）：迁移先备份，
@@ -82,6 +84,22 @@ export class RuntimeStore {
           );
         `);
         this.db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)").run(new Date().toISOString());
+      }
+      if (current < 2) {
+        this.db.exec(`
+          CREATE TABLE broker_tasks (
+            broker_request_id TEXT PRIMARY KEY,
+            client_request_id TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            workdir TEXT NOT NULL,
+            status TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE INDEX broker_tasks_workdir ON broker_tasks (workdir, status);
+        `);
+        this.db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)").run(new Date().toISOString());
       }
     } catch (error) {
       if (error instanceof MigrationError) {
@@ -167,11 +185,48 @@ export class RuntimeStore {
       .run(dayKey, tokens);
   }
 
+  asBrokerTaskStore(): TaskBrokerStore {
+    return {
+      getTask: (id) => this.getBrokerTask(id),
+      putTask: (task) => this.putBrokerTask(task),
+      allTasks: () => this.allBrokerTasks(),
+    };
+  }
+
   asQuotaLedger(): QuotaLedger {
     return {
       totalForDay: (dayKey: string) => this.quotaTotal(dayKey),
       record: (dayKey: string, tokens: number) => this.quotaRecord(dayKey, tokens),
     };
+  }
+
+  // ---- broker_tasks（Core TaskBrokerStore 端口实现）----
+
+  getBrokerTask(brokerRequestId: string): BrokerTaskRow | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT broker_request_id, client_request_id, prompt, workdir, status, session_id, created_at, updated_at FROM broker_tasks WHERE broker_request_id = ?",
+      )
+      .get(brokerRequestId) as Record<string, string> | undefined;
+    return row ? toBrokerTask(row) : undefined;
+  }
+
+  putBrokerTask(task: BrokerTaskRow): void {
+    this.db
+      .prepare(
+        "INSERT INTO broker_tasks (broker_request_id, client_request_id, prompt, workdir, status, session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(broker_request_id) DO UPDATE SET status = excluded.status, session_id = excluded.session_id, updated_at = excluded.updated_at",
+      )
+      .run(task.brokerRequestId, task.clientRequestId, task.prompt, task.workdir, task.status, task.sessionId, task.createdAt, task.updatedAt);
+  }
+
+  allBrokerTasks(): BrokerTaskRow[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT broker_request_id, client_request_id, prompt, workdir, status, session_id, created_at, updated_at FROM broker_tasks",
+        )
+        .all() as Array<Record<string, string>>
+    ).map(toBrokerTask);
   }
 
   close(): void {
@@ -187,6 +242,19 @@ function toClient(row: Record<string, string | null>): ClientRecord {
     scopes: JSON.parse(row.scopes as string) as string[],
     createdAt: row.created_at as string,
     revokedAt: row.revoked_at ?? null,
+  };
+}
+
+function toBrokerTask(row: Record<string, string>): BrokerTask {
+  return {
+    brokerRequestId: row.broker_request_id!,
+    clientRequestId: row.client_request_id!,
+    prompt: row.prompt!,
+    workdir: row.workdir!,
+    status: row.status as BrokerTask["status"],
+    sessionId: row.session_id!,
+    createdAt: row.created_at!,
+    updatedAt: row.updated_at!,
   };
 }
 

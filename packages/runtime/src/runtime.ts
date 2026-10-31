@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
 
-import { DailyQuotaPolicy, MemoryContextService } from "@maneki-pet/core";
+import { DailyQuotaPolicy, MemoryContextService, TaskBroker } from "@maneki-pet/core";
 
 import { generateToken, hashToken, TicketIssuer } from "./auth.js";
 import { EventFeed } from "./events.js";
@@ -12,6 +12,7 @@ import { McpExpressionBridge, type ExpressionSinks } from "./mcp-bridge.js";
 import { McpMemoryClient } from "./mcp-memory-client.js";
 import { loadRuntimeConfig, NotificationBudget } from "./quota.js";
 import { RuntimeStore } from "./store.js";
+import { TaskService } from "./task-service.js";
 import { WsHub } from "./ws.js";
 
 export interface RuntimeOptions {
@@ -34,6 +35,8 @@ export interface StartedRuntime {
   store: RuntimeStore;
   /** 配置了 externalMemory 时可用（票据 #46）；未配置为 undefined。 */
   memory?: MemoryContextService;
+  /** 配置了 dsh 网关时可用（M2b）；未配置为 undefined。 */
+  tasks?: TaskService;
   state(): RuntimeState;
   startMcpStdioBridge(): Promise<void>;
   stop(): Promise<void>;
@@ -85,6 +88,30 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
     // HTTP 签发与 WS 兑换必须共享同一票据发行器，票据才有效。
     const tickets = new TicketIssuer();
     let started: StartedRuntime | undefined;
+
+    // M2b 派发：配置了 dsh 网关才装配 TaskService（Broker + DshAdapter 派发）。
+    let tasks: TaskService | undefined;
+    if (config.dsh) {
+      const adapter = new (await import("@maneki-pet/adapter-dsh")).DshAdapter({
+        gateway: { baseUrl: config.dsh.baseUrl, token: config.dsh.token },
+      });
+      const broker = new TaskBroker({
+        store: store.asBrokerTaskStore(),
+        clock: () => new Date(),
+        ...(config.broker && Object.keys(config.broker).length > 0 ? { config: { maxRunningPerWorkdir: config.broker.maxRunningPerWorkdir ?? 1, maxQueuedPerWorkdir: config.broker.maxQueuedPerWorkdir ?? 4 } } : {}),
+        dispatcher: {
+          dispatch: async (task) => {
+            await adapter.submit(
+              { brokerRequestId: task.brokerRequestId, prompt: task.prompt, target: { kind: "new", workdir: task.workdir } },
+              { requestId: task.brokerRequestId, signal: new AbortController().signal, deadlineAtMs: Date.now() + 30_000 },
+            );
+          },
+        },
+      });
+      tasks = new TaskService(broker, adapter);
+      feed.publish("tasks.configured", { adapter: "dsh", gateway: config.dsh.baseUrl });
+    }
+
     const api = new LocalHttpApi({
       host: "127.0.0.1",
       port: options.port ?? 0,
@@ -99,6 +126,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       notifications,
       feed,
       dnd,
+      ...(tasks ? { tasks: { submit: (e: { clientRequestId: string; prompt: string; workdir: string }) => tasks.submit(e), describe: (id: string) => tasks.describe(id), cancel: (id: string) => tasks.cancel(id) } } : {}),
       onShutdown: () => {
         // 受信管理入口退出：优雅停机，事件循环随服务关闭自然排空。
         void started?.stop();
@@ -155,6 +183,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       feed,
       store,
       ...(memoryService ? { memory: memoryService } : {}),
+      ...(tasks ? { tasks } : {}),
       state: () => lifecycle.state,
       startMcpStdioBridge: async () => {
         if (mcpStarted) {

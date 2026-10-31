@@ -124,6 +124,11 @@ export class TaskBroker {
     return { outcome: "accepted", task };
   }
 
+  /** 已登记任务读取（Runtime 查询路由与快照合并用）。 */
+  describeTask(brokerRequestId: string): BrokerTask | undefined {
+    return this.deps.store.getTask(brokerRequestId);
+  }
+
   /** 运行任务完成/失败后由 Runtime 调用：队列前移并自动派发下一单。 */
   notifySettled(brokerRequestId: string, status: Extract<TaskStatus, "completed" | "failed" | "cancelled">): BrokerTask | undefined {
     const task = this.deps.store.getTask(brokerRequestId);

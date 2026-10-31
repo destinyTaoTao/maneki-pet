@@ -36,6 +36,12 @@ export interface LocalHttpApiDeps {
   dnd: { get(): boolean; set(value: boolean): void };
   /** 受信管理入口请求退出（保存状态、关服务、释放锁）后回调。 */
   onShutdown?: () => void;
+  /** M2b 派发：配置了 dsh 网关时提供任务服务；未配置时任务路由显式 501。 */
+  tasks?: {
+    submit(entry: { clientRequestId: string; prompt: string; workdir: string }): Promise<{ outcome: string; task?: unknown; reason?: string }>;
+    describe(brokerRequestId: string): Promise<unknown>;
+    cancel(brokerRequestId: string): Promise<unknown>;
+  };
 }
 
 interface AuthedClient {
@@ -253,6 +259,73 @@ export class LocalHttpApi {
         return;
       }
       this.sendJson(res, 200, limitsSnapshot(this.deps));
+      return;
+    }
+
+    if (method === "POST" && url === "/v1/tasks") {
+      if (!this.deps.tasks) {
+        this.sendJson(res, 501, { error: "task dispatch not configured (config.dsh missing)" });
+        return;
+      }
+      if (!hasScope(client, EXPRESS_SCOPE)) {
+        this.forbidden(res, "task dispatch requires express scope");
+        return;
+      }
+      const body = await this.readJson(req, res);
+      if (body === undefined) return;
+      const checked = validateObject(body, {
+        clientRequestId: { type: "string", required: true, maxLength: 120 },
+        prompt: { type: "string", required: true, maxLength: 32_000 },
+        workdir: { type: "string", required: true, maxLength: 400 },
+      });
+      if (!checked.ok) {
+        this.sendJson(res, 400, { error: checked.reason });
+        return;
+      }
+      const entry = checked.value as { clientRequestId: string; prompt: string; workdir: string };
+      const outcome = await this.deps.tasks.submit(entry);
+      if (outcome.outcome === "rejected") {
+        this.sendJson(res, 409, { outcome, error: outcome.reason });
+        return;
+      }
+      this.deps.store.audit("task.submitted", (outcome.task as { brokerRequestId?: string })?.brokerRequestId ?? "", { clientRequestId: entry.clientRequestId }, new Date().toISOString());
+      this.sendJson(res, 202, outcome);
+      return;
+    }
+
+    if (method === "GET" && url.startsWith("/v1/tasks/")) {
+      if (!this.deps.tasks) {
+        this.sendJson(res, 501, { error: "task dispatch not configured (config.dsh missing)" });
+        return;
+      }
+      if (!hasScope(client, EXPRESS_SCOPE)) {
+        this.forbidden(res, "task query requires express scope");
+        return;
+      }
+      const id = url.slice("/v1/tasks/".length);
+      try {
+        this.sendJson(res, 200, await this.deps.tasks.describe(id));
+      } catch (error) {
+        this.sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    if (method === "POST" && url.startsWith("/v1/tasks/") && url.endsWith("/cancel")) {
+      if (!this.deps.tasks) {
+        this.sendJson(res, 501, { error: "task dispatch not configured (config.dsh missing)" });
+        return;
+      }
+      if (!hasScope(client, EXPRESS_SCOPE)) {
+        this.forbidden(res, "task cancel requires express scope");
+        return;
+      }
+      const id = url.slice("/v1/tasks/".length, -"/cancel".length);
+      try {
+        this.sendJson(res, 200, await this.deps.tasks.cancel(id));
+      } catch (error) {
+        this.sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+      }
       return;
     }
 

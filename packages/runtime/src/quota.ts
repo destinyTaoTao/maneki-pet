@@ -14,6 +14,16 @@ export interface ExternalMemoryConfigFile {
   providerId?: string;
 }
 
+export interface DshGatewayConfigFile {
+  baseUrl: string;
+  token: string;
+}
+
+export interface BrokerConfigFile {
+  maxRunningPerWorkdir?: number;
+  maxQueuedPerWorkdir?: number;
+}
+
 export interface RuntimeLimitsConfig {
   schemaVersion: 1;
   limits: {
@@ -23,6 +33,9 @@ export interface RuntimeLimitsConfig {
   };
   /** 可选：外挂记忆服务的 stdio 启动配置（票据 #46）；缺省不接入。 */
   externalMemory?: ExternalMemoryConfigFile;
+  /** 可选：dsh web 网关派发（M2b）；缺省不派发。token 属于凭证，正式部署应迁移安全存储。 */
+  dsh?: DshGatewayConfigFile;
+  broker?: BrokerConfigFile;
 }
 
 export const defaultRuntimeConfig: RuntimeLimitsConfig = {
@@ -60,7 +73,7 @@ export function loadRuntimeConfig(configDir: string): { config: RuntimeLimitsCon
   }
   const container = parsed as Record<string, unknown>;
   for (const key of Object.keys(container)) {
-    if (key !== "schemaVersion" && key !== "limits" && key !== "externalMemory") {
+    if (key !== "schemaVersion" && key !== "limits" && key !== "externalMemory" && key !== "dsh" && key !== "broker") {
       throw new ConfigError(`unknown config field "${key}"`);
     }
   }
@@ -68,6 +81,8 @@ export function loadRuntimeConfig(configDir: string): { config: RuntimeLimitsCon
     throw new ConfigError(`config schemaVersion ${String(container.schemaVersion)} is not supported (need 1); refusing to run`);
   }
   const externalMemory = parseExternalMemoryConfig(container.externalMemory);
+  const dsh = parseDshConfig(container.dsh);
+  const broker = parseBrokerConfig(container.broker);
   // null 表示"交互总额关闭"，与缺省字段等价；先归一为缺省再校验。
   const limitsInput = { ...((container.limits ?? {}) as Record<string, unknown>) };
   if (limitsInput.interactiveDailyTokenLimit === null) {
@@ -90,8 +105,54 @@ export function loadRuntimeConfig(configDir: string): { config: RuntimeLimitsCon
       maxNotificationsPerHour: limits.maxNotificationsPerHour,
     },
     ...(externalMemory ? { externalMemory } : {}),
+    ...(dsh ? { dsh } : {}),
+    ...(broker ? { broker } : {}),
   };
   return { config, configPath, created: false };
+}
+
+function parseDshConfig(raw: unknown): DshGatewayConfigFile | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ConfigError("dsh must be an object");
+  }
+  const input = raw as Record<string, unknown>;
+  for (const key of Object.keys(input)) {
+    if (!["baseUrl", "token"].includes(key)) {
+      throw new ConfigError(`unknown dsh field "${key}"`);
+    }
+  }
+  if (typeof input.baseUrl !== "string" || !/^https?:\/\//.test(input.baseUrl) || input.baseUrl.length > 300) {
+    throw new ConfigError("dsh.baseUrl must be an http(s) URL (<= 300 chars)");
+  }
+  if (typeof input.token !== "string" || input.token.length === 0 || input.token.length > 300) {
+    throw new ConfigError("dsh.token must be a non-empty string (<= 300 chars)");
+  }
+  return { baseUrl: input.baseUrl, token: input.token };
+}
+
+function parseBrokerConfig(raw: unknown): BrokerConfigFile | undefined {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  const checked = validateObject(raw, {
+    maxRunningPerWorkdir: { type: "number", required: false, min: 1, max: 8 },
+    maxQueuedPerWorkdir: { type: "number", required: false, min: 1, max: 64 },
+  });
+  if (!checked.ok) {
+    throw new ConfigError(`invalid broker config: ${checked.reason}`);
+  }
+  const value = checked.value as { maxRunningPerWorkdir?: number; maxQueuedPerWorkdir?: number };
+  const result: BrokerConfigFile = {};
+  if (value.maxRunningPerWorkdir !== undefined) {
+    result.maxRunningPerWorkdir = value.maxRunningPerWorkdir;
+  }
+  if (value.maxQueuedPerWorkdir !== undefined) {
+    result.maxQueuedPerWorkdir = value.maxQueuedPerWorkdir;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function parseExternalMemoryConfig(raw: unknown): ExternalMemoryConfigFile | undefined {

@@ -237,6 +237,9 @@ importers:
 
   packages/runtime:
     dependencies:
+      '@maneki-pet/adapter-dsh':
+        specifier: workspace:*
+        version: link:../adapters/dsh
       '@maneki-pet/core':
         specifier: workspace:*
         version: link:../core
