@@ -8,6 +8,7 @@ build/
 out/
 target/
 *.tsbuildinfo
+apps/desktop/src-tauri/gen/
 
 # Package manager
 .pnpm-debug.log*
