@@ -86,6 +86,19 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 
 **gate**：`DEEPSEEK_API_KEY` 未配置 → 活体任务 spike（完整事件流、final 文本、`--session-id` 恢复快照、审批触发、输入/取消探测）待用户在**自己的环境**设置凭证后补测（web Models 页 credentials 服务或环境变量；凭证不经 Maneki 代码与本仓库）。
 
+
+## dsh 活体任务 spike（2026-10-31 续3，凭证就绪后）
+
+凭证（用户在自己环境设置 DEEPSEEK_API_KEY，经 PowerShell 用户级环境中继给 dsh 子进程，值不经本仓库与日志）就绪后，四项活体验证全部完成：
+
+1. **完整事件流 + final**：session → turn_start → step_start → **thinking** → **text（流式）** → step_end（**含 usage：inputTokens/outputTokens/cacheReadTokens/cacheWriteTokens**） → turn_end(reason.kind=completed) → final(text)。新增事件类型 thinking/text/tool_call/tool_result 补齐首轮；usage 计量可直接喂限额记账（注：一次极小任务 inputTokens≈7000——harness 系统提示很大，限额口径要按 dsh 实际计费算）。
+2. **会话恢复（continueSession ✓ 转正）**：--session-id 接续同一 session，turn 编号延续（turn:2），上下文完整（准确复述上轮指令），增量计量可见（input 248 + cacheRead 6784，DeepSeek prompt 缓存生效）。
+3. **工具流与审批（关键安全发现）**：tool_call 携带完整 tool 名与 input（含命令原文）；**workspace 内读写/删除自动执行**；**workspace 外写 → 两层防御**：先 sandbox 拒绝（file access denied under workspace-write mode），agent 再以 sandbox_permissions:danger-full-access + justification 请求升级 → **requires approval, but no approval channel is available → fail-closed 拒绝**（非挂起、非静默放行，与 Maneki 审批红线同向）。tool_call 的 input + justification + sandbox_permissions 即 §5.4 PermissionRequest 的现成素材；dsh 自述审批通道可插（permission hook）——**宠物审批桥的挂点就在这里**。
+4. **取消（cancel ✗ 定案）**：headless 无取消 API/事件——中途终止进程后事件流止于最后的 tool_call，无 cancelled/final 事件。Adapter 的取消 = 进程终止 + 会话恢复对账（--session-id 恢复仍可用）。
+
+**Adapter 能力分级终评（dsh 0.2.1-rc.5，活体验证）**：events ✓（ndjson 全流）；newTask ✓；continueSession ✓（活体验证）；query 部分（恢复可用，快照完整性=历史重放）；approval **fail-closed ask**（workspace 内自动、越界需审批通道、无通道即拒——可接 Maneki 审批桥，native 跳转目标为 dsh web/tui UI）；reply ✓（会话恢复+继续）；cancel ✗（进程终止语义）。
+
+**M2b 设计含义**：① DSH_PERMISSION_MODE 必须显式设为 workspace-write（默认即如此），不得用 danger-full-access；② dsh 派发的危险操作天然 fail-closed，Maneki 审批桥可通过 permission hook 挂入（M5+）；③ 限额记账可用 step_end.usage 的真实 token 数。
 ## 结论（更新）
 
 M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过。dsh spike 首轮完成（结构化事件流 + 会话恢复 + 原生审批面确认），活体任务 spike 待 DEEPSEEK_API_KEY；外部记忆对接待服务端点。
