@@ -131,6 +131,14 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 
 **M2b 实现路径定稿**：DshAdapter 派发层 = HTTP unary 网关客户端（本探针协议）+ headless `--json` 事件流（异步任务）双通道；approval: native（routeId 指向 dsh web UI）；asOfSeq 快照对账用 session/projections。剩余实现 = Core Task Broker + 适配器派发层 + 运行器，全部无需再探协议。
 
+
+## DshAdapter 派发层实现（2026-10-31 续7，路线 (a) 实现完成）
+
+- 新增 DshGatewayClient：活体验证的 unary 线协议客户端（envelope、token 门禁换 Cookie、逐方法参数名映射 list=_request/其余=request）。
+- DshAdapter 双模：无 gateway 配置保持观察 v0；配置后能力升级 newTask/continueSession/reply/cancel + query=status_only + **approval:native**（dsh 沙箱 workspace-write 内自动、越界 fail-closed 需在其 web UI 审批——活体验证的 native 机制）。submit 的 prompt.requestId = Maneki brokerRequestId（dsh 原生幂等键与 Broker 对齐）；reply 走 steer 模式（requestId=inputId）；query 经 session/projections 的 asOfSeq+turnOutline 出 status_only 快照（产物引用未验证不虚报 full）；cancel 经 session/cancel 并在登记表标记 cancelled。
+- 契约测试：stub 网关（严格按活体线协议）覆盖 登录失败/submit 幂等键透传/status_only 快照/not_found/steer reply/cancel 标记/观察模式派发拒绝，共 21 条。全仓 169 条测试绿（core 72 + adapter-dsh 21 + desktop 24 + runtime 52）。
+- **未做（下一步）**：Core Task Broker（§5.3 状态机+持久化+串行/有界并发）与 Runtime 装配（dsh web profile 的受控启动/发现）——M2b 剩余主体。
+
 ## 结论（更新）
 
 M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 三轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地（161 条测试绿）；网关派发路线定案可行。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。
