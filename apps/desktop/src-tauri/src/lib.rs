@@ -17,11 +17,11 @@ struct NativeSettings {
 
 struct SharedSettings(Mutex<NativeSettings>);
 
-fn lock_settings(app: &AppHandle) -> std::sync::MutexGuard<'_, NativeSettings> {
-    app.state::<SharedSettings>()
-        .0
-        .lock()
-        .expect("native settings mutex poisoned")
+// MutexGuard 不能跨过 State 临时值返回，改为在闭包作用域内完成读写。
+fn with_settings<R>(app: &AppHandle, apply: impl FnOnce(&mut NativeSettings) -> R) -> R {
+    let state = app.state::<SharedSettings>();
+    let mut guard = state.0.lock().expect("native settings mutex poisoned");
+    apply(&mut guard)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -73,31 +73,37 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "show" => {
-                        if let Some(window) = app.get_window("main") {
+                        if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
                     }
                     "dnd" => {
-                        let mut settings = lock_settings(app);
-                        settings.do_not_disturb = !settings.do_not_disturb;
-                        let _ = dnd_for_event.set_checked(settings.do_not_disturb);
+                        let enabled = with_settings(app, |settings| {
+                            settings.do_not_disturb = !settings.do_not_disturb;
+                            settings.do_not_disturb
+                        });
+                        let _ = dnd_for_event.set_checked(enabled);
                     }
                     "always_on_top" => {
-                        let mut settings = lock_settings(app);
-                        settings.always_on_top = !settings.always_on_top;
-                        if let Some(window) = app.get_window("main") {
-                            let _ = window.set_always_on_top(settings.always_on_top);
+                        let enabled = with_settings(app, |settings| {
+                            settings.always_on_top = !settings.always_on_top;
+                            settings.always_on_top
+                        });
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.set_always_on_top(enabled);
                         }
-                        let _ = always_on_top_for_event.set_checked(settings.always_on_top);
+                        let _ = always_on_top_for_event.set_checked(enabled);
                     }
                     "click_through" => {
-                        let mut settings = lock_settings(app);
-                        settings.click_through = !settings.click_through;
-                        if let Some(window) = app.get_window("main") {
-                            let _ = window.set_ignore_cursor_events(settings.click_through);
+                        let enabled = with_settings(app, |settings| {
+                            settings.click_through = !settings.click_through;
+                            settings.click_through
+                        });
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.set_ignore_cursor_events(enabled);
                         }
-                        let _ = click_through_for_event.set_checked(settings.click_through);
+                        let _ = click_through_for_event.set_checked(enabled);
                     }
                     "quit" => app.exit(0),
                     _ => {}
