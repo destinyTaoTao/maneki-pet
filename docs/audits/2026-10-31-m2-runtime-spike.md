@@ -99,6 +99,15 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 **Adapter 能力分级终评（dsh 0.2.1-rc.5，活体验证）**：events ✓（ndjson 全流）；newTask ✓；continueSession ✓（活体验证）；query 部分（恢复可用，快照完整性=历史重放）；approval **fail-closed ask**（workspace 内自动、越界需审批通道、无通道即拒——可接 Maneki 审批桥，native 跳转目标为 dsh web/tui UI）；reply ✓（会话恢复+继续）；cancel ✗（进程终止语义）。
 
 **M2b 设计含义**：① DSH_PERMISSION_MODE 必须显式设为 workspace-write（默认即如此），不得用 danger-full-access；② dsh 派发的危险操作天然 fail-closed，Maneki 审批桥可通过 permission hook 挂入（M5+）；③ 限额记账可用 step_end.usage 的真实 token 数。
+
+## M2b 前置：HarnessAdapter 契约与 dsh 观察适配器（2026-10-31 续4）
+
+- Core 契约代码化：§5.1/§5.2 v1 类型（TaskRequest/Snapshot、PermissionRequest、HarnessEvent 载荷联合、AdapterCapabilities）+ checkCapabilityConsistency 注册时校验（approval none 限制派发；bridge 需 decidePermission+queryOperation）。
+- 新包 @maneki-pet/adapter-dsh：观察 v0，能力声明忠实活体 spike（events-only；approval none——headless 危险操作 fail-closed 无审批通道；数据边界 cloud: api.deepseek.com）。DshEventMapper 以活体转录为契约测试（session/status/thinking/text/tool_call/tool_result/final → HarnessEvent；usage 与 completed tool_result 不进事件流防洪泛）。
+- 全仓 161 条测试绿（core 72 + adapter-dsh 13 + desktop 24 + runtime 52）。
+- **派发 gate（M2b 决策点）**：dsh headless 无用户可达审批 UI（fail-closed 已验证），按 §5.1 不得启用派发。三条路：(a) 探索 web profile /api 网关作为派发+审批通道；(b) permission hook 审批桥（M5+ 方向）；(c) 修订 §5.1 接受"沙箱内自动 + 越界 fail-closed"为 native 变体（架构变更需决策）。
+
 ## 结论（更新）
 
-M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过。dsh spike 首轮完成（结构化事件流 + 会话恢复 + 原生审批面确认），活体任务 spike 待 DEEPSEEK_API_KEY；外部记忆对接待服务端点。
+M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 两轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。
+M
