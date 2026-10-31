@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { validateScriptHashes, validateSkillPack } from "../src/index.js";
+import { validateScriptHashes, validateSkillPack, type SkillPackManifest } from "../src/index.js";
 
-const valid = {
+const valid: SkillPackManifest = {
   schemaVersion: 1,
   id: "bilibili-publish-prep",
   name: "B站发布备料",
@@ -64,7 +64,7 @@ describe("validateSkillPack 技能包清单", () => {
 
 describe("validateScriptHashes 内容核对", () => {
   it("哈希与尺寸逐文件一致时通过", () => {
-    const result = validateSkillPack(valid, {
+    const result = validateScriptHashes(valid, {
       "scripts/collect-stats.mjs": { bytes: 512, sha256: "a".repeat(64) },
       "SKILL.md": { bytes: 128, sha256: "b".repeat(64) },
     });

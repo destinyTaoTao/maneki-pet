@@ -121,8 +121,9 @@ export function validateScriptHashes(
     }
   }
   for (const path of Object.keys(computed)) {
-    if (!manifest.scripts.some((script) => script.path === path)) {
-      return { ok: false, reason: `computed script "${path}" is not declared in the manifest` };
+    // 入口 SKILL.md 与脚本同为安装时哈希对象；其余未声明文件拒绝。
+    if (path !== manifest.entry && !manifest.scripts.some((script) => script.path === path)) {
+      return { ok: false, reason: `computed file "${path}" is not declared in the manifest` };
     }
   }
   return { ok: true, value: true };

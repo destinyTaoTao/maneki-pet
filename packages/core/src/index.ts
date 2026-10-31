@@ -51,6 +51,16 @@ export {
 } from "./chat-call-budget.js";
 export { LatestResultGate } from "./latest-result.js";
 export {
+  InMemoryTaskStore,
+  TaskBroker,
+  defaultTaskBrokerConfig,
+  type BrokerTask,
+  type Dispatcher,
+  type SubmitDecision,
+  type TaskBrokerConfig,
+  type TaskBrokerStore,
+} from "./task-broker.js";
+export {
   ConversationContextAssembler,
   defaultContextBudgetConfig,
   type ContextAssembly,
