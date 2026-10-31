@@ -109,5 +109,4 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 
 ## 结论（更新）
 
-M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 两轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。
-M
+M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 两轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地（161 条测试绿）。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。

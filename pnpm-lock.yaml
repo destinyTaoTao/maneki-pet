@@ -192,6 +192,12 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@26.6.6)
 
+  packages/adapters/dsh:
+    dependencies:
+      '@maneki-pet/core':
+        specifier: workspace:*
+        version: link:../../core
+
   packages/core: {}
 
   packages/runtime:
