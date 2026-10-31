@@ -107,6 +107,16 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 - 全仓 161 条测试绿（core 72 + adapter-dsh 13 + desktop 24 + runtime 52）。
 - **派发 gate（M2b 决策点）**：dsh headless 无用户可达审批 UI（fail-closed 已验证），按 §5.1 不得启用派发。三条路：(a) 探索 web profile /api 网关作为派发+审批通道；(b) permission hook 审批桥（M5+ 方向）；(c) 修订 §5.1 接受"沙箱内自动 + 越界 fail-closed"为 native 变体（架构变更需决策）。
 
+
+## web /api 网关探索（2026-10-31 续5，派发路线 (a) 可行性定案）
+
+对 web profile 前端 bundle 与 npm 安装内插件包的静态分析 + cookie 围栏活体验证：
+
+- **传输**：/api/remote.mux 单 WebSocket 复用全部 Typert 远程流（帧形 {type:"item", streamId, …}）；unary RPC 与 $events 应用事件流并存；鉴权 = token 门禁换签名 Cookie（HttpOnly + SameSite=Strict）。
+- **官方客户端就在用户安装内**：@deepseek-ai/dsh-api-gateway/lib/client.node.js（RemoteStreamMuxClient + ClientRemoteService）与各控制器的生成式 typert.remote-client.js（zod schema 全量类型化，Generator 生成、禁止手改）。
+- **方法面（生成绑定实测）**：session.cancel → {accepted:true}（**取消能力存在，修正此前配置层的 ✗**）；session.control → projections{asOfSeq, inbox, workingDirectory, title, todos,…}（**TaskSnapshot 等价物，asOfSeq 与 §5.1 sourcePosition 语义对齐**）；approval.allow / approval.reject / permission.access（审批可经网关应答）；session.new / fork / archive / search / hierarchy。
+- **派发路线 (a) 定案：可行**。M2b dsh 适配器的正确形态 = 连接（或受控启动）web profile，经官方生成客户端走网关完成派发/快照/取消，审批 native routeId 指向 dsh web UI 的审批页。实现量 = M2b 里程碑本体（网关客户端接线 + Task Broker + 运行器），实现方式二选一：运行时动态 import 用户安装内的官方生成客户端（版本绑定已装 dsh），或按 zod schema 自实现最小客户端（协议自担）。
+
 ## 结论（更新）
 
-M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 两轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地（161 条测试绿）。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。
+M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 三轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地（161 条测试绿）；网关派发路线定案可行。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。
