@@ -2,7 +2,7 @@
 
 > 状态：v0.3 设计基线（M1 契约细化），修订于 2026-10-31；尚无应用实现。
 > 本文是架构、契约和安全规则的唯一事实来源。示例是待实现契约，不代表已经支持某个产品或平台；路线图中的验收通过后才可声明支持。
-> 领域用语见 [GLOSSARY.md](../GLOSSARY.md)，历史取舍见 [ADR](./adr/0001-shared-local-runtime.md)，本轮审计与处置见 [审计报告](./audits/2026-10-30-design-audit.md)。术语与 ADR 不另立一份实现规范。
+> 领域用语见 [CONTEXT.md](../CONTEXT.md)，历史取舍见 [ADR](./adr/0001-shared-local-runtime.md)，本轮审计与处置见 [审计报告](./audits/2026-10-30-design-audit.md)。术语与 ADR 不另立一份实现规范。
 
 ## 1. 目标、范围与不变量
 
@@ -93,13 +93,16 @@ Runtime 采用发行包自带的运行时或自包含二进制；用户无需手
 ### 3.1 动画与交互
 
 - 透明视频 `video-alpha` 为主，`spritesheet` 为兼容性/资源兜底；播放器根据能力选择素材。VP9-alpha WebM 与 HEVC-alpha MOV 是待测组合，不能把浏览器可播放等同于 Tauri 三平台已验证。
-- Core 给出 `PetState` 和动作意图，Shell 处理解码、渲染和输入；带权动画链支持优先级、打断与结束回退。
+- Core 给出 `PetState` 和动作意图，Shell 处理解码、渲染和输入。状态集合固定为 `idle / thinking / working / waiting_input / celebrating / error / sleeping`。
+- Core 的动画链接收状态变更、动作请求与 clip 结束事件，并返回当前应播放的 clip；随机数由调用方注入，Core 不读取时钟、DOM 或播放器。状态 clip 结束后按对应状态的权重选择下一个 clip；权重为零的 clip 不得被选中。
+- 每次播放返回递增的 playback ID。只有当前 playback 的结束事件才能推进动画链，打断前的迟到结束事件必须忽略。缺失的非 `idle` 状态回退到 `idle`。
+- 动作包含有序 clips、非负整数 `priority` 与 `interruptible`。动作请求只在无活动动作，或活动动作可打断且新优先级不低于它时接受；动作结束后回到调用方最新设置的 PetState。PetState 变更始终抢占动作，以免装饰动作掩盖真实任务状态；`interruptible` 只限制其他动作请求。
 - 点击、拖拽、甩抛计算接收显式时间与几何参数；窗口移动、多屏/DPI、鼠标穿透由 Shell/原生桥负责。
 - M1 提供默认形象和第二个最小测试包验证换装；用户可导入自制包，不以社区市场为前提。
 
 ### 3.2 动作包 v1 最小契约
 
-M1 固定 v1 的加载语义与 JSON Schema；以下是最小有效结构示意，素材哈希清单随包生成，生产包不得省略：
+M1 固定 v1 的加载语义与 JSON Schema。包根目录的描述文件名为 `pet-pack.json`，独立完整性清单为 `assets.manifest.json`；其他扩展主版本一律拒绝。最小有效结构如下，生产包不得省略清单：
 
 ```json
 {
@@ -111,21 +114,35 @@ M1 固定 v1 的加载语义与 JSON Schema；以下是最小有效结构示意�
   "clips": {
     "breathe": {
       "sources": [
-        { "renderer": "video-alpha", "path": "assets/breathe.webm", "mimeType": "video/webm" }
+        { "renderer": "video-alpha", "path": "assets/breathe.webm", "mimeType": "video/webm" },
+        {
+          "renderer": "spritesheet",
+          "path": "assets/breathe.png",
+          "mimeType": "image/png",
+          "frameWidth": 128,
+          "frameHeight": 128,
+          "frameCount": 2,
+          "framesPerSecond": 2
+        }
       ]
     }
   },
   "states": {
     "idle": { "clips": ["breathe"], "weights": [1] }
   },
-  "actions": []
+  "actions": [
+    { "id": "wave", "clips": ["breathe"], "priority": 1, "interruptible": true }
+  ]
 }
 ```
 
-- `idle` 与可播放素材必需；其他状态缺省回退 `idle`。状态集合为 `idle / thinking / working / waiting_input / celebrating / error / sleeping`。
-- clip 引用必须存在；权重数量匹配、非负且和大于零；不支持的 schema 主版本拒绝安装，找不到可播放素材时使用内置安全 idle 并提示。
-- 纯数据包不加载 JS、HTML、SVG 脚本或远程资源；`permissions` v1 只接受空数组。所有路径相对包目录，拒绝绝对路径、目录穿越、符号链接逃逸及超额/压缩炸弹。
-- 安装器验证 Schema、文件大小/数量/媒体规格上限和独立 SHA-256 哈希清单；原子安装到新版本目录，失败保留原版本。哈希仅验证完整性，发布者信任另见 §7.5。
+`assets.manifest.json` 的结构为 `{ "schemaVersion": 1, "algorithm": "sha256", "files": [{ "path", "sha256", "bytes }] }`。`sha256` 是素材原始字节的 64 位小写十六进制摘要，`bytes` 是非负安全整数。每个 clip source 必须有同路径清单项，每个清单项必须至少被一个 source 引用，同一路径只能登记一次；安装器必须对实际文件重新计算哈希和大小，不能只相信清单值。
+
+- `idle` 与至少一个 source 必需；其他状态缺省回退 `idle`。所有 clip/state/action ID 与引用必须唯一、存在，状态名不得超出固定集合。权重数量匹配、为有限非负数且和大于零；动作 clips 至少一项。
+- v1 对 JSON 对象拒绝未声明字段。`permissions` 只接受空数组；不加载 JS、HTML、SVG 或远程资源。source MIME 仅允许 `video/webm`、`video/quicktime`、`image/png`、`image/webp`，renderer 与 MIME 必须匹配。精灵图必须提供正整数帧宽高/帧数及有限正帧率。
+- 所有素材路径使用 `/` 分隔并相对包目录，拒绝反斜杠、绝对路径、盘符、UNC、空段、`.`、`..`、控制字符与描述/清单文件路径。安装器还须在真实路径层拒绝符号链接或 junction 逃逸。
+- v1 每包最多 128 个素材，单文件最多 64 MiB，清单合计最多 256 MiB。安装器验证 JSON/图片/视频实际字节、媒体规格与上述限额，并防止超额输入和解压炸弹；v1 不内置压缩包解压语义。
+- 校验失败不得修改当前包。安装按 `id/version` 写入新目录，完整校验后原子切换活动版本；失败保留旧版本。哈希仅验证完整性，发布者信任另见 §7.5。
 - 素材配方、转码/抠像脚本和授权说明入库；大渲染产物 ignore，发行渠道另行分发。AI 生成可重复运行不代表逐像素确定性，记录模型/版本/提示词/参数与输出哈希。
 
 ### 3.3 桌面壳选型与验证
@@ -572,3 +589,5 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 v0.1 → v0.2 为设计期变更：Core 不再依赖具体网关/本地 IO；新增 Runtime 装配；任务请求/事件/审批与动作包加版本约束，`maneki_remind` 移到 M4。当前无已发布客户端，无运行数据迁移；未来实现必须以本文基线生成契约与测试。
 
 v0.2 → v0.3：Runtime 改为可由插件独立启动的共享本地进程；首版 dsh/新会话/原生审批及插件入口前移；入口 clientRequestId 映射为下游 brokerRequestId；任务查询返回完整 TaskSnapshot，未来 bridge 增加操作级对账。勿扰、语音输出关闭、麦克风禁用与 Provider/harness 云端授权分开。仍无已发布客户端和运行数据，无需数据迁移；后续代码以 v0.3 生成契约，旧示例不得直接沿用。
+
+2026-10-31 M1 契约细化：固定 PetState、动画 playback ID/打断/回退语义，以及动作包描述文件、独立 SHA-256 清单、路径和资源上限。此次只补齐 v1 实现契约，没有已发布包或数据需要迁移。
