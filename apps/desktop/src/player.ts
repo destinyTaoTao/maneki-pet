@@ -6,19 +6,34 @@ import {
   type Playback,
 } from "@maneki-pet/core";
 
+import { AssetCache } from "./asset-cache.js";
+import { readBounded } from "./bounded-fetch.js";
+
+// 与动作包 v1 单文件上限保持一致。
+const MAX_ASSET_BYTES = 64 * 1024 * 1024;
+
 export class PetPlayer {
   private chain: AnimationChain | undefined;
   private pack: PetPack | undefined;
   private packId = "";
   private cancelCurrent: () => void = () => {};
+  private readonly cache: AssetCache;
 
   constructor(
     private readonly container: HTMLElement,
     private readonly onFallback: () => void,
-  ) {}
+    cacheLimit = 64,
+  ) {
+    this.cache = new AssetCache(
+      cacheLimit,
+      (key) => this.loadAssetUrl(key),
+      (url) => URL.revokeObjectURL(url),
+    );
+  }
 
   loadPack(pack: PetPack, packId: string): void {
     this.cancelCurrent();
+    this.cache.clear();
     this.pack = pack;
     this.packId = packId;
     this.chain = new AnimationChain(pack, Math.random);
@@ -35,6 +50,16 @@ export class PetPlayer {
     if (!this.chain) return;
     const playback = this.chain.play(actionId);
     if (playback) this.render(playback);
+  }
+
+  private async loadAssetUrl(key: string): Promise<string> {
+    const response = await fetch(`/packs/${key}`);
+    const bytes = await readBounded(response, MAX_ASSET_BYTES);
+    return URL.createObjectURL(new Blob([bytes]));
+  }
+
+  private resolveAssetUrl(path: string): Promise<string> {
+    return this.cache.get(`${this.packId}/${path}`);
   }
 
   private complete(playbackId: number): void {
@@ -70,7 +95,7 @@ export class PetPlayer {
       this.renderFallback();
       return;
     }
-    const path = `/packs/${this.packId}/${source.path}`;
+    const path = source.path;
     const retry = () => {
       if (this.chain?.current.id === playback.id) {
         this.renderSource(playback, sources, index + 1);
@@ -90,7 +115,6 @@ export class PetPlayer {
     video.playsInline = true;
     video.autoplay = true;
     video.preload = "auto";
-    video.src = path;
     let settled = false;
     const finish = () => {
       if (settled) return;
@@ -102,8 +126,6 @@ export class PetPlayer {
       settled = true;
       retry();
     };
-    video.onended = finish;
-    video.onerror = fail;
     this.cancelCurrent = () => {
       settled = true;
       video.onended = null;
@@ -113,7 +135,16 @@ export class PetPlayer {
       video.load();
     };
     this.container.append(video);
-    void video.play().catch(fail);
+    void this.resolveAssetUrl(path).then(
+      (url) => {
+        if (settled) return;
+        video.src = url;
+        video.onended = finish;
+        video.onerror = fail;
+        void video.play().catch(fail);
+      },
+      () => fail(),
+    );
   }
 
   private renderSpritesheet(
@@ -128,7 +159,6 @@ export class PetPlayer {
     strip.className = "sprite-strip";
     strip.draggable = false;
     strip.alt = "";
-    strip.src = path;
     strip.style.width = `${source.frameCount * 100}%`;
     frameWindow.append(strip);
     this.container.append(frameWindow);
@@ -160,6 +190,13 @@ export class PetPlayer {
       strip.onerror = null;
       strip.removeAttribute("src");
     };
+    void this.resolveAssetUrl(path).then(
+      (url) => {
+        if (settled) return;
+        strip.src = url;
+      },
+      () => fail(),
+    );
   }
 
   private renderFallback(): void {

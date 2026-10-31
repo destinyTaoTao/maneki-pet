@@ -8,6 +8,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { PetPlayer } from "./player.js";
+import { BoundedReadError, readBounded } from "./bounded-fetch.js";
 import { uiText } from "./ui-text.js";
 import "./style.css";
 import packIds from "../config/builtin-packs.json" with { type: "json" };
@@ -80,34 +81,20 @@ packSelect.addEventListener("change", () => {
   localStorage.setItem("maneki.selectedPack", packSelect.value);
 });
 
-async function readBounded(response: Response, maxBytes: number): Promise<ArrayBuffer> {
-  if (!response.ok || !response.body) throw new Error(uiText.loadFailure);
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      throw new Error(uiText.integrityFailure);
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes.buffer;
+function boundedMessage(error: unknown): string {
+  return error instanceof BoundedReadError && error.reason === "limit"
+    ? uiText.integrityFailure
+    : uiText.loadFailure;
 }
 
 async function fetchJson(url: string): Promise<unknown> {
   const response = await fetch(url);
-  const bytes = await readBounded(response, 1024 * 1024);
-  return JSON.parse(new TextDecoder().decode(bytes));
+  try {
+    const bytes = await readBounded(response, 1024 * 1024);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (error) {
+    throw new Error(boundedMessage(error));
+  }
 }
 
 async function sha256(bytes: ArrayBuffer): Promise<string> {
@@ -171,7 +158,12 @@ async function validateMedia(pack: PetPack, path: string, bytes: ArrayBuffer): P
 async function verifyAssets({ pack, manifest }: ValidatedPetPack, packId: string): Promise<void> {
   for (const entry of manifest.files) {
     const response = await fetch(`/packs/${packId}/${entry.path}`);
-    const bytes = await readBounded(response, entry.bytes);
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await readBounded(response, entry.bytes);
+    } catch (error) {
+      throw new Error(boundedMessage(error));
+    }
     if (bytes.byteLength !== entry.bytes || (await sha256(bytes)) !== entry.sha256) {
       throw new Error(uiText.integrityFailure);
     }
