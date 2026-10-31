@@ -28,6 +28,14 @@ export {
   type ContextSessionKind,
   type Summarizer,
 } from "./context-window.js";
+export {
+  DailyQuotaPolicy,
+  defaultDailyQuotaConfig,
+  type DailyQuotaConfig,
+  type QuotaDecision,
+  type QuotaKind,
+  type QuotaLedger,
+} from "./daily-quota.js";
 export type {
   AssetManifest,
   AssetManifestEntry,
