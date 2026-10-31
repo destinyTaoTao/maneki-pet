@@ -26,6 +26,9 @@ data/
 # Media pipeline scratch (generated assets, not source recipes)
 scratch/
 renders/
+apps/desktop/public/fallback.png
+apps/desktop/public/packs/*/
+apps/desktop/src-tauri/icons/
 
 # Testing & coverage
 coverage/

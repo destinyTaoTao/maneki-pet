@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Maneki",
+  "version": "0.1.0",
+  "identifier": "com.manekipet.desktop",
+  "build": {
+    "beforeDevCommand": "corepack pnpm --filter @maneki-pet/desktop generate:icons && corepack pnpm --filter @maneki-pet/core build && corepack pnpm --filter @maneki-pet/desktop dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "corepack pnpm --filter @maneki-pet/desktop generate:icons && corepack pnpm --filter @maneki-pet/core build && corepack pnpm --filter @maneki-pet/desktop build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Maneki",
+        "width": 300,
+        "height": 360,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

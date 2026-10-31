@@ -32,9 +32,11 @@ M3 与 M4 可在 M2 稳定的 Runtime/配置/存储接口上独立推进，M2b �
 
 目标：在 Windows 上运行一只可换装、可交互的小招，验证桌面技术路线。
 
-- [ ] pnpm workspace / TypeScript strict / 最小构建与测试；仅创建 desktop 和实际需要的 core 模块
+当前进度：workspace/Core 已验证，默认视频包与第二精灵图包已在 Edge 实际加载、换装和播放。原生 Tauri 因本机缺少 Rust/MSVC 工具链尚未编译，不代表 Windows 桌面出口通过。
+
+- [x] pnpm workspace / TypeScript strict / 最小构建与测试；仅创建 desktop 和实际需要的 core 模块（2026-10-31；`packages/core`、`apps/desktop`，全仓 build/test/typecheck 通过）
 - [ ] Tauri v2 透明置顶窗、托盘、退出/勿扰/置顶开关、点击与拖拽
-- [ ] Core 的 PetState 与纯动画选择逻辑；Shell 负责播放与窗口交互
+- [x] Core 的 PetState 与纯动画选择逻辑；Shell 负责播放与窗口交互（2026-10-31；`packages/core/src/animation-chain.ts`，7 条动画行为测试；原生窗口交互仍由上项验收）
 - [ ] 动作包 v1 Schema、素材哈希清单、路径/规格/资源校验、缺省 idle；默认包与第二个测试包
 - [ ] 带权动画链、动作打断/回退、播放器缓存上限；透明视频与精灵图兼容路径
 - [ ] 多显示器、不同 DPI、鼠标穿透与拖拽甩抛边界
