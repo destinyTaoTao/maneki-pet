@@ -142,3 +142,15 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 ## 结论（更新）
 
 M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过；dsh spike 三轮完成（结构化事件流、会话恢复、审批 fail-closed、取消语义）且 HarnessAdapter 契约 + dsh 观察适配器落地（161 条测试绿）；网关派发路线定案可行。剩余：M2b 派发审批故事决策、外部记忆对接（待服务端点）、#43/#44 人工视觉确认。
+
+## 扩展功能域：技能包与平台运营（2026-10-31 续8，与 EverNook 共建）
+
+依据 EverNook 契约（adapter-conformance-v1 / capture-v1 / experience-v1、ADR-0006、spec 技能增量节）实施，EverNook 仓库零改动：
+
+- 文档定稿：architecture §10（技能包/平台对接器/EverNook 集成形态）、ADR-0002、GLOSSARY 七词条、roadmap 扩展功能域批次（7b468f0）。
+- 票 #49 EverNook shim：packages/adapters/evernook 实现 AdapterSurface，ConformanceSuite 七项全过（py3.14 venv 实跑，251ee26）——竖切①。
+- 票 #47 Core skill-pack v1：清单校验（kebab id / semver / 脚本路径穿越拒绝 / SHA-256）+ 哈希核对，9 条测试。
+- 票 #48 平台对接器：platform-core（DraftFlow 六步逐次确认门控、元数据/运营数据契约校验）+ platform-bilibili（exportPackage 四件套导出+双重校验、manual-export 运营数据解析、JSON Schema 两份），d40d93f / 404a74b——竖切②③。
+- CLI @maneki-pet/cli：platform draft（交互+文件双模）/ package / receipt / ops-import / experience-span。调试后修复：stdout 污染（提示移 stderr）、shim stdin 事件结构（source 嵌套）、附件分块元组、experience-span 取值。竖切④⑤⑥真机全过：输入→tool_call→tool_result+元数据附件（gaps=0）→EvidenceSpan（BVID 精确坐标）→读回一致；证据摘要 C:\maneki-lab\evernook-vertical-evidence.json。
+- 全仓测试 190 条绿（core 81 + adapter-dsh 21 + platform-core 8 + platform-bilibili 5 + cli 2 + runtime 52 + desktop 24）。
+- 红线核验：无 biliup / 协议模拟 / UI 自动化；写操作逐次确认；无全自动档；EverNook 零改动。
