@@ -16,6 +16,10 @@ export {
   type McpExpressionBridgeDeps,
 } from "./mcp-bridge.js";
 export {
+  McpMemoryClient,
+  type McpMemoryClientOptions,
+} from "./mcp-memory-client.js";
+export {
   NotificationBudget,
   ConfigError,
   defaultRuntimeConfig,

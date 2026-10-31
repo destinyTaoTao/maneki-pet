@@ -151,9 +151,10 @@ export class WsHub {
   }
 
   private sendRaw(socket: Duplex, opcode: number, payload: Buffer): void {
-    if (socket.destroyed) {
+    if (socket.destroyed || socket.writableEnded) {
       return;
     }
+    try {
     const length = payload.length;
     let header: Buffer;
     if (length <= 125) {
@@ -170,6 +171,9 @@ export class WsHub {
       header.writeBigUInt64BE(BigInt(length), 2);
     }
     socket.write(Buffer.concat([header, payload]));
+    } catch {
+      // 关闭竞态（end/destroy 与广播并发）不作为错误传播。
+    }
   }
 
   private closeSocket(socket: Duplex, code: number, reason: string): void {
