@@ -19,6 +19,15 @@ export {
   type UsageEstimator,
 } from "./chat-call-budget.js";
 export { LatestResultGate } from "./latest-result.js";
+export {
+  ConversationContextAssembler,
+  type ContextAssembly,
+  type ContextAssemblyResult,
+  type ContextBudgetConfig,
+  type ContextOverflowStrategy,
+  type ContextSessionKind,
+  type Summarizer,
+} from "./context-window.js";
 export type {
   AssetManifest,
   AssetManifestEntry,
