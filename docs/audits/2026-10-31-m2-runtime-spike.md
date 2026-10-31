@@ -63,6 +63,29 @@ M2 首个纵向切片：`packages/runtime`（共享 Runtime 底座）的实现�
 
 **卸载**：/S 卸载正常；运行中的 runtime 文件被锁残留，停止后可清除——正式验收需先提示退出再卸载。
 
+## dsh 接入 spike 首轮（2026-10-31，dsh 0.2.1-rc.5）
+
+用户已安装 dsh（npm 全局 `@deepseek-ai/dsh`，`dsh --version` = **0.2.1-rc.5**）。CLI 面：profiles（web/tui/headless；本机 tui 未装需 plugin add）、`dsh headless "<task>"` 一次性任务、`--json` ndjson 事件、`--session-id` 会话恢复、`--dump-config-schema` Cordis 配置面。
+
+**headless `--json` 事件流实测**（MISSING_CREDENTIAL 场景下结构已完整）：
+
+```ndjson
+{"type":"session","sessionId":"session-07f0f8f7-…","cwd":"C:\\…\\dsh-spike"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"status","phase":"step_end","turn":1,"step":1}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"llm-deepseek: no API key …","code":"MISSING_CREDENTIAL"}}}
+{"type":"final","text":""}
+```
+
+与 HarnessEvent 映射评估：`turn_start → task.started`；`turn_end(error) → task.error`；`final → task.completed`；`needs_input / cancel` 待活体验证。
+
+**能力面发现**：web profile 为 **token 门禁 HTTP**（`?token=` → 303 → Set-Cookie 签名围栏，HttpOnly + SameSite=Strict + 30 天）——不是 dsh-pet 早期调研所称"无鉴权本机 HTTP"，与本仓库 §7.1 取向一致，可借鉴。插件体系含 `dsh-api-gateway / api-session-controller / api-job-controller / client-ui-approval / client-ui-permission-presets / client-ui-user-questions（等待输入）/ api-remotes`——**原生审批 UI 在 harness 内**（client-ui-approval），正向满足 §5.1 native 要求的方向。配置 schema 关键词计数：approval×16、permission×10、session×88、credential×10、sandbox×29、cancel×0（配置层无 cancel 条目，运行时取消待活体验证）。
+
+**Adapter 能力分级预评（依据 spike，✱ 待活体确认）**：`events: ✓`（headless ndjson）；`newTask: ✓`（headless 一次性=受控新会话）；`continueSession: ✓✱`（--session-id 官方支持）；`query: 部分✱`（会话恢复存在，TaskSnapshot 完整性待验）；`approval: native ✓✱`（harness 内审批 UI 插件）；`reply/补充输入: ✓✱`（user-questions 插件指示，API 形态待探）；`cancel: ✗ 未发现`。
+
+**gate**：`DEEPSEEK_API_KEY` 未配置 → 活体任务 spike（完整事件流、final 文本、`--session-id` 恢复快照、审批触发、输入/取消探测）待用户在**自己的环境**设置凭证后补测（web Models 页 credentials 服务或环境变量；凭证不经 Maneki 代码与本仓库）。
+
 ## 结论（更新）
 
-M2 出口项"安装包无须用户另装 Node"已有真机证据；**内存预算未达标并上升为架构决策点**。剩余硬 gate：dsh spike（本机未装 dsh）、外部记忆协议 spike（待用户提供服务端点）、内存口径决策。
+M2 出口项"安装包无须用户另装 Node"已有真机证据；内存预算决策落地达标；Shell↔Runtime 接线真机验收通过。dsh spike 首轮完成（结构化事件流 + 会话恢复 + 原生审批面确认），活体任务 spike 待 DEEPSEEK_API_KEY；外部记忆对接待服务端点。
