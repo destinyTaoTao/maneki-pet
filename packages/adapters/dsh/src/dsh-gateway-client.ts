@@ -60,6 +60,7 @@ export class DshGatewayClient {
   async login(): Promise<void> {
     const response = await this.fetchImpl(`${this.baseUrl}/?token=${encodeURIComponent(this.token)}`, {
       redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
     });
     const setCookies = response.headers.getSetCookie?.() ?? [];
     const authCookie = setCookies.find((line) => line.startsWith("dsh-auth-"));
@@ -84,6 +85,7 @@ export class DshGatewayClient {
       method: "POST",
       headers: { "content-type": "application/json", ...(this.cookie ? { cookie: this.cookie } : {}) },
       body: JSON.stringify({ type: "client-request", rpcId, method, payload: { args } }),
+      signal: AbortSignal.timeout(15_000),
     });
     const body = (await response.json()) as { result?: GatewayResult<T> };
     const result = body.result;
