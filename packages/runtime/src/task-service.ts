@@ -1,9 +1,7 @@
 /**
  * 任务服务（M2b）：Core Task Broker + dsh 网关适配器的装配胶水。
- * Broker 由 Runtime 装配（SQLite 持久化 + 配置限额）后注入；
- * 派发 = session/create + session/prompt（requestId = brokerRequestId，
- * dsh 原生幂等键与 Broker 对齐）；查询 = session/projections（asOfSeq）；
- * 取消 = session/cancel + Broker 状态登记。
+ * Broker 由 Runtime 装配；审批和恢复未验证期间只提供已有记录的查询，
+ * 新派发与无法确认停止的取消保持关闭。
  */
 import { TaskBroker, type BrokerTask } from "@maneki-pet/core";
 
@@ -15,11 +13,11 @@ export class TaskService {
     private readonly adapter: DshAdapter,
   ) {}
 
-  /** 派发入口（Runtime API 转发）：入口幂等 + 串行队列由 Broker 保证。 */
+  /** 审批与恢复验收前拒绝新派发；既有请求结果需先核查。 */
   async submit(entry: { clientRequestId: string; prompt: string; workdir: string }): Promise<{ outcome: string; task?: BrokerTask; reason?: string }> {
     void entry;
     // #3：真实审批与完整恢复尚未通过验收，网关配置不能作为执行授权。
-    return { outcome: "rejected", reason: "dsh approval and full recovery are not verified" };
+    return { outcome: "rejected", reason: "dsh approval and full recovery are not verified; previous requests may have run, inspect existing tasks before retrying" };
   }
 
   /** 查询：Broker 登记 + 适配器快照（dsh 网关可达时）。 */
