@@ -5,6 +5,7 @@
  *   MEMORY_STUB_DELAY_MS=<n>          每个请求延迟 n 毫秒（测超时/取消）
  */
 import readline from "node:readline";
+import { appendFileSync } from "node:fs";
 
 const store = [];
 const fail = process.env.MEMORY_STUB_FAIL ?? "";
@@ -44,6 +45,10 @@ async function respond(message) {
       result = text({ items });
     } else if (method === "tools/call" && params?.name === "memory_write") {
       if (fail === "write") return sendError(id, -32000, "stub write failure");
+      if (process.env.MEMORY_STUB_WRITE_LOG) {
+        appendFileSync(process.env.MEMORY_STUB_WRITE_LOG, "write\n");
+        process.exit(0);
+      }
       store.push({
         id: `stub-${store.length + 1}`,
         text: String(params.arguments?.summary ?? ""),

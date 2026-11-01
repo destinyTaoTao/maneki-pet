@@ -24,20 +24,18 @@ export interface McpMemoryClientOptions {
 }
 
 interface PendingRequest {
-  method: string;
-  params: unknown;
-  ctx: CallContext | undefined;
-  retries: number;
+  isWrite: boolean;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
+  cleanup: () => void;
 }
 
 /**
  * stdio MCP 记忆客户端（票据 #46）：实现 Core 的 ExternalMemoryProvider 端口，
  * 连接用户自建记忆服务（initialize → tools/list → tools/call，行分帧 JSON-RPC 2.0）。
  * 取消/超时/错误语义遵循 §4.1：超时可区分、迟到结果不接收；服务进程崩溃时
- * 在途请求全部失败，下次调用自动重启进程。
+ * 在途请求全部失败且不自动重放，下次调用重新启动进程。
  */
 export class McpMemoryClient implements ExternalMemoryProvider {
   readonly info: ProviderInfo;
@@ -81,9 +79,18 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     const child = this.child;
     this.child = undefined;
     this.initialized = false;
+    this.failPending("memory client stopped");
     if (child) {
+      const exited = new Promise<void>((resolve, reject) => {
+        if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
+        const force = setTimeout(() => child.kill("SIGKILL"), 500);
+        const deadline = setTimeout(() => { child.off("close", onClose); reject(new Error("memory process did not stop")); }, 2000);
+        const onClose = (): void => { clearTimeout(force); clearTimeout(deadline); resolve(); };
+        child.once("close", onClose);
+      });
       child.stdin.end();
       child.kill();
+      await exited;
     }
   }
 
@@ -98,10 +105,10 @@ export class McpMemoryClient implements ExternalMemoryProvider {
   }
 
   private async request(method: string, params: unknown, ctx?: CallContext): Promise<unknown> {
-    return this.requestOnce(method, params, ctx, 0);
+    return this.requestOnce(method, params, ctx);
   }
 
-  private async requestOnce(method: string, params: unknown, ctx: CallContext | undefined, retries: number): Promise<unknown> {
+  private async requestOnce(method: string, params: unknown, ctx: CallContext | undefined): Promise<unknown> {
     if (this.stopped) {
       return Promise.reject(new Error("memory client stopped; refusing new calls"));
     }
@@ -111,19 +118,35 @@ export class McpMemoryClient implements ExternalMemoryProvider {
       });
       await this.initializing;
     }
+    if (this.stopped) throw new Error("memory client stopped; refusing new calls");
+    if (ctx?.signal.aborted) throw new Error("memory request cancelled");
+    if (ctx && ctx.deadlineAtMs <= Date.now()) throw new Error("memory rpc timeout before request");
     const child = this.ensureChild();
     const id = this.nextId;
     this.nextId += 1;
     const fallback = this.options.requestTimeoutMs ?? 10_000;
     const timeoutMs = ctx ? Math.max(ctx.deadlineAtMs - Date.now(), 1) : fallback;
+    const isWrite = method === "tools/call" && (params as { name?: unknown }).name === (this.options.writeTool ?? "memory_write");
     const promise = new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const finish = (reason: string): void => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
         this.pending.delete(id);
-        reject(new Error(`memory rpc timeout after ${timeoutMs}ms: ${method}`));
+        clearTimeout(timer);
+        cleanup();
+        reject(new Error(isWrite ? `${reason}; write result unknown` : reason));
+      };
+      const abort = (): void => finish("memory request cancelled");
+      const cleanup = (): void => ctx?.signal.removeEventListener("abort", abort);
+      const timer = setTimeout(() => {
+        finish(`memory rpc timeout after ${timeoutMs}ms: ${method}`);
       }, timeoutMs);
-      this.pending.set(id, { method, params, ctx, retries, resolve, reject, timer });
+      this.pending.set(id, { isWrite, resolve, reject, timer, cleanup });
+      ctx?.signal.addEventListener("abort", abort, { once: true });
     });
-    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, (error) => {
+      if (error) this.failChild(child, "memory pipe error");
+    });
     return promise;
   }
 
@@ -133,6 +156,7 @@ export class McpMemoryClient implements ExternalMemoryProvider {
       capabilities: {},
       clientInfo: { name: "maneki-runtime", version: "0.1.0" },
     }, ctx);
+    if (this.stopped || !this.child) throw new Error("memory client stopped or disconnected");
     this.child?.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     this.initialized = true;
   }
@@ -146,32 +170,36 @@ export class McpMemoryClient implements ExternalMemoryProvider {
       ...(this.options.env ? { env: { ...process.env, ...this.options.env } } : {}),
     });
     child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => this.onData(chunk));
+    child.stdout.on("data", (chunk: string) => { if (this.child === child) this.onData(chunk); });
+    child.on("error", () => this.failChild(child, "memory server spawn error"));
+    child.stdin.on("error", () => this.failChild(child, "memory pipe error"));
+    child.stdout.on("error", () => this.failChild(child, "memory pipe error"));
+    child.stderr.on("error", () => this.failChild(child, "memory pipe error"));
     // 服务端 stderr 是日志通道，不进协议。
     child.stderr.on("data", () => undefined);
-    child.on("exit", () => {
-      // 进程在响应前死亡：在途请求换新进程重试一次（写入类非幂等风险由
-      // 调用方的对账语义承担，重试仅一次），二次死亡才拒绝。
-      const outstanding = [...this.pending.values()];
-      this.pending.clear();
-      this.initialized = false;
-      this.child = undefined;
-      for (const pending of outstanding) {
-        clearTimeout(pending.timer);
-        if (pending.retries < 1) {
-          setImmediate(() => {
-            this.requestOnce(pending.method, pending.params, pending.ctx, pending.retries + 1).then(
-              pending.resolve,
-              pending.reject,
-            );
-          });
-        } else {
-          pending.reject(new Error("memory server exited before responding"));
-        }
-      }
+    child.on("close", () => {
+      this.failChild(child, "memory server exited before responding");
     });
     this.child = child;
     return child;
+  }
+
+  private failChild(child: ChildProcessWithoutNullStreams, reason: string): void {
+    if (this.child !== child) return;
+    this.child = undefined;
+    this.initialized = false;
+    this.buffer = "";
+    child.kill();
+    this.failPending(reason);
+  }
+
+  private failPending(reason: string): void {
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.cleanup();
+      pending.reject(new Error(pending.isWrite ? `${reason}; write result unknown` : reason));
+    }
+    this.pending.clear();
   }
 
   private onData(chunk: string): void {
@@ -194,7 +222,7 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     } catch {
       return;
     }
-    if (typeof message.id !== "number") {
+    if (!message || typeof message !== "object" || typeof message.id !== "number") {
       return;
     }
     const pending = this.pending.get(message.id);
@@ -203,6 +231,7 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     }
     this.pending.delete(message.id);
     clearTimeout(pending.timer);
+    pending.cleanup();
     if (message.error) {
       pending.reject(new Error(`memory rpc error ${message.error.code ?? "?"}: ${message.error.message ?? ""}`));
     } else {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -40,6 +40,38 @@ afterEach(async () => {
 });
 
 describe("MCP 记忆客户端 × 替身契约", () => {
+  it("可执行文件不存在时记忆降级，调用者继续工作", async () => {
+    const client = new McpMemoryClient({ command: join(tmpdir(), "maneki-nonexistent-executable-51") });
+    const service = new MemoryContextService({ provider: client });
+    try {
+      expect((await service.retrieveContext({ text: "x" }, makeCtx(2000))).outcome).toBe("degraded");
+    } finally { await client.stop(); }
+  });
+
+  it("停止时结束在途请求并禁止后续调用", async () => {
+    const client = makeClient({ MEMORY_STUB_DELAY_MS: "5000" });
+    const pending = client.retrieve({ text: "x" }, makeCtx(10000));
+    const assertion = expect(pending).rejects.toThrow(/stopped/);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await client.stop();
+    await assertion;
+    await expect(client.retrieve({ text: "x" }, makeCtx(1000))).rejects.toThrow(/stopped/);
+  });
+  it("写入成功后丢失回执时不重放并报告结果未知", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maneki-mem-write-"));
+    tempDirs.push(dir);
+    const log = join(dir, "writes.log");
+    const client = makeClient({ MEMORY_STUB_WRITE_LOG: log });
+    const service = new MemoryContextService({ provider: client });
+    try {
+      const result = await service.writeback(record, makeCtx(5000));
+      expect(result.outcome).toBe("degraded");
+      if (result.outcome === "degraded") expect(result.reason).toMatch(/unknown/i);
+      expect(readFileSync(log, "utf8")).toBe("write\n");
+    } finally {
+      await client.stop();
+    }
+  });
   it("写回与检索：全量记录透传，命中条目按约定形状返回", async () => {
     const client = makeClient();
     await client.write(record, makeCtx(5_000));
@@ -76,11 +108,11 @@ describe("MCP 记忆客户端 × 替身契约", () => {
     await expect(client.retrieve({ text: "x" }, makeCtx(5_000))).rejects.toThrow(/client stopped/);
   });
 
-  it("服务进程崩溃后自动重启并恢复可用", async () => {
-    // 替身在第 2 个请求后自杀：客户端必须感知退出、重新拉起进程、完成第 3 个请求。
+  it("服务进程崩溃后在途读取失败，后续调用重启并恢复可用", async () => {
+    // 替身在第 2 个请求后退出，不重放结果未知的在途请求。
     const client = makeClient({ MEMORY_STUB_EXIT_AFTER: "2" });
     await client.write(record, makeCtx(5_000));
-    await client.retrieve({ text: "README" }, makeCtx(5_000));
+    await expect(client.retrieve({ text: "README" }, makeCtx(5_000))).rejects.toThrow(/exited/);
     const after = await client.write({ ...record, kind: "note", summary: "崩溃后的写入" }, makeCtx(5_000));
     expect(after).toBeUndefined();
   });
