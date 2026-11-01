@@ -15,10 +15,10 @@ const ctx: CallContext = {
 };
 
 describe("DshAdapter 观察适配器 v0（能力声明忠实于活体 spike）", () => {
-  it("能力声明：仅事件观察；approval none 且无派发（headless 无审批通道）", () => {
+  it("没有已验证的事件或执行能力", () => {
     const adapter = new DshAdapter();
     expect(adapter.capabilities).toEqual({
-      events: true,
+      events: false,
       newTask: false,
       continueSession: false,
       reply: false,
@@ -29,8 +29,8 @@ describe("DshAdapter 观察适配器 v0（能力声明忠实于活体 spike）",
       sessionOverview: false,
     });
     expect(adapter.dataBoundary).toEqual({
-      processing: "cloud",
-      destinations: ["api.deepseek.com"],
+      processing: "unknown",
+      destinations: [],
     });
   });
 
@@ -44,11 +44,9 @@ describe("DshAdapter 观察适配器 v0（能力声明忠实于活体 spike）",
     expect(await new DshAdapter().discover(ctx)).toEqual([]);
   });
 
-  it("subscribe 返回注销函数（headless 无外部事件源，派发启用后接入任务流）", async () => {
+  it("没有事件源时订阅明确拒绝", async () => {
     const adapter = new DshAdapter();
-    const unsubscribe = await adapter.subscribe(() => undefined, ctx);
-    expect(typeof unsubscribe).toBe("function");
-    unsubscribe();
+    await expect(adapter.subscribe(() => undefined, ctx)).rejects.toMatchObject({ code: "UNSUPPORTED" });
   });
 
   it("一致性校验器：newTask 无 submit、bridge 无 decidePermission、approval 与派发脱节都要报", () => {

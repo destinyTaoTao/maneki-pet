@@ -202,8 +202,5 @@ export function checkCapabilityConsistency(adapter: HarnessAdapter): string[] {
   if (adapter.capabilities.approval !== "none" && !adapter.capabilities.newTask) {
     problems.push("approval native/bridge is only meaningful with newTask dispatch");
   }
-  if (!adapter.capabilities.events && !adapter.capabilities.newTask) {
-    problems.push("adapter declares neither events nor newTask: nothing to integrate");
-  }
   return problems;
 }

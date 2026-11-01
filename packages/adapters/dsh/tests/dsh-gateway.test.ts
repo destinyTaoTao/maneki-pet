@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DshAdapter } from "../src/index.js";
+import { DshAdapter, DshGatewayClient } from "../src/index.js";
 
 const TOKEN = "test-gate-token";
 
@@ -16,6 +16,7 @@ interface StubSession {
 
 const sessions = new Map<string, StubSession>();
 let createCount = 0;
+let requestCount = 0;
 
 function stubJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
@@ -34,6 +35,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 
 async function startStub(): Promise<{ server: Server; port: number }> {
   const server = createServer(async (req, res) => {
+    requestCount += 1;
     const url = (req.url ?? "").split("?")[0] ?? "";
     if (url === "/" && req.headers.cookie === undefined) {
       const tokenUrl = new URL(req.url ?? "/", `http://127.0.0.1`);
@@ -133,6 +135,7 @@ afterEach(() => {
   }
   sessions.clear();
   createCount = 0;
+  requestCount = 0;
 });
 
 async function makeAdapter(): Promise<{ adapter: DshAdapter; port: number }> {
@@ -144,91 +147,55 @@ async function makeAdapter(): Promise<{ adapter: DshAdapter; port: number }> {
 
 const ctx = { requestId: "req-1", signal: new AbortController().signal, deadlineAtMs: Number.MAX_SAFE_INTEGER };
 
-describe("DshAdapter 网关派发模式", () => {
-  it("配置 gateway 后能力升级为派发（native 审批 + status_only 查询）", async () => {
+describe("dsh 网关线协议", () => {
+  it("通过受控替身交换凭证并发送会话请求", async () => {
+    const { server, port } = await startStub();
+    servers.push({ server });
+    const client = new DshGatewayClient({ baseUrl: `http://127.0.0.1:${port}`, token: TOKEN });
+    const created = await client.createSession({ cwd: "C:\\tmp" });
+    const sessionId = created.sessionId!;
+    await client.prompt({ sessionId, requestId: "r1", mode: "queue", content: [{ type: "text", text: "hello" }] });
+    expect((await client.projections(sessionId)).values?.turnOutline?.[0]?.response).toBe("RESP:hello");
+    expect(await client.cancelSession(sessionId)).toEqual({ accepted: true });
+  });
+
+  it("错误令牌不能建立会话", async () => {
+    const { server, port } = await startStub();
+    servers.push({ server });
+    const client = new DshGatewayClient({ baseUrl: `http://127.0.0.1:${port}`, token: "wrong" });
+    await expect(client.createSession({})).rejects.toThrow(/login failed/);
+    expect(sessions.size).toBe(0);
+  });
+});
+
+describe("DshAdapter 未验证的网关", () => {
+  it("配置网关不授予事件、执行或审批能力", async () => {
     const { adapter } = await makeAdapter();
     expect(adapter.capabilities).toEqual({
-      events: true,
-      newTask: true,
-      continueSession: true,
-      reply: true,
-      query: "status_only",
-      cancel: true,
+      events: false,
+      newTask: false,
+      continueSession: false,
+      reply: false,
+      query: "none",
+      cancel: false,
       deduplicateSubmit: false,
-      approval: "native",
+      approval: "none",
       sessionOverview: false,
     });
   });
 
-  it("submit：受控新会话 + prompt 原生幂等键 = brokerRequestId", async () => {
+  it("直接调用未验证操作均拒绝，网关不会收到请求", async () => {
     const { adapter } = await makeAdapter();
-    const ref = await adapter.submit(
-      { brokerRequestId: "br-1", prompt: "翻译 README", target: { kind: "new", workdir: "C:\\tmp\\proj" } },
-      ctx,
-    );
-    expect(ref.brokerRequestId).toBe("br-1");
-    expect(ref.sessionId).toMatch(/^session-stub-/);
-    expect(ref.taskId).toBe(ref.sessionId);
+    const ref = { brokerRequestId: "br-1", taskId: "t", sessionId: "s" };
+    await expect(adapter.submit({ brokerRequestId: "br-1", prompt: "x", target: { kind: "new", workdir: "C:\\tmp" } }, ctx)).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    await expect(adapter.subscribe(() => undefined, ctx)).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    await expect(adapter.query({ brokerRequestId: "br-1" }, ctx)).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    await expect(adapter.reply(ref, { inputId: "i", text: "x" }, ctx)).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    await expect(adapter.cancel(ref, ctx)).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    expect(sessions.size).toBe(0);
+    expect(requestCount).toBe(0);
   });
 
-  it("query：完成后返回 status_only 快照与结果摘要", async () => {
-    const { adapter } = await makeAdapter();
-    await adapter.submit(
-      { brokerRequestId: "br-2", prompt: "修复构建", target: { kind: "new", workdir: "C:\\tmp\\proj" } },
-      ctx,
-    );
-    const result = await adapter.query({ brokerRequestId: "br-2" }, ctx);
-    expect(result.outcome).toBe("found");
-    if (result.outcome === "found") {
-      expect(result.snapshot.status).toBe("completed");
-      expect(result.snapshot.completeness).toBe("status_only");
-      expect(result.snapshot.result?.summary).toBe("RESP:修复构建");
-      expect(result.snapshot.sourcePosition?.streamId).toMatch(/^dsh-gateway-/);
-    }
-  });
-
-  it("query 未知 brokerRequestId → not_found", async () => {
-    const { adapter } = await makeAdapter();
-    expect(await adapter.query({ brokerRequestId: "nope" }, ctx)).toEqual({ outcome: "not_found" });
-  });
-
-  it("reply：steer 模式补充输入（requestId = inputId），原任务结果不变", async () => {
-    const { adapter } = await makeAdapter();
-    const ref = await adapter.submit(
-      { brokerRequestId: "br-3", prompt: "开始任务", target: { kind: "new", workdir: "C:\\tmp\\proj" } },
-      ctx,
-    );
-    await adapter.reply(ref, { inputId: "in-9", text: "补充：使用 TypeScript" }, ctx);
-    const recorded = sessions.get(ref.sessionId)?.prompts ?? [];
-    expect(recorded).toHaveLength(2);
-    expect(recorded[1]).toEqual({ requestId: "in-9", mode: "steer", text: "补充：使用 TypeScript" });
-    const result = await adapter.query({ brokerRequestId: "br-3" }, ctx);
-    if (result.outcome === "found") {
-      expect(result.snapshot.result?.summary).toBe("RESP:开始任务");
-    }
-  });
-
-  it("cancel：dsh 接受取消后状态标记为 cancelled", async () => {
-    const { adapter } = await makeAdapter();
-    const ref = await adapter.submit(
-      { brokerRequestId: "br-4", prompt: "长任务", target: { kind: "new", workdir: "C:\\tmp\\proj" } },
-      ctx,
-    );
-    await adapter.cancel(ref, ctx);
-    const result = await adapter.query({ brokerRequestId: "br-4" }, ctx);
-    if (result.outcome === "found") {
-      expect(result.snapshot.status).toBe("cancelled");
-    }
-  });
-
-  it("错误令牌：submit 在登录阶段失败", async () => {
-    const { server, port } = await startStub();
-    servers.push({ server });
-    const adapter = new DshAdapter({ gateway: { baseUrl: `http://127.0.0.1:${port}`, token: "wrong-token" } });
-    await expect(
-      adapter.submit({ brokerRequestId: "br-x", prompt: "x", target: { kind: "new", workdir: "C:\\tmp" } }, ctx),
-    ).rejects.toThrow(/login failed/);
-  });
 });
 
 describe("DshAdapter 观察模式（无 gateway 配置）", () => {
@@ -238,6 +205,6 @@ describe("DshAdapter 观察模式（无 gateway 配置）", () => {
     expect(adapter.capabilities.approval).toBe("none");
     await expect(
       adapter.submit({ brokerRequestId: "b", prompt: "x", target: { kind: "new", workdir: "C:\\tmp" } }, ctx),
-    ).rejects.toThrow(/gateway configuration/);
+    ).rejects.toMatchObject({ code: "UNSUPPORTED" });
   });
 });
