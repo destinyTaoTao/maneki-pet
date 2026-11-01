@@ -324,7 +324,8 @@ export class LocalHttpApi {
       try {
         this.sendJson(res, 200, await this.deps.tasks.cancel(id));
       } catch (error) {
-        this.sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
+        const status = (error as { code?: unknown })?.code === "unavailable" ? 503 : 404;
+        this.sendJson(res, status, { error: error instanceof Error ? error.message : String(error) });
       }
       return;
     }

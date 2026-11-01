@@ -17,7 +17,9 @@ export class TaskService {
 
   /** 派发入口（Runtime API 转发）：入口幂等 + 串行队列由 Broker 保证。 */
   async submit(entry: { clientRequestId: string; prompt: string; workdir: string }): Promise<{ outcome: string; task?: BrokerTask; reason?: string }> {
-    return this.broker.submit(entry);
+    void entry;
+    // #3：真实审批与完整恢复尚未通过验收，网关配置不能作为执行授权。
+    return { outcome: "rejected", reason: "dsh approval and full recovery are not verified" };
   }
 
   /** 查询：Broker 登记 + 适配器快照（dsh 网关可达时）。 */
@@ -38,24 +40,8 @@ export class TaskService {
   }
 
   async cancel(brokerRequestId: string): Promise<BrokerTask> {
-    const task = this.broker.describeTask(brokerRequestId);
-    if (!task) {
-      throw Object.assign(new Error(`task ${brokerRequestId} not found`), { code: "not_found" });
-    }
-    if (this.adapter && (task.status === "running" || task.status === "queued")) {
-      try {
-        await this.adapter.cancel(
-          { brokerRequestId, taskId: task.sessionId, sessionId: task.sessionId },
-          { requestId: brokerRequestId, signal: new AbortController().signal, deadlineAtMs: Date.now() + 10_000 },
-        );
-      } catch {
-        // 取消失败不伪报：任务保持原状态，下次可重试取消。
-      }
-    }
-    const settled = this.broker.notifySettled(brokerRequestId, "cancelled");
-    if (!settled) {
-      throw new Error(`task ${brokerRequestId} not found`);
-    }
-    return settled;
+    void brokerRequestId;
+    // 取消受理并不证明任务停止，也不能因此推进旧队列（#13）。
+    throw Object.assign(new Error("task cancellation is not verified; inspect the harness directly"), { code: "unavailable" });
   }
 }

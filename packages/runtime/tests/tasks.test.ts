@@ -99,7 +99,7 @@ function startStubGateway() {
 }
 
 describe("任务派发经 dsh 网关（M2b 端到端）", () => {
-  it("POST /v1/tasks 派发到 stub 网关，prompt 幂等键 = brokerRequestId", async () => {
+  it("恢复和审批未验证时即使配置网关也拒绝任务派发", async () => {
     const dir = makeTempDir();
     const gw = await startStubGateway();
     const runtime = await startRuntime({
@@ -123,6 +123,7 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
     const restarted = await startRuntime({ configDir: dir, log: () => undefined });
     runtimes.push(restarted);
     expect(restarted.tasks).toBeDefined();
+    expect((await restarted.tasks!.submit({ clientRequestId: "direct", prompt: "test", workdir: "C:\\tmp" })).outcome).toBe("rejected");
 
     const pair = await fetch(`http://127.0.0.1:${restarted.port}/v1/pair`, {
       method: "POST",
@@ -137,31 +138,16 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
       headers,
       body: JSON.stringify({ clientRequestId: "cli-1", prompt: "翻译 README", workdir: "C:\\proj\\demo" }),
     });
-    expect(submit.status).toBe(202);
-    const submitBody = (await submit.json()) as { outcome: string; task: { brokerRequestId: string; sessionId: string } };
-    expect(submitBody.outcome).toBe("accepted");
-    expect(submitBody.task.brokerRequestId).toMatch(/^br-/);
-
-    const query = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/${submitBody.task.brokerRequestId}`, { headers });
-    expect(query.status).toBe(200);
-    const queryBody = (await query.json()) as { status: string; gatewaySnapshot?: Record<string, unknown> };
-    expect(["running", "completed"]).toContain(queryBody.status);
-
-    const cancel = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/${submitBody.task.brokerRequestId}/cancel`, {
-      method: "POST",
-      headers,
-    });
-    expect(cancel.status).toBe(200);
-
-    await restarted.stop();
-    const reopened = await startRuntime({ configDir: dir, log: () => undefined });
-    runtimes.push(reopened);
-    const after = await fetch(`http://127.0.0.1:${reopened.port}/v1/tasks/${submitBody.task.brokerRequestId}`, {
-      headers,
-    });
-    expect(after.status).toBe(200);
-    const afterBody = (await after.json()) as { status: string };
-    expect(["cancelled", "completed"]).toContain(afterBody.status);
+    expect(submit.status).toBe(409);
+    expect((await submit.json() as { error: string }).error).toMatch(/approval.*recovery/i);
+    const store = restarted.store.asBrokerTaskStore();
+    store.putTask({ brokerRequestId: "old", clientRequestId: "old", prompt: "old", workdir: "C:\\tmp", status: "running", sessionId: "s", createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    store.putTask({ brokerRequestId: "queued", clientRequestId: "queued", prompt: "next", workdir: "C:\\tmp", status: "queued", sessionId: "", createdAt: "2026-01-02", updatedAt: "2026-01-02" });
+    const cancel = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old/cancel`, { method: "POST", headers });
+    expect(cancel.status).toBe(503);
+    expect(store.getTask("old")?.status).toBe("running");
+    expect(store.getTask("queued")?.status).toBe("queued");
+    expect(gw.received).toHaveLength(0);
     gw.close();
   });
 
