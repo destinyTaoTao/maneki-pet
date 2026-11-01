@@ -9,7 +9,7 @@
 
 一句话架构：Shell / Core / Gateway / Local Services 分工，Runtime 统一装配；Core 定义端口且不依赖具体 IO。三种运行形态（① Tauri 独立 App / ② harness overlay 插件 / ③ core npm 库）；双向通道按能力接入，MCP 表达工具不等于任务派发。
 
-**当前状态：M1 开发中（2026-10-31）；已有 workspace、Core、内置动作包与桌面前端，原生 Tauri 尚未完成本机编译和设备验收。** 首个可用版本优先可换装桌宠 + dsh 文字任务与插件入口，pi 第二；语音/提醒独立增量。M1 继续验证透明窗、动画链与跨平台 spike；Windows 阶段出口与 macOS/Linux 支持矩阵分开。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 和 [docs/architecture.md](./docs/architecture.md) 相关章节；文档定案不等于运行验收。
+**当前状态：M1/M2 整体出口未完成（2026-11-01）；Windows 原生桌面、Runtime 与 dsh 派发已有实现和局部验证，任务授权/状态回收/恢复仍有发布阻断缺口，见 [本轮审计](./docs/audits/2026-11-01-product-architecture-review.md)。** 首个可用版本优先可换装桌宠 + dsh 文字任务与插件入口，pi 第二；语音/提醒独立增量。Windows 阶段出口与 macOS/Linux 支持矩阵分开。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 和 [docs/architecture.md](./docs/architecture.md) 相关章节；文档定案不等于运行验收。
 
 ## 文档体系与同步规则
 
