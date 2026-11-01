@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
+import { connect as connectTcp } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -76,6 +77,34 @@ afterEach(async () => {
 });
 
 describe("WS 一次性票据鉴权", () => {
+  it("单次写入合并多个合法大帧时连接仍可接收广播", async () => {
+    const { runtime, clientToken } = await makeRuntime();
+    const ticket = await issueTicket(`http://127.0.0.1:${runtime.port}`, clientToken);
+    const socket = connectTcp(runtime.port, "127.0.0.1");
+    let received = Buffer.alloc(0);
+    socket.on("data", (chunk: Buffer) => { received = Buffer.concat([received, chunk]); });
+    const waitFor = async (predicate: () => boolean): Promise<void> => {
+      const deadline = Date.now() + 2000;
+      while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(predicate()).toBe(true);
+    };
+    const frame = (text: string): Buffer => {
+      const payload = Buffer.from(text);
+      const header = payload.length < 126 ? Buffer.from([0x81, 0x80 | payload.length]) : Buffer.from([0x81, 0xfe, payload.length >> 8, payload.length & 255]);
+      return Buffer.concat([header, Buffer.alloc(4), payload]);
+    };
+    try {
+      await new Promise<void>((resolve) => socket.once("connect", resolve));
+      socket.write(`GET /v1/events HTTP/1.1\r\nHost: 127.0.0.1:${runtime.port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`);
+      await waitFor(() => received.includes(Buffer.from("101 Switching Protocols")));
+      socket.write(frame(JSON.stringify({ type: "auth", ticket })));
+      await waitFor(() => received.includes(Buffer.from('"ready"')));
+      socket.write(Buffer.concat([frame("a".repeat(60000)), frame("b".repeat(10000))]));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      runtime.feed.publish("coalesced.test", {});
+      await waitFor(() => received.includes(Buffer.from("coalesced.test")));
+    } finally { socket.destroy(); }
+  });
   it("拒绝错误 Host 和 Origin 的升级请求", async () => {
     const { runtime } = await makeRuntime();
     for (const headers of [{ host: "evil.example" }, { origin: "https://evil.example" }]) {

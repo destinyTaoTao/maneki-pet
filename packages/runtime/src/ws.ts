@@ -23,6 +23,7 @@ interface ReadySocket {
 export class WsHub {
   private readonly ready = new Set<ReadySocket>();
   private readonly sockets = new Set<Duplex>();
+  private readonly closing = new WeakSet<Duplex>();
   private readonly tickets: TicketIssuer;
   private readonly feed: EventFeed;
   private readonly authTimeoutMs: number;
@@ -91,20 +92,12 @@ export class WsHub {
     }, this.authTimeoutMs);
 
     const onData = (chunk: Buffer): void => {
-      if (buffer.length + chunk.length > MAX_FRAME_BYTES + 14) {
-        this.log("ws incoming frame limit reached");
-        clearTimeout(timer);
-        settled = true;
-        this.closeSocket(socket, 1009, "frame too large");
-        return;
-      }
       buffer = Buffer.concat([buffer, chunk]);
       let frame: ReturnType<WsHub["readFrame"]>;
-      try { frame = this.readFrame(buffer); } catch { clearTimeout(timer); settled = true; this.closeSocket(socket, 1002, "invalid frame"); return; }
+      try { frame = this.readFrame(buffer); } catch { this.log("ws invalid or oversized frame"); clearTimeout(timer); settled = true; this.closeSocket(socket, 1002, "invalid frame"); return; }
       if (!frame) {
         return;
       }
-      socket.off("data", onData);
       clearTimeout(timer);
       if (settled) {
         return;
@@ -119,13 +112,18 @@ export class WsHub {
       this.send(socket, JSON.stringify({ type: "ready" }));
       let laterBuffer: Buffer = buffer.subarray(frame.totalLength);
       const onLater = (later: Buffer): void => {
-        if (laterBuffer.length + later.length > MAX_FRAME_BYTES + 14) { this.closeSocket(socket, 1009, "frame too large"); return; }
         laterBuffer = this.handleLaterFrames(socket, Buffer.concat([laterBuffer, later]));
       };
-      socket.on("data", onLater);
+      handler = onLater;
       if (laterBuffer.length) onLater(Buffer.alloc(0));
     };
-    socket.on("data", onData);
+    let handler = onData;
+    const receive = (chunk: Buffer): void => {
+      for (let offset = 0; offset < chunk.length && !this.closing.has(socket); offset += 8192) {
+        handler(chunk.subarray(offset, offset + 8192));
+      }
+    };
+    socket.on("data", receive);
     socket.on("close", () => {
       clearTimeout(timer);
       for (const connection of this.ready) {
@@ -134,7 +132,7 @@ export class WsHub {
         }
       }
     });
-    if (head.length) onData(head);
+    if (head.length) receive(head);
   }
 
   private authenticateFrame(frame: { opcode: number; payload: Buffer }): { ok: true; clientId: string } | { ok: false; reason: string } {
@@ -164,7 +162,7 @@ export class WsHub {
     let buffer = chunk;
     while (buffer.length > 0) {
       let frame: ReturnType<WsHub["readFrame"]>;
-      try { frame = this.readFrame(buffer); } catch { this.closeSocket(socket, 1002, "invalid frame"); return Buffer.alloc(0); }
+      try { frame = this.readFrame(buffer); } catch { this.log("ws invalid or oversized frame"); this.closeSocket(socket, 1002, "invalid frame"); return Buffer.alloc(0); }
       if (!frame) {
         return buffer;
       }
@@ -224,6 +222,9 @@ export class WsHub {
   }
 
   private closeSocket(socket: Duplex, code: number, reason: string): void {
+    if (this.closing.has(socket)) return;
+    this.closing.add(socket);
+    socket.pause();
     const payload = Buffer.concat([
       Buffer.from([Math.floor(code / 256), code % 256]),
       Buffer.from(reason, "utf8").subarray(0, 100),
