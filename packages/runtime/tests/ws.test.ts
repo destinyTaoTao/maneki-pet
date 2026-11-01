@@ -77,6 +77,31 @@ afterEach(async () => {
 });
 
 describe("WS 一次性票据鉴权", () => {
+  it("发送缓冲超限时断开慢客户端，服务保持健康", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maneki-rt-ws-slow-"));
+    tempDirs.push(dir);
+    const logs: string[] = [];
+    const runtime = await startRuntime({ configDir: dir, log: (line) => logs.push(line) });
+    runtimes.push(runtime);
+    const base = `http://127.0.0.1:${runtime.port}`;
+    const pairResponse = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}`, "content-type": "application/json" }, body: JSON.stringify({ name: "slow", scopes: "express" }) });
+    const { token } = await pairResponse.json() as { token: string };
+    const ticket = await issueTicket(base, token);
+    const socket = connectTcp(runtime.port, "127.0.0.1");
+    socket.on("error", () => undefined);
+    try {
+      await new Promise<void>((resolve) => socket.once("connect", resolve));
+      socket.write(`GET /v1/events HTTP/1.1\r\nHost: 127.0.0.1:${runtime.port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`);
+      await new Promise<void>((resolve) => socket.once("data", () => resolve()));
+      const auth = Buffer.from(JSON.stringify({ type: "auth", ticket }));
+      socket.write(Buffer.concat([Buffer.from([0x81, 0x80 | auth.length]), Buffer.alloc(4), auth]));
+      await new Promise<void>((resolve) => socket.once("data", () => resolve()));
+      socket.pause();
+      for (let i = 0; i < 500; i++) runtime.feed.publish("load", { value: "x".repeat(16384) });
+      expect(logs).toContain("ws send buffer limit reached");
+      expect((await fetch(`${base}/v1/health`)).status).toBe(200);
+    } finally { socket.destroy(); }
+  });
   it("畸形帧和随后洪泛只关闭当前连接", async () => {
     const { runtime } = await makeRuntime();
     const socket = connectTcp(runtime.port, "127.0.0.1");
