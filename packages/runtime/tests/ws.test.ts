@@ -77,6 +77,20 @@ afterEach(async () => {
 });
 
 describe("WS 一次性票据鉴权", () => {
+  it("畸形帧和随后洪泛只关闭当前连接", async () => {
+    const { runtime } = await makeRuntime();
+    const socket = connectTcp(runtime.port, "127.0.0.1");
+    socket.on("error", () => undefined);
+    try {
+      await new Promise<void>((resolve) => socket.once("connect", resolve));
+      socket.write(`GET /v1/events HTTP/1.1\r\nHost: 127.0.0.1:${runtime.port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`);
+      await new Promise<void>((resolve) => socket.once("data", () => resolve()));
+      const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+      socket.write(Buffer.concat([Buffer.from([0x81, 0]), Buffer.alloc(256 * 1024)]));
+      await Promise.race([closed, new Promise<void>((_, reject) => setTimeout(() => reject(new Error("socket not closed")), 2000))]);
+      expect((await fetch(`http://127.0.0.1:${runtime.port}/v1/health`)).status).toBe(200);
+    } finally { socket.destroy(); }
+  });
   it("单次写入合并多个合法大帧时连接仍可接收广播", async () => {
     const { runtime, clientToken } = await makeRuntime();
     const ticket = await issueTicket(`http://127.0.0.1:${runtime.port}`, clientToken);

@@ -68,6 +68,16 @@ afterEach(async () => {
 });
 
 describe("本地 HTTP API 鉴权矩阵", () => {
+  it("拒绝异常和超额 JSON 请求后健康接口仍可用", async () => {
+    const { runtime, base } = await makeRuntime();
+    for (const body of ["null", "[]", "42", '"x"', "{"]) {
+      const response = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}`, "content-type": "application/json" }, body });
+      expect(response.status).toBe(400);
+    }
+    const oversized = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}`, "content-type": "application/json" }, body: JSON.stringify({ name: "x".repeat(70000), scopes: "express" }) });
+    expect(oversized.status).toBe(413);
+    expect((await fetch(`${base}/v1/health`)).status).toBe(200);
+  });
   it("健康检查不需要令牌，且不泄露令牌", async () => {
     const { runtime, base } = await makeRuntime();
     const { status, body } = await jsonFetch(base, "/v1/health");
