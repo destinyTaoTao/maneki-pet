@@ -62,10 +62,10 @@ describe("Runtime 装配与生命周期", () => {
 describe("外挂记忆装配（#46 的 Runtime 层）", () => {
   it("独立 Runtime 中缺失记忆程序只降级记忆，健康接口继续可用", async () => {
     const dir = makeTempDir();
-    writeFileSync(join(dir, "config.json"), JSON.stringify({ schemaVersion: 1, limits: { proactiveDailyTokenLimit: 100000, interactiveDailyTokenLimit: null, maxNotificationsPerHour: 30 }, externalMemory: { command: join(dir, "missing-executable") } }));
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ schemaVersion: 1, limits: { proactiveDailyTokenLimit: 100000, interactiveDailyTokenLimit: null, maxNotificationsPerHour: 30 }, externalMemory: { command: join(dir, "missing-executable") }, dsh: { baseUrl: "http://127.0.0.1:1", token: "test-token" } }));
     const fixture = join(import.meta.dirname, "fixtures", "memory-fault-process.mjs");
     const { stdout } = await promisify(execFile)(process.execPath, [fixture, dir], { timeout: 10000 });
-    expect(JSON.parse(stdout)).toEqual({ outcome: "degraded", health: 200 });
+    expect(JSON.parse(stdout)).toEqual({ outcome: "degraded", health: 200, taskBefore: 409, taskAfter: 409, secondClient: 200 });
   }, 15000);
   it("配置 externalMemory 后 runtime.memory 可用并经真实子进程检索", async () => {
     const dir = makeTempDir();

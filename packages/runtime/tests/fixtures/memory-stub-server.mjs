@@ -5,7 +5,9 @@
  *   MEMORY_STUB_DELAY_MS=<n>          每个请求延迟 n 毫秒（测超时/取消）
  */
 import readline from "node:readline";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
+
+if (process.env.MEMORY_STUB_PID_FILE) writeFileSync(process.env.MEMORY_STUB_PID_FILE, String(process.pid));
 
 const store = [];
 const fail = process.env.MEMORY_STUB_FAIL ?? "";
@@ -29,6 +31,12 @@ rl.on("line", (line) => {
 
 async function respond(message) {
   if (delayMs > 0) await sleep(delayMs);
+  if (message.method === "tools/call" && process.env.MEMORY_STUB_TOOL_LOG) {
+    appendFileSync(process.env.MEMORY_STUB_TOOL_LOG, "call\n");
+  }
+  if (message.method === "tools/call" && process.env.MEMORY_STUB_TOOL_DELAY_MS) {
+    await sleep(Number(process.env.MEMORY_STUB_TOOL_DELAY_MS));
+  }
   responses += 1;
   const { id, method, params } = message;
   const exitWhenDone = exitAfter > 0 && responses >= exitAfter;

@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MemoryContextService,
@@ -14,6 +14,7 @@ import {
 import { McpMemoryClient } from "../src/index.js";
 
 const tempDirs: string[] = [];
+const clients: McpMemoryClient[] = [];
 const STUB = join(import.meta.dirname, "fixtures", "memory-stub-server.mjs");
 
 function makeCtx(deadlineInMs: number): CallContext {
@@ -23,7 +24,9 @@ function makeCtx(deadlineInMs: number): CallContext {
 function makeClient(env: Record<string, string> = {}): McpMemoryClient {
   const dir = mkdtempSync(join(tmpdir(), "maneki-rt-mem-"));
   tempDirs.push(dir);
-  return new McpMemoryClient({ command: process.execPath, args: [STUB], env });
+  const client = new McpMemoryClient({ command: process.execPath, args: [STUB], env });
+  clients.push(client);
+  return client;
 }
 
 const record: AssistantMemoryRecord = {
@@ -34,12 +37,28 @@ const record: AssistantMemoryRecord = {
 };
 
 afterEach(async () => {
+  for (const client of clients.splice(0)) await client.stop();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe("MCP 记忆客户端 × 替身契约", () => {
+  it("取消在途读取后丢弃迟到响应，后续请求仍可完成", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maneki-mem-cancel-"));
+    tempDirs.push(dir);
+    const log = join(dir, "calls.log");
+    const client = makeClient({ MEMORY_STUB_TOOL_DELAY_MS: "500", MEMORY_STUB_TOOL_LOG: log });
+    const controller = new AbortController();
+    try {
+      const pending = client.retrieve({ text: "first" }, { requestId: "first", signal: controller.signal, deadlineAtMs: Date.now() + 5000 });
+      const cancelled = expect(pending).rejects.toThrow(/cancelled/);
+      await vi.waitFor(() => expect(existsSync(log)).toBe(true));
+      controller.abort();
+      await cancelled;
+      await expect(client.retrieve({ text: "second" }, makeCtx(5000))).resolves.toEqual({ items: [] });
+    } finally { await client.stop(); }
+  });
   it("可执行文件不存在时记忆降级，调用者继续工作", async () => {
     const client = new McpMemoryClient({ command: join(tmpdir(), "maneki-nonexistent-executable-51") });
     const service = new MemoryContextService({ provider: client });
@@ -49,12 +68,17 @@ describe("MCP 记忆客户端 × 替身契约", () => {
   });
 
   it("停止时结束在途请求并禁止后续调用", async () => {
-    const client = makeClient({ MEMORY_STUB_DELAY_MS: "5000" });
+    const dir = mkdtempSync(join(tmpdir(), "maneki-mem-stop-"));
+    tempDirs.push(dir);
+    const pidFile = join(dir, "pid");
+    const client = makeClient({ MEMORY_STUB_DELAY_MS: "5000", MEMORY_STUB_PID_FILE: pidFile });
     const pending = client.retrieve({ text: "x" }, makeCtx(10000));
     const assertion = expect(pending).rejects.toThrow(/stopped/);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true));
     await client.stop();
     await assertion;
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
     await expect(client.retrieve({ text: "x" }, makeCtx(1000))).rejects.toThrow(/stopped/);
   });
   it("写入成功后丢失回执时不重放并报告结果未知", async () => {
