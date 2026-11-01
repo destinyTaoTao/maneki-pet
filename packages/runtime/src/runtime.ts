@@ -203,11 +203,17 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
         hub.detach();
         await api.stop();
         await bridge.close();
-        await memoryClient?.stop();
-        store.audit("runtime.stopped", instanceId, {}, new Date().toISOString());
-        store.close();
-        lock.release();
-        lifecycle.transition("stopped");
+        try {
+          await memoryClient?.stop();
+        } finally {
+          try {
+            store.audit("runtime.stopped", instanceId, {}, new Date().toISOString());
+            store.close();
+          } finally {
+            lock.release();
+            lifecycle.transition("stopped");
+          }
+        }
         log("maneki runtime stopped cleanly");
       },
     };

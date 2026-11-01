@@ -41,6 +41,7 @@ export class McpMemoryClient implements ExternalMemoryProvider {
   readonly info: ProviderInfo;
 
   private child: ChildProcessWithoutNullStreams | undefined;
+  private readonly terminating = new Map<ChildProcessWithoutNullStreams, Promise<void>>();
   private buffer = "";
   private readonly pending = new Map<number, PendingRequest>();
   private nextId = 1;
@@ -80,18 +81,8 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     this.child = undefined;
     this.initialized = false;
     this.failPending("memory client stopped");
-    if (child) {
-      const exited = new Promise<void>((resolve, reject) => {
-        if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
-        const force = setTimeout(() => child.kill("SIGKILL"), 500);
-        const deadline = setTimeout(() => { child.off("close", onClose); reject(new Error("memory process did not stop")); }, 2000);
-        const onClose = (): void => { clearTimeout(force); clearTimeout(deadline); resolve(); };
-        child.once("close", onClose);
-      });
-      child.stdin.end();
-      child.kill();
-      await exited;
-    }
+    if (child) this.terminate(child);
+    await Promise.all(this.terminating.values());
   }
 
   private async callTool(name: string, args: Record<string, unknown>, ctx?: CallContext): Promise<unknown> {
@@ -111,6 +102,9 @@ export class McpMemoryClient implements ExternalMemoryProvider {
   private async requestOnce(method: string, params: unknown, ctx: CallContext | undefined): Promise<unknown> {
     if (this.stopped) {
       return Promise.reject(new Error("memory client stopped; refusing new calls"));
+    }
+    if (this.child && (this.child.exitCode !== null || this.child.signalCode !== null)) {
+      this.failChild(this.child, "memory server exited before responding");
     }
     if (!this.initialized && method !== "initialize") {
       this.initializing = this.initializing ?? this.initialize(ctx).finally(() => {
@@ -177,7 +171,7 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     child.stderr.on("error", () => this.failChild(child, "memory pipe error"));
     // 服务端 stderr 是日志通道，不进协议。
     child.stderr.on("data", () => undefined);
-    child.on("close", () => {
+    child.on("exit", () => {
       this.failChild(child, "memory server exited before responding");
     });
     this.child = child;
@@ -189,8 +183,26 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     this.child = undefined;
     this.initialized = false;
     this.buffer = "";
-    child.kill();
+    this.terminate(child);
     this.failPending(reason);
+  }
+
+  private terminate(child: ChildProcessWithoutNullStreams): void {
+    if (this.terminating.has(child)) return;
+    const done = new Promise<void>((resolve, reject) => {
+      const closePipes = (): void => { child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy(); };
+      if (child.exitCode !== null || child.signalCode !== null) { closePipes(); resolve(); return; }
+      const force = setTimeout(() => child.kill("SIGKILL"), 500);
+      const deadline = setTimeout(() => { child.off("exit", onExit); child.off("close", onExit); clearTimeout(force); reject(new Error("memory process did not stop")); }, 2000);
+      const onExit = (): void => { child.off("exit", onExit); child.off("close", onExit); clearTimeout(force); clearTimeout(deadline); closePipes(); resolve(); };
+      child.once("exit", onExit);
+      child.once("close", onExit);
+      child.stdin.end();
+      child.kill();
+    });
+    this.terminating.set(child, done);
+    // 保留失败结果供 stop() 读取，同时避免异步清理提前产生未处理 rejection。
+    void done.then(() => this.terminating.delete(child), () => undefined);
   }
 
   private failPending(reason: string): void {
