@@ -108,7 +108,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
           },
         },
       });
-      tasks = new TaskService(broker, adapter);
+      tasks = new TaskService(broker);
       feed.publish("tasks.configured", { adapter: "dsh", gateway: config.dsh.baseUrl });
     }
 

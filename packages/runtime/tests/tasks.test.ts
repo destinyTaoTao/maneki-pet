@@ -143,6 +143,11 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
     const store = restarted.store.asBrokerTaskStore();
     store.putTask({ brokerRequestId: "old", clientRequestId: "old", prompt: "old", workdir: "C:\\tmp", status: "running", sessionId: "s", createdAt: "2026-01-01", updatedAt: "2026-01-01" });
     store.putTask({ brokerRequestId: "queued", clientRequestId: "queued", prompt: "next", workdir: "C:\\tmp", status: "queued", sessionId: "", createdAt: "2026-01-02", updatedAt: "2026-01-02" });
+    const query = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old`, { headers });
+    expect(query.status).toBe(200);
+    const snapshot = await query.json() as { status: string; gatewaySnapshot?: { outcome?: string; reason?: string } };
+    expect(snapshot.status).toBe("unknown");
+    expect(snapshot.gatewaySnapshot).toMatchObject({ outcome: "unknown" });
     const cancel = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old/cancel`, { method: "POST", headers });
     expect(cancel.status).toBe(503);
     expect(store.getTask("old")?.status).toBe("running");

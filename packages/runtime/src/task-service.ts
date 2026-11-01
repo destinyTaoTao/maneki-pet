@@ -5,13 +5,8 @@
  */
 import { TaskBroker, type BrokerTask } from "@maneki-pet/core";
 
-import { DshAdapter } from "@maneki-pet/adapter-dsh";
-
 export class TaskService {
-  constructor(
-    private readonly broker: TaskBroker,
-    private readonly adapter: DshAdapter,
-  ) {}
+  constructor(private readonly broker: TaskBroker) {}
 
   /** 审批与恢复验收前拒绝新派发；既有请求结果需先核查。 */
   async submit(entry: { clientRequestId: string; prompt: string; workdir: string }): Promise<{ outcome: string; task?: BrokerTask; reason?: string }> {
@@ -20,21 +15,13 @@ export class TaskService {
     return { outcome: "rejected", reason: "dsh approval and full recovery are not verified; previous requests may have run, inspect existing tasks before retrying" };
   }
 
-  /** 查询：Broker 登记 + 适配器快照（dsh 网关可达时）。 */
+  /** 本地记录保留原值；无可靠外部查询时向调用方报告未知。 */
   async describe(brokerRequestId: string): Promise<BrokerTask & { gatewaySnapshot?: Record<string, unknown> }> {
     const task = this.broker.describeTask(brokerRequestId);
     if (!task) {
       throw Object.assign(new Error(`task ${brokerRequestId} not found`), { code: "not_found" });
     }
-    try {
-      const snapshot = await this.adapter.query(
-        { brokerRequestId },
-        { requestId: brokerRequestId, signal: new AbortController().signal, deadlineAtMs: Date.now() + 10_000 },
-      );
-      return { ...task, gatewaySnapshot: snapshot as Record<string, unknown> };
-    } catch {
-      return { ...task };
-    }
+    return { ...task, status: "unknown", gatewaySnapshot: { outcome: "unknown", reason: "tracking unavailable; inspect the harness directly" } };
   }
 
   async cancel(brokerRequestId: string): Promise<BrokerTask> {
