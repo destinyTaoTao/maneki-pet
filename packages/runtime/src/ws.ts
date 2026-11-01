@@ -2,10 +2,13 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { TicketIssuer } from "./auth.js";
+import { checkHost, checkOrigin, TicketIssuer } from "./auth.js";
 import type { EventFeed, RuntimeEvent } from "./events.js";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const MAX_FRAME_BYTES = 64 * 1024;
+const MAX_CONNECTIONS = 64;
+const MAX_SEND_BUFFER_BYTES = 1024 * 1024;
 
 interface ReadySocket {
   socket: Duplex;
@@ -19,19 +22,36 @@ interface ReadySocket {
  */
 export class WsHub {
   private readonly ready = new Set<ReadySocket>();
+  private readonly sockets = new Set<Duplex>();
   private readonly tickets: TicketIssuer;
   private readonly feed: EventFeed;
   private readonly authTimeoutMs: number;
+  private readonly originAllowlist: string[];
+  private readonly log: (line: string) => void;
   private unsubscribe: (() => void) | undefined;
 
-  constructor(deps: { tickets: TicketIssuer; feed: EventFeed; authTimeoutMs?: number }) {
+  constructor(deps: { tickets: TicketIssuer; feed: EventFeed; authTimeoutMs?: number; originAllowlist?: string[]; log?: (line: string) => void }) {
     this.tickets = deps.tickets;
     this.feed = deps.feed;
     this.authTimeoutMs = deps.authTimeoutMs ?? 5_000;
+    this.originAllowlist = deps.originAllowlist ?? [];
+    this.log = deps.log ?? (() => undefined);
   }
 
   attach(server: Server): void {
-    server.on("upgrade", (req: IncomingMessage, socket: Duplex) => {
+    server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+      socket.on("error", () => socket.destroy());
+      const address = server.address();
+      const expectedHost = typeof address === "object" && address ? `127.0.0.1:${address.port}` : "";
+      if (!checkHost(req.headers.host, expectedHost).ok || !checkOrigin(req.headers.origin, this.originAllowlist).ok) {
+        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        return;
+      }
+      if (this.sockets.size >= MAX_CONNECTIONS) {
+        this.log("ws connection limit reached");
+        socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        return;
+      }
       const url = (req.url ?? "").split("?")[0] ?? "";
       const key = req.headers["sec-websocket-key"];
       if (url !== "/v1/events" || !key || req.headers.upgrade?.toLowerCase() !== "websocket") {
@@ -43,7 +63,9 @@ export class WsHub {
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
           `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
       );
-      this.awaitAuthentication(socket);
+      this.sockets.add(socket);
+      socket.once("close", () => this.sockets.delete(socket));
+      this.awaitAuthentication(socket, head);
     });
     this.unsubscribe = this.feed.subscribe((event) => {
       this.broadcast({ type: "event", event });
@@ -52,13 +74,13 @@ export class WsHub {
 
   detach(): void {
     this.unsubscribe?.();
-    for (const connection of this.ready) {
-      this.closeSocket(connection.socket, 1001, "server stopping");
+    for (const socket of this.sockets) {
+      this.closeSocket(socket, 1001, "server stopping");
     }
     this.ready.clear();
   }
 
-  private awaitAuthentication(socket: Duplex): void {
+  private awaitAuthentication(socket: Duplex, head: Buffer): void {
     let buffer = Buffer.alloc(0);
     let settled = false;
     const timer = setTimeout(() => {
@@ -69,8 +91,16 @@ export class WsHub {
     }, this.authTimeoutMs);
 
     const onData = (chunk: Buffer): void => {
+      if (buffer.length + chunk.length > MAX_FRAME_BYTES + 14) {
+        this.log("ws incoming frame limit reached");
+        clearTimeout(timer);
+        settled = true;
+        this.closeSocket(socket, 1009, "frame too large");
+        return;
+      }
       buffer = Buffer.concat([buffer, chunk]);
-      const frame = this.readFrame(buffer);
+      let frame: ReturnType<WsHub["readFrame"]>;
+      try { frame = this.readFrame(buffer); } catch { clearTimeout(timer); settled = true; this.closeSocket(socket, 1002, "invalid frame"); return; }
       if (!frame) {
         return;
       }
@@ -87,7 +117,13 @@ export class WsHub {
       }
       this.ready.add({ socket, clientId: authCheck.clientId });
       this.send(socket, JSON.stringify({ type: "ready" }));
-      socket.on("data", (later: Buffer) => this.handleLaterFrames(socket, later));
+      let laterBuffer: Buffer = buffer.subarray(frame.totalLength);
+      const onLater = (later: Buffer): void => {
+        if (laterBuffer.length + later.length > MAX_FRAME_BYTES + 14) { this.closeSocket(socket, 1009, "frame too large"); return; }
+        laterBuffer = this.handleLaterFrames(socket, Buffer.concat([laterBuffer, later]));
+      };
+      socket.on("data", onLater);
+      if (laterBuffer.length) onLater(Buffer.alloc(0));
     };
     socket.on("data", onData);
     socket.on("close", () => {
@@ -98,6 +134,7 @@ export class WsHub {
         }
       }
     });
+    if (head.length) onData(head);
   }
 
   private authenticateFrame(frame: { opcode: number; payload: Buffer }): { ok: true; clientId: string } | { ok: false; reason: string } {
@@ -110,6 +147,9 @@ export class WsHub {
     } catch {
       return { ok: false, reason: "auth message is not valid JSON" };
     }
+    if (typeof message !== "object" || message === null || Array.isArray(message)) {
+      return { ok: false, reason: "auth message must be an object" };
+    }
     const ticket = (message as { type?: string; ticket?: unknown }).ticket;
     if ((message as { type?: string }).type !== "auth" || typeof ticket !== "string") {
       return { ok: false, reason: "auth message must be {type:\"auth\", ticket}" };
@@ -120,22 +160,24 @@ export class WsHub {
     return { ok: true, clientId: "ticket-holder" };
   }
 
-  private handleLaterFrames(socket: Duplex, chunk: Buffer): void {
+  private handleLaterFrames(socket: Duplex, chunk: Buffer): Buffer {
     let buffer = chunk;
     while (buffer.length > 0) {
-      const frame = this.readFrame(buffer);
+      let frame: ReturnType<WsHub["readFrame"]>;
+      try { frame = this.readFrame(buffer); } catch { this.closeSocket(socket, 1002, "invalid frame"); return Buffer.alloc(0); }
       if (!frame) {
-        return;
+        return buffer;
       }
       buffer = buffer.subarray(frame.totalLength);
       if (frame.opcode === 0x8) {
         this.closeSocket(socket, 1000, "bye");
-        return;
+        return Buffer.alloc(0);
       }
       if (frame.opcode === 0x9) {
         this.sendRaw(socket, 0x0a, frame.payload);
       }
     }
+    return Buffer.alloc(0);
   }
 
   private broadcast(message: Record<string, unknown>): void {
@@ -152,6 +194,11 @@ export class WsHub {
 
   private sendRaw(socket: Duplex, opcode: number, payload: Buffer): void {
     if (socket.destroyed || socket.writableEnded) {
+      return;
+    }
+    if (socket.writableLength + payload.length + 10 > MAX_SEND_BUFFER_BYTES) {
+      this.log("ws send buffer limit reached");
+      socket.destroy();
       return;
     }
     try {
@@ -194,6 +241,7 @@ export class WsHub {
     const second = buffer[1] as number;
     const opcode = first & 0x0f;
     const masked = (second & 0x80) !== 0;
+    if ((first & 0xf0) !== 0x80 || !masked || ![1, 8, 9, 10].includes(opcode)) throw new Error("invalid frame");
     let length = second & 0x7f;
     let offset = 2;
     if (length === 126) {
@@ -207,12 +255,11 @@ export class WsHub {
         return null;
       }
       const big = buffer.readBigUInt64BE(2);
-      if (big > BigInt(64 * 1024 * 1024)) {
-        return { opcode, payload: Buffer.alloc(0), totalLength: buffer.length };
-      }
+      if (big > BigInt(MAX_FRAME_BYTES)) throw new Error("frame too large");
       length = Number(big);
       offset = 10;
     }
+    if (length > MAX_FRAME_BYTES || (opcode >= 8 && length > 125)) throw new Error("invalid frame length");
     const maskLength = masked ? 4 : 0;
     if (buffer.length < offset + maskLength + length) {
       return null;

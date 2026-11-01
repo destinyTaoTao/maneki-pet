@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { request } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -75,6 +76,65 @@ afterEach(async () => {
 });
 
 describe("WS 一次性票据鉴权", () => {
+  it("拒绝错误 Host 和 Origin 的升级请求", async () => {
+    const { runtime } = await makeRuntime();
+    for (const headers of [{ host: "evil.example" }, { origin: "https://evil.example" }]) {
+      const status = await new Promise<number>((resolve, reject) => {
+        const req = request({ host: "127.0.0.1", port: runtime.port, path: "/v1/events", headers: { connection: "Upgrade", upgrade: "websocket", "sec-websocket-version": "13", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==", ...headers } });
+        req.on("response", (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+        req.on("upgrade", (_res, socket) => { socket.destroy(); resolve(101); });
+        req.on("error", reject);
+        req.end();
+      });
+      expect(status).toBe(403);
+    }
+  });
+
+  it("拒绝超额首帧且服务保持健康", async () => {
+    const { runtime } = await makeRuntime();
+    const client = connect(`ws://127.0.0.1:${runtime.port}/v1/events`, "x".repeat(65537));
+    expect(await Promise.race([client.closed, delay(2000)])).not.toBe(-1);
+    expect((await fetch(`http://127.0.0.1:${runtime.port}/v1/health`)).status).toBe(200);
+  });
+
+  it("非对象及损坏的认证消息只关闭当前连接", async () => {
+    const { runtime } = await makeRuntime();
+    for (const message of ["null", "[]", "42", '"text"', "{"]) {
+      const client = connect(`ws://127.0.0.1:${runtime.port}/v1/events`, message);
+      expect(await Promise.race([client.closed, delay(2000)])).toBe(4001);
+    }
+    expect((await fetch(`http://127.0.0.1:${runtime.port}/v1/health`)).status).toBe(200);
+  });
+
+  it("未认证连接计入连接上限，释放后可再次连接", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maneki-rt-ws-limit-"));
+    tempDirs.push(dir);
+    const runtime = await startRuntime({ configDir: dir, log: () => undefined, wsAuthTimeoutMs: 10000 });
+    runtimes.push(runtime);
+    const clients: WebSocket[] = [];
+    try {
+      for (let i = 0; i < 64; i++) {
+        const ws = new WebSocket(`ws://127.0.0.1:${runtime.port}/v1/events`);
+        clients.push(ws);
+        await new Promise<void>((resolve, reject) => { ws.onopen = () => resolve(); ws.onerror = () => reject(new Error("connection rejected early")); });
+      }
+      const status = await new Promise<number>((resolve, reject) => {
+        const req = request({ host: "127.0.0.1", port: runtime.port, path: "/v1/events", headers: { connection: "Upgrade", upgrade: "websocket", "sec-websocket-version": "13", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==" } });
+        req.on("response", (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+        req.on("upgrade", (_res, socket) => { socket.destroy(); resolve(101); });
+        req.on("error", reject);
+        req.end();
+      });
+      expect(status).toBe(503);
+      const first = clients[0]!;
+      await new Promise<void>((resolve) => { first.onclose = () => resolve(); first.close(); });
+      const replacement = new WebSocket(`ws://127.0.0.1:${runtime.port}/v1/events`);
+      clients.push(replacement);
+      await new Promise<void>((resolve, reject) => { replacement.onopen = () => resolve(); replacement.onerror = () => reject(new Error("replacement rejected")); });
+    } finally {
+      for (const client of clients) client.close();
+    }
+  }, 20000);
   it("有效票据认证后收到 ready，并收到订阅的事件广播", async () => {
     const { runtime, clientToken } = await makeRuntime();
     const base = `http://127.0.0.1:${runtime.port}`;

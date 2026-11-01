@@ -136,6 +136,8 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
     const hub = new WsHub({
       tickets,
       feed,
+      originAllowlist: options.originAllowlist ?? [],
+      log,
       ...(options.wsAuthTimeoutMs !== undefined ? { authTimeoutMs: options.wsAuthTimeoutMs } : {}),
     });
     hub.attach(api.rawServer);
