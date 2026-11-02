@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -106,3 +106,39 @@ it("rejects an incomplete trial recipe using the reserved default identity befor
   expect(result.stderr).toContain("reserved");
   expect(existsSync(packs)).toBe(false);
 });
+
+
+it("keeps the installed candidate and blocked build record when replacement publication fails", () => {
+  const root = workspace();
+  const fixture = spawnSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i",
+    "color=c=0x00ff00:s=64x64:r=24:d=5,drawbox=x=16:y=16:w=32:h=40:color=red:t=fill",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", join(root, "source.mp4")], { encoding: "utf8" });
+  expect(fixture.status, fixture.stderr).toBe(0);
+  const recipe = { recipeVersion: 1, id: "previous-0", name: "候选", version: "0.1.0",
+    clips: { idle: { input: "source.mp4" } }, states: { idle: { clips: ["idle"], weights: [1] } }, actions: [] };
+  const recipePath = join(root, "recipe.json");
+  const packs = join(root, "packs");
+  writeFileSync(recipePath, JSON.stringify(recipe));
+  const built = cli("build-catgirl-pack.mjs", [recipePath, "--packs-dir", packs]);
+  expect(built.status, built.stderr).toBe(0);
+  const candidate = join(packs, recipe.id);
+  const before = readFileSync(join(candidate, "pet-pack.json"));
+  const report = join(packs, `${recipe.id}.build.json`);
+  rmSync(report);
+  mkdirSync(report);
+  writeFileSync(join(report, "existing-record"), "preserve this blocked record");
+  recipe.version = "0.2.0";
+  writeFileSync(recipePath, JSON.stringify(recipe));
+
+  const failed = cli("build-catgirl-pack.mjs", [recipePath, "--packs-dir", packs]);
+
+  expect(failed.status).not.toBe(0);
+  expect(readFileSync(join(candidate, "pet-pack.json"))).toEqual(before);
+  expect(readFileSync(join(report, "existing-record"), "utf8")).toBe("preserve this blocked record");
+  expect(cli("install-pack.mjs", [candidate, "--packs-dir", join(root, "recovered")]).status).toBe(0);
+  rmSync(report, { recursive: true });
+  const recovered = cli("build-catgirl-pack.mjs", [recipePath, "--packs-dir", packs]);
+  expect(recovered.status, recovered.stderr).toBe(0);
+  expect(JSON.parse(readFileSync(join(candidate, "pet-pack.json"), "utf8")).version).toBe("0.2.0");
+  expect(JSON.parse(readFileSync(report, "utf8")).recipe.version).toBe("0.2.0");
+}, 90_000);

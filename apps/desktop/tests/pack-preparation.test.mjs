@@ -16,9 +16,9 @@ function workspace() {
 afterEach(() => {
   for (const root of workspaces.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function cli(script, args) {
+function cli(script, args, env = process.env) {
   return spawnSync(process.execPath, [join(desktop, "scripts", script), ...args], {
-    cwd: desktop, encoding: "utf8", timeout: 60_000,
+    cwd: desktop, encoding: "utf8", timeout: 60_000, env,
   });
 }
 function writeApprovedPack(root) {
@@ -45,10 +45,13 @@ it("keeps an explicitly installed default pack when preparing missing placeholde
   writeApprovedPack(source);
   expect(cli("install-pack.mjs", [source, "--packs-dir", packs]).status).toBe(0);
   const before = readFileSync(join(packs, "xiaozhao-default", "pet-pack.json"));
+  const fallback = readFileSync(join(source, "assets", "approved.png"));
+  writeFileSync(join(publicDir, "fallback.png"), fallback);
 
   const result = cli("generate-packs.mjs", ["--public-dir", publicDir]);
 
   expect(result.status, result.stderr).toBe(0);
+  expect(readFileSync(join(publicDir, "fallback.png"))).toEqual(fallback);
   expect(existsSync(join(packs, "mint-test", "pet-pack.json"))).toBe(true);
   expect(readFileSync(join(packs, "xiaozhao-default", "pet-pack.json"))).toEqual(before);
   expect(readFileSync(join(packs, "xiaozhao-default", "assets", "approved.png")))
@@ -82,3 +85,21 @@ it("reports a corrupted installed default without replacing it with the placehol
   expect(readFileSync(join(installed, "assets", "approved.png"))).toEqual(damaged);
   expect(readFileSync(join(installed, "pet-pack.json"))).toEqual(descriptor);
 });
+
+
+it("can prepare missing placeholders after a first run without FFmpeg", () => {
+  const root = workspace();
+  const publicDir = join(root, "public");
+  const packs = join(publicDir, "packs");
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "path"));
+  env.PATH = root;
+
+  const failed = cli("generate-packs.mjs", ["--public-dir", publicDir], env);
+
+  expect(failed.status).not.toBe(0);
+  expect(failed.stderr).toContain("ffmpeg");
+  expect(existsSync(join(packs, "xiaozhao-default"))).toBe(false);
+  const recovered = cli("generate-packs.mjs", ["--public-dir", publicDir]);
+  expect(recovered.status, recovered.stderr).toBe(0);
+  expect(cli("install-pack.mjs", [join(packs, "xiaozhao-default"), "--packs-dir", join(root, "installed")]).status).toBe(0);
+}, 30_000);

@@ -6,7 +6,7 @@ import { deflateSync } from "node:zlib";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validatePetPack } from "@maneki-pet/core";
-import { verifyPackOnDisk } from "./lib/pack-fs.mjs";
+import { installPack, verifyPackOnDisk } from "./lib/pack-fs.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -196,8 +196,9 @@ function manifestEntry(path) {
 }
 
 function writePack({ id, name, palette, clips, withVideo, fullStateSet }) {
-  const packRoot = join(publicRoot, "packs", id);
-  if (existsSync(packRoot)) {
+  const target = join(publicRoot, "packs", id);
+  if (existsSync(target)) {
+    const packRoot = target;
     try {
       const pack = JSON.parse(readFileSync(join(packRoot, "pet-pack.json"), "utf8"));
       const manifest = JSON.parse(readFileSync(join(packRoot, "assets.manifest.json"), "utf8"));
@@ -207,11 +208,12 @@ function writePack({ id, name, palette, clips, withVideo, fullStateSet }) {
       const errors = verifyPackOnDisk(packRoot, result.value.pack, result.value.manifest);
       if (errors.length) throw new Error(errors.join("; "));
       console.log(`Kept validated local pack ${id}@${pack.version} (${pack.name})`);
-      return;
+      return true;
     } catch (error) {
       throw new Error(`Existing pack ${id} is invalid; preserved without overwrite. Repair or explicitly import a valid pack with install-pack.mjs: ${error.message}`);
     }
   }
+  const packRoot = join(scratch, "packs", id);
   const assets = join(packRoot, "assets");
   mkdirSync(assets, { recursive: true });
   const definitions = {};
@@ -272,11 +274,12 @@ function writePack({ id, name, palette, clips, withVideo, fullStateSet }) {
     join(packRoot, "assets.manifest.json"),
     `${JSON.stringify({ schemaVersion: 1, algorithm: "sha256", files }, null, 2)}\n`,
   );
+  installPack({ sourceDir: packRoot, packsRoot: join(publicRoot, "packs") });
   console.log(`Created development placeholder ${id}; official catgirl assets are not prepared by this command.`);
 }
 
 try {
-writePack({
+const defaultPreserved = writePack({
   id: "xiaozhao-default",
   name: "小招 · 招财猫",
   palette: palettes.default,
@@ -292,7 +295,12 @@ writePack({
   withVideo: false,
   fullStateSet: false,
 });
-writeFileSync(join(publicRoot, "fallback.png"), encodePng(size, size, drawCat("breathe", 0, palettes.default)));
+if (defaultPreserved && existsSync(join(publicRoot, "fallback.png"))) {
+  console.log("Kept prepared fallback.png with validated default pack");
+} else {
+  writeFileSync(join(publicRoot, "fallback.png"), encodePng(size, size, drawCat("breathe", 0, palettes.default)));
+  console.log("Created development fallback placeholder; prepare the matching fallback when promoting official assets.");
+}
 mkdirSync(join(root, "src-tauri", "icons"), { recursive: true });
 writeFileSync(join(root, "src-tauri", "icons", "icon-source.png"), encodePng(size, size, drawCat("wave", 1, palettes.default)));
 writeFileSync(

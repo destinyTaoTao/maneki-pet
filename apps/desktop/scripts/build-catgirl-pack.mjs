@@ -2,7 +2,7 @@
 // 配方只处理媒体；不启动生成模型，也不替代创作与桌面验收。
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createReadStream, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { validatePetPack } from "@maneki-pet/core";
@@ -108,6 +108,45 @@ function verifyMedia(video, png) {
     spriteWidth: size * spriteFrames, spriteHeight: size, spriteFrames, spriteFps };
 }
 
+// 制作记录不是包内素材，但须和候选一起成功；先准备完整副本，再保留旧两者用于回滚。
+function publishCandidate(sourceDir, packsRoot, id, report) {
+  mkdirSync(packsRoot, { recursive: true });
+  const record = join(packsRoot, `${id}.build.json`);
+  if (existsSync(record) && !lstatSync(record).isFile()) throw new Error(`Build record is not a regular file: ${record}`);
+  const prepared = mkdtempSync(join(packsRoot, ".catgirl-publish-"));
+  const moved = [];
+  const published = [];
+  let cleanup = true;
+  try {
+    installPack({ sourceDir, packsRoot: prepared });
+    writeFileSync(join(prepared, `${id}.build.json`), `${JSON.stringify(report, null, 2)}\n`);
+    for (const [index, name] of [id, `${id}.build.json`].entries()) {
+      const target = join(packsRoot, name);
+      if (existsSync(target)) {
+        const backup = join(prepared, `.previous-${index}`);
+        renameSync(target, backup);
+        moved.push({ target, backup });
+      }
+      renameSync(join(prepared, name), target);
+      published.push(target);
+    }
+  } catch (error) {
+    try {
+      for (const target of published.reverse()) rmSync(target, { recursive: true, force: true });
+      for (const { target, backup } of moved.reverse()) renameSync(backup, target);
+    } catch (rollbackError) {
+      cleanup = false;
+      throw new Error(`${error.message}; rollback failed: ${rollbackError.message}; originals retained in ${prepared}`);
+    }
+    throw error;
+  } finally {
+    if (cleanup) {
+      try { rmSync(prepared, { recursive: true, force: true }); }
+      catch (error) { console.warn(`Could not remove publication backup ${prepared}: ${error.message}`); }
+    }
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.length !== 3 || args[1] !== "--packs-dir" || !args[0] || !args[2]) {
@@ -158,9 +197,8 @@ async function main() {
     checkPack(pack, files);
     writeFileSync(join(scratch, "pet-pack.json"), `${JSON.stringify(pack, null, 2)}\n`);
     writeFileSync(join(scratch, "assets.manifest.json"), `${JSON.stringify({ schemaVersion: 1, algorithm: "sha256", files }, null, 2)}\n`);
-    installPack({ sourceDir: scratch, packsRoot });
     report.outputs = files;
-    writeFileSync(join(packsRoot, `${recipe.id}.build.json`), `${JSON.stringify(report, null, 2)}\n`);
+    publishCandidate(scratch, packsRoot, recipe.id, report);
     console.log(`Built candidate ${recipe.id}@${recipe.version} -> ${join(packsRoot, recipe.id)}; visual and desktop acceptance remain required.`);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
