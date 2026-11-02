@@ -11,6 +11,9 @@
     "test": "vitest run && node scripts/validate-packs.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "generate:packs": "node scripts/generate-packs.mjs",
+    "prepare:packs": "node scripts/validate-packs.mjs",
+    "import:pack": "node scripts/install-pack.mjs",
+    "build:catgirl-pack": "node scripts/build-catgirl-pack.mjs",
     "generate:icons": "node scripts/generate-packs.mjs && tauri icon src-tauri/icons/icon-source.png",
     "tauri": "tauri"
   },

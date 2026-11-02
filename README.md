@@ -73,6 +73,21 @@ flowchart TB
 
 首版派发新建受控会话，已有会话仅观察；自己的任务可以继续补充输入、跟踪和取消。“受控”指路由与授权可追踪，不代表替代 harness 的 OS 隔离。关闭窗口或插件后继续后台跟踪；明确“退出助理”停止本机服务并提示外部任务可能继续，不假称已取消。开机自启动默认关闭。
 
+## 🎨 素材准备与试片
+
+2026-11-02：橘猫娘待机、招手、工作三段透明试片已通过用户观感确认，正在扩展七状态与十项动作；正式默认仍未替换。配方、试片制作记录和验收边界见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md)。大素材不入库，目前没有公开发行下载地址，克隆仓库不会自动获得已批准原片或正式包。
+
+开发构建会在缺包时补齐程序占位；已有合法包保持不变，损坏包报错并保留现场。它不启动生成模型，也不代表正式橘猫娘素材已准备完成。收到版本化动作包目录后，显式安装并检查（先安装依赖并构建 Core）：
+
+```sh
+pnpm --filter @maneki-pet/core build
+pnpm --filter @maneki-pet/desktop import:pack <source-pack-dir>
+pnpm --filter @maneki-pet/desktop generate:packs
+pnpm --filter @maneki-pet/desktop prepare:packs
+```
+
+`prepare:packs` 只读校验当前内置列表的 v1 结构、映射和文件哈希，不生成或下载素材，不代替 Windows 播放与创作验收。独立候选包导入后，还需在 `apps/desktop/config/builtin-packs.json` 中显式登记 ID 才能出现在换装列表；不要把未验收试片改为默认。制作入口与正式晋升步骤见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md#可重复处理入口)。
+
 ## 🛡️ 安全模型（摘要）
 
 - 本机回环 + 令牌/scope + Host/Origin 校验；CORS 不能代替鉴权。

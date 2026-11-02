@@ -41,7 +41,7 @@ M3 与 M4 可在 M2 稳定的 Runtime/配置/存储接口上独立推进，M2b �
 - [x] Core 的 PetState 与纯动画选择逻辑；Shell 负责播放与窗口交互（2026-10-31；`packages/core/src/animation-chain.ts`，7 条动画行为测试；原生窗口交互仍由上项验收）
 - [x] 动作包 v1 Schema、素材哈希清单、路径/规格/资源校验、缺省 idle；默认包与第二个测试包（2026-10-31；`packages/core/src/validate-pet-pack.ts` 校验测试 7 条，`apps/desktop/scripts/validate-packs.mjs` 构建期校验，安装器 `apps/desktop/scripts/install-pack.mjs` 含符号链接/junction 逃逸与原子切换测试 7 条，两包在 Edge 实际加载）
 - [x] 带权动画链、动作打断/回退、播放器缓存上限；透明视频与精灵图兼容路径（2026-10-31；动画链测试见上，缓存上限 `apps/desktop/src/asset-cache.ts` 6 条 LRU 测试，透明视频与精灵图双路径在 Edge 实际播放）
-- [ ] 原创拟人橘猫娘正式默认动作包（[Spec #59](https://github.com/destinyTaoTao/maneki-pet/issues/59)，2026-11-02 范围与设定图已确认，透明视频为主/精灵图兜底）：待机/招手/工作三段试片 → 七状态与十项常用动作 → Windows 桌面实测及默认替换；具体基线见 architecture §3.1。待机仅有通过完整解码的绿幕原片，尚未通过透明处理、循环与创作验收；招手/工作视频尚未生成。走动/转向/拖拽悬空/落地交互后续单独验收，dsh 插件复用素材的接入验收单列
+- [ ] 原创拟人橘猫娘正式默认动作包（[Spec #59](https://github.com/destinyTaoTao/maneki-pet/issues/59)，2026-11-02 范围与设定图已确认，透明视频为主/精灵图兜底）：待机/招手/工作三段试片 → 七状态与十项常用动作 → Windows 桌面实测及默认替换；具体基线见 architecture §3.1。三段透明静音试片、单横排兼容 PNG 与独立 v1 试片包已由可重复 CLI 产出并通过用户观感确认；其余状态与动作、正式默认晋升和 Windows 全量桌面验收仍未完成，制作/证据指针见[角色配方](../apps/desktop/recipes/orange-catgirl-v1.md)。构建保留已安装合法包，损坏/缺素材可诊断并显式导入。走动/转向/拖拽悬空/落地交互后续单独验收，dsh 插件复用素材的接入验收单列
 - [ ] 多显示器、不同 DPI、鼠标穿透与拖拽甩抛边界（速度采样/衰减/显示器夹取纯函数已在 `apps/desktop/src/fling.ts` 单元测试，单屏真机渲染已验收；多屏/DPI/穿透与甩抛手感待人工验收）
 - [ ] 三平台透明窗/媒体格式 spike 矩阵，记录素材与系统/WebView 版本；按 architecture §3.3 决定是否需要调整
 

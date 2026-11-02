@@ -1,13 +1,20 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { deflateSync } from "node:zlib";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validatePetPack } from "@maneki-pet/core";
+import { verifyPackOnDisk } from "./lib/pack-fs.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const publicRoot = join(root, "public");
-const scratch = join(root, "..", "..", "scratch", "pack-generation");
+const args = process.argv.slice(2);
+if (args.length !== 0 && (args.length !== 2 || args[0] !== "--public-dir" || !args[1])) {
+  throw new Error("Usage: node scripts/generate-packs.mjs [--public-dir <dir>]");
+}
+const publicRoot = args.length ? resolve(args[1]) : join(root, "public");
+const scratch = mkdtempSync(join(tmpdir(), "maneki-placeholder-"));
 const size = 128;
 const frameCount = 2;
 const framesPerSecond = 2;
@@ -190,6 +197,21 @@ function manifestEntry(path) {
 
 function writePack({ id, name, palette, clips, withVideo, fullStateSet }) {
   const packRoot = join(publicRoot, "packs", id);
+  if (existsSync(packRoot)) {
+    try {
+      const pack = JSON.parse(readFileSync(join(packRoot, "pet-pack.json"), "utf8"));
+      const manifest = JSON.parse(readFileSync(join(packRoot, "assets.manifest.json"), "utf8"));
+      const result = validatePetPack(pack, manifest);
+      if (!result.success) throw new Error(JSON.stringify(result.errors));
+      if (result.value.pack.id !== id) throw new Error(`Pack id must match directory ${id}`);
+      const errors = verifyPackOnDisk(packRoot, result.value.pack, result.value.manifest);
+      if (errors.length) throw new Error(errors.join("; "));
+      console.log(`Kept validated local pack ${id}@${pack.version} (${pack.name})`);
+      return;
+    } catch (error) {
+      throw new Error(`Existing pack ${id} is invalid; preserved without overwrite. Repair or explicitly import a valid pack with install-pack.mjs: ${error.message}`);
+    }
+  }
   const assets = join(packRoot, "assets");
   mkdirSync(assets, { recursive: true });
   const definitions = {};
@@ -250,9 +272,10 @@ function writePack({ id, name, palette, clips, withVideo, fullStateSet }) {
     join(packRoot, "assets.manifest.json"),
     `${JSON.stringify({ schemaVersion: 1, algorithm: "sha256", files }, null, 2)}\n`,
   );
+  console.log(`Created development placeholder ${id}; official catgirl assets are not prepared by this command.`);
 }
 
-rmSync(scratch, { recursive: true, force: true });
+try {
 writePack({
   id: "xiaozhao-default",
   name: "小招 · 招财猫",
@@ -274,6 +297,8 @@ mkdirSync(join(root, "src-tauri", "icons"), { recursive: true });
 writeFileSync(join(root, "src-tauri", "icons", "icon-source.png"), encodePng(size, size, drawCat("wave", 1, palettes.default)));
 writeFileSync(
   join(publicRoot, "packs", "ASSET-LICENSE.txt"),
-  "本目录素材由 scripts/generate-packs.mjs 程序生成，当前仅作 M1 默认与测试形象。\n这些原创占位素材与本项目代码采用相同 MIT 许可证；最终官方形象授权另行发布。\n",
+  "仅由 scripts/generate-packs.mjs 生成的程序占位素材采用 MIT 许可证。\n显式导入的正式或第三方动作包不受本声明授权，须查阅对应素材发行说明。\n",
 );
+} finally {
 rmSync(scratch, { recursive: true, force: true });
+}

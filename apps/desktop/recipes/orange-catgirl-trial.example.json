@@ -1,0 +1,26 @@
+{
+  "recipeVersion": 1,
+  "id": "xiaozhao-catgirl-trial",
+  "name": "小招 · 橘猫娘试片",
+  "version": "0.1.0",
+  "chromaKey": { "color": "0x00ff00", "similarity": 0.15, "blend": 0.05 },
+  "clips": {
+    "idle": {
+      "input": "inputs/idle.mp4", "startSeconds": 0,
+      "crop": { "x": 160, "y": 0, "width": 416, "height": 416 }, "loop": "ping-pong"
+    },
+    "working": {
+      "input": "inputs/working.mp4", "startSeconds": 0,
+      "crop": { "x": 160, "y": 0, "width": 416, "height": 416 }, "loop": "ping-pong"
+    },
+    "wave": {
+      "input": "inputs/wave.mp4", "startSeconds": 0,
+      "crop": { "x": 160, "y": 0, "width": 416, "height": 416 }, "loop": "forward"
+    }
+  },
+  "states": {
+    "idle": { "clips": ["idle"], "weights": [1] },
+    "working": { "clips": ["working"], "weights": [1] }
+  },
+  "actions": [ { "id": "wave", "clips": ["wave"], "priority": 1, "interruptible": true } ]
+}
