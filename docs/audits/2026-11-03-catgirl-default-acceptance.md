@@ -15,7 +15,7 @@
 - 最终独立创作复核查看 227 个视频时间样本、187 个实际 256 PNG 精灵帧、17 段 2.5 秒时点的原尺寸浅/暗底合成以及安全 fallback；未发现新的阻断视觉缺陷，34 个媒体摘要与发行副本逐一相同。抽样支持角色身份、动作意图与修补结果，不冒充逐帧连续人工观看。浅底细暗轮廓和缩小后的零食道具细节弱为现存观感限制，证据在外部 `notes/media-quality-final-v003.md`。
 - 源码中的[可移植处理配方](../../apps/desktop/recipes/orange-catgirl-release-v1.1.0.json)、[生成来源记录](../../apps/desktop/recipes/orange-catgirl-provenance-v1.1.0.json)、[交付摘要](../../apps/desktop/recipes/orange-catgirl-delivery-v1.1.0.json)记录实际输入摘要、提示词、种子、模型指纹、裁切和输出。内置图像工具未暴露的模型版本/种子不虚构；重跑不保证逐像素重复。
 - 本地交付为 `renders/orange-catgirl/maneki-catgirl-default-1.1.0.zip`，包含版本目录、MIT、原片、参考图、处理记录、预览及 `SHA256SUMS.txt`。大二进制不入 Git，没有公开下载地址或自动下载；克隆代码不自动获得正式素材。源原片可能含模型音轨，运行包已全部去音轨。
-- ZIP SHA-256：`6294ef90934acd2940158097128d583cd225611e33da6bb8c59c24c493cf8406`。包描述 SHA-256：`29db7b6628fe436c8c663d236068c191a8bccbf195d0bbb40d0749ddbb5587b8`；素材清单 SHA-256：`16fc5833222fac7d27658579af353f11c593e62d0db4b4bc95e90a9755c4233c`。发行 README 的安装命令已实测修正为从根目录直接运行安装器，71 份文件摘要与 ZIP CRC 已重新核验。
+- ZIP SHA-256：`6294ef90934acd2940158097128d583cd225611e33da6bb8c59c24c493cf8406`。包描述 SHA-256：`29db7b6628fe436c8c663d236068c191a8bccbf195d0bbb40d0749ddbb5587b8`；素材清单 SHA-256：`16fc5833222fac7d27658579af353f11c593e62d0db4b4bc95e90a9755c4233c`。发行 README 的安装命令已实测修正为从根目录直接运行安装器；清单列出的 70 份文件摘要与 ZIP CRC 已重新核验，ZIP 含清单自身共 71 个文件。
 
 ## Windows 功能证据
 
@@ -91,3 +91,5 @@ macOS/Linux 未在本机验证；Windows 安装器、长时间资源稳定性、
 ## 正式交付收尾（2026-11-03）
 
 主仓库和当前 review worktree 均已准备 `xiaozhao-default@1.1.0`、同角色 fallback/图标以及中性 `mint-test@1.0.1`。版本化目录和 ZIP 按上述摘要交接，正式素材不会因构建变回旧图；用户选择其他合法包的偏好保持既有语义。本次预算确认仅同步文档与验收状态，未改运行实现或媒体，不重新宣称媒体检查、232 项测试或 Windows release 构建在文档提交后执行过。
+
+预算设计先独立提交 `9825598`，验收状态同步为 `2fbc488`。固定范围 `b608b7d..2fbc488` 的 fresh 双轴文档审查：Standards 0 项、Spec 0 项。收尾再次核验两处工作目录的默认描述、素材清单、fallback、图标源、70 份交付文件摘要及 ZIP SHA-256/CRC，均与冻结交付一致；`git diff --check` 通过。
