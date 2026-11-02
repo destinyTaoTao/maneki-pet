@@ -2,7 +2,7 @@
   "characterReferenceSha256": "e207a3cbf31b9d2114f91de0d386076360fa8b23e0e64851388b11eaeb976001",
   "assetLicense": "MIT; explicitly confirmed by project owner",
   "generation": "Local MiniMax H3 image-to-video; 736x416, 24 fps, 124 source frames, ordinary 20 steps",
-  "processing": "Explicit ping-pong repair for state loops; forward playback for actions; silent VP9-alpha + horizontal PNG fallback",
+  "processing": "Explicit ping-pong repair for state loops and head-tilt; other actions forward; silent VP9-alpha + horizontal PNG fallback",
   "rejectedSourceJobs": [
     "20261102-231826-f1177cfb",
     "20261102-232411-97890147",
@@ -470,6 +470,6 @@
     },
     "assetFiles": 34,
     "assetBytes": 31707047,
-    "note": "Compatibility sprites reduced after real release memory exceeded the unchanged budget; final cold-start acceptance recorded separately"
+    "note": "Video master retained at 384 pixels; compatibility sprites are 256 pixels; native application acceptance is tracked separately in the repository audit."
   }
 }
