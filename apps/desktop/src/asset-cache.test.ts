@@ -73,6 +73,7 @@ describe("AssetCache", () => {
     const cache = new AssetCache(2, () => pending.promise, release);
 
     const entry = cache.get("slow");
+    await Promise.resolve(); // 确保加载已开始，再模拟不响应取消的加载器。
     cache.clear();
     pending.resolve("url:slow");
     await entry;

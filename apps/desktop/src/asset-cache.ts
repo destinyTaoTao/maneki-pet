@@ -1,11 +1,16 @@
-// 播放器资产缓存：按 key 缓存已加载的对象 URL，超过上限按 LRU 淘汰并释放，
-// 满足 M1「播放器缓存上限」要求；URL 生命周期由注入的 release 回调管理。
+// 对象 URL 缓存：淘汰先取消读取并释放资源，再允许后续加载。
+interface Entry {
+  promise: Promise<string>;
+  controller: AbortController;
+}
+
 export class AssetCache {
-  private entries = new Map<string, Promise<string>>();
+  private entries = new Map<string, Entry>();
+  private releaseBarrier: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly maxEntries: number,
-    private readonly load: (key: string) => Promise<string>,
+    private readonly load: (key: string, signal: AbortSignal) => Promise<string>,
     private readonly release: (value: string) => void,
   ) {
     if (!Number.isInteger(maxEntries) || maxEntries < 1) {
@@ -13,46 +18,41 @@ export class AssetCache {
     }
   }
 
-  get size(): number {
-    return this.entries.size;
-  }
+  get size(): number { return this.entries.size; }
 
-  /** 返回缓存的对象 URL；并发请求合并为一次加载，命中项刷新 LRU 顺序。 */
   get(key: string): Promise<string> {
     const cached = this.entries.get(key);
     if (cached) {
       this.entries.delete(key);
       this.entries.set(key, cached);
-      return cached;
+      return cached.promise;
     }
-    const created = this.load(key).catch((error: unknown) => {
-      // 加载失败的条目不占用缓存位，也不持有待释放资源。
-      if (this.entries.get(key) === created) {
-        this.entries.delete(key);
-      }
+    while (this.entries.size >= this.maxEntries) this.evictOldest();
+    const controller = new AbortController();
+    let entry: Entry;
+    const promise = this.releaseBarrier.then(() => {
+      if (controller.signal.aborted) throw new DOMException("Asset loading cancelled", "AbortError");
+      return this.load(key, controller.signal);
+    }).catch((error: unknown) => {
+      if (this.entries.get(key) === entry) this.entries.delete(key);
       throw error;
     });
-    this.entries.set(key, created);
-    this.evict();
-    return created;
+    entry = { promise, controller };
+    this.entries.set(key, entry);
+    return promise;
   }
 
   clear(): void {
-    for (const entry of this.entries.values()) {
-      void entry.then((value) => this.release(value), () => undefined);
-    }
-    this.entries.clear();
+    while (this.entries.size) this.evictOldest();
   }
 
-  private evict(): void {
-    while (this.entries.size > this.maxEntries) {
-      const oldest = this.entries.keys().next();
-      if (oldest.done) return;
-      const entry = this.entries.get(oldest.value);
-      this.entries.delete(oldest.value);
-      if (entry) {
-        void entry.then((value) => this.release(value), () => undefined);
-      }
-    }
+  private evictOldest(): void {
+    const oldest = this.entries.entries().next();
+    if (oldest.done) return;
+    const [key, entry] = oldest.value;
+    this.entries.delete(key);
+    entry.controller.abort();
+    const released = entry.promise.then((value) => this.release(value), () => undefined);
+    this.releaseBarrier = Promise.all([this.releaseBarrier, released]).then(() => undefined);
   }
 }

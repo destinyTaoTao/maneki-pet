@@ -34,6 +34,8 @@ M3 与 M4 可在 M2 稳定的 Runtime/配置/存储接口上独立推进，M2b �
 
 当前进度：workspace/Core 已验证，默认视频包与第二精灵图包已在 Edge 实际加载、换装和播放。动作包 v1 校验/安装、带权动画链、播放器缓存上限、拖拽甩抛与边界夹取已实现并有单元测试（见各项证据）。原生 Tauri 已于本机完成 debug/release 编译并产出 MSI/NSIS 安装包；release 真机启动验收通过：透明置顶窗、透明视频（video-alpha WebM）实际播放、点击 wave 动作生效、空闲内存约 29MB（CDP 检查与截屏证据，2026-10-31）。验收中发现并修复 Ajv 运行时 codegen 与桌面 CSP 冲突导致的白屏（见 architecture §9 选型修订）。托盘菜单交互、拖拽甩抛手感、多屏/DPI 与安装器流程仍待人工逐项验收。
 
+2026-11-02：#54 已按单素材、字节与像素预算限制加载，并在 Windows WebView2 用接近 64 MiB 的图片验证播放、切换与超限回退；少量进程树采样和剩余风险见[资源记录](./audits/2026-11-01-media-budget.md)。长期内存稳定性、GPU 显存和安装版等验收尚未完成。
+
 - [x] pnpm workspace / TypeScript strict / 最小构建与测试；仅创建 desktop 和实际需要的 core 模块（2026-10-31；`packages/core`、`apps/desktop`，全仓 build/test/typecheck 通过）
 - [ ] Tauri v2 透明置顶窗、托盘、退出/勿扰/置顶开关、点击与拖拽（窗口配置、托盘菜单与手动拖拽/甩抛代码已在 `apps/desktop/src-tauri`、`apps/desktop/src/window-drag.ts` 就位；release 编译、启动、透明窗与点击动作已真机验收，托盘菜单逐项交互与拖拽手感待人工验收）
 - [x] Core 的 PetState 与纯动画选择逻辑；Shell 负责播放与窗口交互（2026-10-31；`packages/core/src/animation-chain.ts`，7 条动画行为测试；原生窗口交互仍由上项验收）

@@ -9,6 +9,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { PetPlayer } from "./player.js";
 import { BoundedReadError, readBounded } from "./bounded-fetch.js";
+import { imageDimensions, MediaBudgetError, withinPixelBudget } from "./media-budget.js";
 import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
 import * as runtimeClient from "./runtime-client.js";
 import { uiText } from "./ui-text.js";
@@ -70,7 +71,11 @@ app.append(status, petButton, settingsButton, panel);
 const player = new PetPlayer(playerRoot, () => {
   status.textContent = uiText.playbackFallback;
   status.dataset.visible = "true";
+}, () => {
+  status.textContent = uiText.playbackRestricted;
+  status.dataset.visible = "true";
 });
+window.addEventListener("pagehide", () => player.dispose(), { once: true });
 const packs = new Map<string, ValidatedPetPack>();
 const dragHandle = isTauriRuntime() ? attachWindowDrag(petButton) : undefined;
 
@@ -121,6 +126,9 @@ async function validateMedia(pack: PetPack, path: string, bytes: ArrayBuffer): P
   if (!source) throw new Error(uiText.mediaFailure);
   const blob = new Blob([bytes], { type: source.mimeType });
   if (source.renderer === "spritesheet") {
+    const dimensions = imageDimensions(bytes, source.mimeType);
+    if (!dimensions || dimensions.width < 1 || dimensions.height < 1) throw new Error(uiText.mediaFailure);
+    if (!withinPixelBudget(dimensions.width, dimensions.height)) throw new MediaBudgetError();
     const bitmap = await createImageBitmap(blob);
     const valid =
       bitmap.width === source.frameWidth * source.frameCount &&
@@ -135,23 +143,26 @@ async function validateMedia(pack: PetPack, path: string, bytes: ArrayBuffer): P
   try {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      const finish = (failed: boolean) => {
+      const finish = (failed: boolean, overBudget = false) => {
         if (settled) return;
         settled = true;
         window.clearTimeout(timeout);
         probe.onloadedmetadata = null;
         probe.onerror = null;
-        if (failed) reject(new Error(uiText.mediaFailure));
+        if (failed) reject(overBudget ? new MediaBudgetError() : new Error(uiText.mediaFailure));
         else resolve();
       };
       const timeout = window.setTimeout(() => finish(true), 5000);
       probe.preload = "metadata";
       probe.muted = true;
       probe.onloadedmetadata = () => {
+        if (probe.videoWidth > 0 && probe.videoHeight > 0 && !withinPixelBudget(probe.videoWidth, probe.videoHeight)) {
+          finish(true, true);
+          return;
+        }
         finish(
           !(
-            probe.videoWidth > 0 &&
-            probe.videoHeight > 0 &&
+            withinPixelBudget(probe.videoWidth, probe.videoHeight) &&
             Number.isFinite(probe.duration) &&
             probe.duration > 0
           ),
@@ -179,8 +190,8 @@ async function verifyAssets({ pack, manifest }: ValidatedPetPack, packId: string
     if (bytes.byteLength !== entry.bytes || (await sha256(bytes)) !== entry.sha256) {
       throw new Error(uiText.integrityFailure);
     }
-    await validateMedia(pack, entry.path, bytes).catch(() => {
-      throw new Error(uiText.mediaFailure);
+    await validateMedia(pack, entry.path, bytes).catch((error: unknown) => {
+      throw new Error(error instanceof MediaBudgetError ? uiText.mediaBudget : uiText.mediaFailure);
     });
   }
 }
@@ -198,7 +209,11 @@ async function loadPack(packId: string): Promise<ValidatedPetPack> {
 
 async function start(): Promise<void> {
   try {
-    const results = await Promise.allSettled(packIds.map((id) => loadPack(id)));
+    const results: PromiseSettledResult<ValidatedPetPack>[] = [];
+    for (const id of packIds) {
+      try { results.push({ status: "fulfilled", value: await loadPack(id) }); }
+      catch (reason) { results.push({ status: "rejected", reason }); }
+    }
     const errors: unknown[] = [];
     results.forEach((result, index) => {
       const id = packIds[index]!;

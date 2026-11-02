@@ -8,6 +8,7 @@ import {
 
 import { AssetCache } from "./asset-cache.js";
 import { readBounded } from "./bounded-fetch.js";
+import { imageWithinPixelBudget, withinPixelBudget } from "./media-budget.js";
 
 // 与动作包 v1 单文件上限保持一致。
 const MAX_ASSET_BYTES = 64 * 1024 * 1024;
@@ -22,13 +23,21 @@ export class PetPlayer {
   constructor(
     private readonly container: HTMLElement,
     private readonly onFallback: () => void,
-    cacheLimit = 64,
+    private readonly onRestricted: () => void = () => {},
   ) {
     this.cache = new AssetCache(
-      cacheLimit,
-      (key) => this.loadAssetUrl(key),
+      1,
+      (key, signal) => this.loadAssetUrl(key, signal),
       (url) => URL.revokeObjectURL(url),
     );
+  }
+
+  dispose(): void {
+    this.cancelCurrent();
+    this.cache.clear();
+    this.container.replaceChildren();
+    this.chain = undefined;
+    this.pack = undefined;
   }
 
   loadPack(pack: PetPack, packId: string): void {
@@ -52,10 +61,17 @@ export class PetPlayer {
     if (playback) this.render(playback);
   }
 
-  private async loadAssetUrl(key: string): Promise<string> {
-    const response = await fetch(`/packs/${key}`);
+  private async loadAssetUrl(key: string, signal: AbortSignal): Promise<string> {
+    const prefix = `${this.packId}/`;
+    if (!key.startsWith(prefix)) throw new Error("asset pack changed");
+    const path = key.slice(prefix.length);
+    const source = Object.values(this.pack?.clips ?? {}).flatMap((clip) => clip.sources).find((item) => item.path === path);
+    if (!source) throw new Error("asset source missing");
+    const response = await fetch(`/packs/${key}`, { signal });
     const bytes = await readBounded(response, MAX_ASSET_BYTES);
-    return URL.createObjectURL(new Blob([bytes]));
+    signal.throwIfAborted();
+    if (source.renderer === "spritesheet" && !imageWithinPixelBudget(bytes, source.mimeType)) throw new Error("image exceeds resource budget");
+    return URL.createObjectURL(new Blob([bytes], { type: source.mimeType }));
   }
 
   private resolveAssetUrl(path: string): Promise<string> {
@@ -98,6 +114,7 @@ export class PetPlayer {
     const path = source.path;
     const retry = () => {
       if (this.chain?.current.id === playback.id) {
+        this.onRestricted();
         this.renderSource(playback, sources, index + 1);
       }
     };
@@ -113,8 +130,7 @@ export class PetPlayer {
     video.className = "pet-media";
     video.muted = true;
     video.playsInline = true;
-    video.autoplay = true;
-    video.preload = "auto";
+    video.preload = "metadata";
     let settled = false;
     const finish = () => {
       if (settled) return;
@@ -130,6 +146,7 @@ export class PetPlayer {
       settled = true;
       video.onended = null;
       video.onerror = null;
+      video.onloadedmetadata = null;
       video.pause();
       video.removeAttribute("src");
       video.load();
@@ -138,10 +155,13 @@ export class PetPlayer {
     void this.resolveAssetUrl(path).then(
       (url) => {
         if (settled) return;
-        video.src = url;
         video.onended = finish;
         video.onerror = fail;
-        void video.play().catch(fail);
+        video.onloadedmetadata = () => {
+          if (!withinPixelBudget(video.videoWidth, video.videoHeight)) { fail(); return; }
+          void video.play().catch(fail);
+        };
+        video.src = url;
       },
       () => fail(),
     );
@@ -175,18 +195,23 @@ export class PetPlayer {
       settled = true;
       retry();
     };
-    const interval = window.setInterval(() => {
-      frame += 1;
-      if (frame >= source.frameCount) {
-        finish();
-        return;
-      }
-      strip.style.transform = `translateX(-${(frame * 100) / source.frameCount}%)`;
-    }, 1000 / source.framesPerSecond);
+    let interval: number | undefined;
+    strip.onload = () => {
+      if (settled) return;
+      interval = window.setInterval(() => {
+        frame += 1;
+        if (frame >= source.frameCount) {
+          finish();
+          return;
+        }
+        strip.style.transform = `translateX(-${(frame * 100) / source.frameCount}%)`;
+      }, 1000 / source.framesPerSecond);
+    };
     strip.onerror = fail;
     this.cancelCurrent = () => {
       settled = true;
       window.clearInterval(interval);
+      strip.onload = null;
       strip.onerror = null;
       strip.removeAttribute("src");
     };
