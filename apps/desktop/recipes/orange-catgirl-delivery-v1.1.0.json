@@ -1,0 +1,12 @@
+{
+  "assetVersion": "1.1.0",
+  "archive": "maneki-catgirl-default-1.1.0.zip",
+  "archiveBytes": 50483976,
+  "archiveSha256": "fe000b9ed33a77daa0df1f72ba213db7eedb50a40eee5a28b50604145128a977",
+  "packDescriptorSha256": "29db7b6628fe436c8c663d236068c191a8bccbf195d0bbb40d0749ddbb5587b8",
+  "assetsManifestSha256": "16fc5833222fac7d27658579af353f11c593e62d0db4b4bc95e90a9755c4233c",
+  "fallbackSha256": "b2b5f918b3cbd6deff17f6b093406e0b80dda3267109abe0fe4859a49ebefbcd",
+  "files": 71,
+  "license": "MIT",
+  "acquisition": "Versioned local delivery; not automatically downloaded from Git"
+}
