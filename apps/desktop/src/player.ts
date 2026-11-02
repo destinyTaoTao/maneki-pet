@@ -19,6 +19,8 @@ export class PetPlayer {
   private packId = "";
   private cancelCurrent: () => void = () => {};
   private readonly cache: AssetCache;
+  private readonly video = document.createElement("video");
+  private videoPath = "";
 
   constructor(
     private readonly container: HTMLElement,
@@ -26,6 +28,10 @@ export class PetPlayer {
     private readonly onRestricted: () => void = () => {},
     private readonly onRecovered: () => void = () => {},
   ) {
+    this.video.className = "pet-media";
+    this.video.muted = true;
+    this.video.playsInline = true;
+    this.video.preload = "metadata";
     this.cache = new AssetCache(
       1,
       (key, signal) => this.loadAssetUrl(key, signal),
@@ -35,6 +41,7 @@ export class PetPlayer {
 
   dispose(): void {
     this.cancelCurrent();
+    this.releaseVideo();
     this.cache.clear();
     this.container.replaceChildren();
     this.chain = undefined;
@@ -43,6 +50,7 @@ export class PetPlayer {
 
   loadPack(pack: PetPack, packId: string): void {
     this.cancelCurrent();
+    this.releaseVideo();
     this.cache.clear();
     this.pack = pack;
     this.packId = packId;
@@ -87,16 +95,14 @@ export class PetPlayer {
   private render(playback: Playback): void {
     this.cancelCurrent();
     this.cancelCurrent = () => {};
-    this.container.replaceChildren();
     const clip = this.pack?.clips[playback.clipId];
     if (!clip) {
       this.renderFallback();
       return;
     }
-    const video = document.createElement("video");
     const sources = clip.sources.filter(
       (source) =>
-        source.renderer === "spritesheet" || video.canPlayType(source.mimeType) !== "",
+        source.renderer === "spritesheet" || this.video.canPlayType(source.mimeType) !== "",
     );
     this.renderSource(playback, sources, 0);
   }
@@ -105,7 +111,6 @@ export class PetPlayer {
     if (!this.chain || this.chain.current.id !== playback.id) return;
     this.cancelCurrent();
     this.cancelCurrent = () => {};
-    this.showPlaceholder();
     const source = sources[index];
     if (!source) {
       this.renderFallback();
@@ -121,19 +126,22 @@ export class PetPlayer {
     if (source.renderer === "video-alpha") {
       this.renderVideo(playback, path, retry);
     } else {
+      this.releaseVideo();
+      this.showPlaceholder();
       this.renderSpritesheet(playback, path, source, retry);
     }
   }
 
   private renderVideo(playback: Playback, path: string, retry: () => void): void {
-    const video = document.createElement("video");
-    video.className = "pet-media";
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = "metadata";
+    const video = this.video;
+    if (this.videoPath !== path) {
+      this.releaseVideo();
+      this.showPlaceholder();
+      this.videoPath = path;
+    }
     let settled = false;
     const finish = () => {
-      if (settled) return;
+      if (settled || !video.ended) return;
       settled = true;
       this.complete(playback.id);
     };
@@ -148,23 +156,26 @@ export class PetPlayer {
       video.onerror = null;
       video.onloadedmetadata = null;
       video.pause();
-      video.removeAttribute("src");
-      video.load();
     };
     void this.resolveAssetUrl(path).then(
       (url) => {
         if (settled) return;
         video.onended = finish;
-        video.onerror = fail;
-        video.onloadedmetadata = () => {
+        video.onerror = () => { if (video.error) fail(); };
+        const start = () => {
+          if (settled || video.currentSrc !== url || video.readyState < 1) return;
           if (!withinPixelBudget(video.videoWidth, video.videoHeight)) { fail(); return; }
+          video.currentTime = 0;
           void video.play().then(() => {
             if (settled) return;
-            this.container.replaceChildren(video);
+            if (video.parentElement !== this.container) this.container.replaceChildren(video);
             this.onRecovered();
           }).catch(fail);
         };
-        video.src = url;
+        video.onloadedmetadata = start;
+        // 同源重播只重置播放位置，避免每轮重建 WebView 的媒体解码管线。
+        if (video.getAttribute("src") === url) start();
+        else video.src = url;
       },
       () => fail(),
     );
@@ -231,8 +242,17 @@ export class PetPlayer {
   private renderFallback(): void {
     this.cancelCurrent();
     this.cancelCurrent = () => {};
+    this.releaseVideo();
     this.showPlaceholder();
     this.onFallback();
+  }
+
+  private releaseVideo(): void {
+    if (!this.videoPath) return;
+    this.videoPath = "";
+    this.video.pause();
+    this.video.removeAttribute("src");
+    this.video.load();
   }
 
   private showPlaceholder(): void {
