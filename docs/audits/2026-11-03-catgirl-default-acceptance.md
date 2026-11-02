@@ -73,3 +73,13 @@
 全仓 `pnpm -r build`、`pnpm -r test`（225 项）、`pnpm -r typecheck` 和 `git diff --check` 通过；撤销实验后的 Windows `cargo check --offline --locked` 通过。全量双轴审查覆盖 `583d4a0..c7b7bf5`：Standards 的状态同步问题及另列发行命令问题已由 `674e3a0` 修复，Spec 除已披露预算阻断外无新增发现；撤销实验的 fresh 双审 Standards 0、Spec 0。原生 release 编译、素材摘要保留和功能证据独立于静态审查记录。
 
 macOS/Linux 未在本机验证；Windows 安装器、长时间资源稳定性、dsh 插件复用、外部任务状态联通以及走动/转向/悬空/落地交互另行验收，不以本地动画展示代替。
+
+## 后续：移除旧程序招财猫（2026-11-03）
+
+维护者贴出旧占位图并要求移除。设计提交 `93daaa1`、实现 `383d433` 删除了旧猫绘图代码；缺包只生成中性三方块开发占位，不冒充正式猫娘。生成与准备检查拒绝精确旧内置默认身份并提示显式导入，保留磁盘文件及其他合法自定义包；仅已知旧 fallback 的 918 字节/SHA-256 指纹会被迁移。
+
+主仓库与当前 review worktree 均已显式更新旧内置 mint 测试包为中性 `1.0.1`，原文件备份在制作项目 notes 下，不进入 public 或新构建。正式默认仍为 `小招 · 橘猫娘@1.1.0`；默认描述、fallback 和交付 ZIP 摘要保持本记录原值。
+
+正常入口改用已准备 fallback 作为应用图标源，两处实际 `icon-source.png` 均与猫娘 fallback 的 `b2b5...` 摘要一致；已实际查看重新生成的 128×128 图标，确认为新猫娘。隔离准备命令不再修改真实图标目录，防止测试将旧图写回。Windows release `tauri build --no-bundle` 已重新构建成功；不是安装器或新一轮运行性能验收。
+
+本轮全仓 build、232 项测试、typecheck、diffcheck 通过；其中准备边界 11 项回归。固定范围 `614d9fb..383d433` 的 fresh Standards / Spec 审查均为 0 项发现。原 250 MiB 预算与未决取舍保持不变，未因此关闭 #59。
