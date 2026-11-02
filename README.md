@@ -75,15 +75,15 @@ flowchart TB
 
 ## 🎨 素材准备与试片
 
-2026-11-02：橘猫娘待机、招手、工作三段透明试片已通过用户观感确认，正在扩展七状态与十项动作；正式默认仍未替换。配方、试片制作记录和验收边界见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md)。大素材不入库，目前没有公开发行下载地址，克隆仓库不会自动获得已批准原片或正式包。
+2026-11-03：橘猫娘全量 17 段动画已覆盖七状态与十项动作，素材检查及 Windows release 的播放、抢占、兼容回退和换装功能检查已完成；进程树资源预算仍未通过，正式默认晋升尚未完成，详见[验收记录](./docs/audits/2026-11-03-catgirl-default-acceptance.md)。配方与制作历史见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md)。大素材不入库，目前没有公开发行下载地址，克隆仓库不会自动获得已批准原片或正式包。
 
 设置面板可选择当前形象声明的动作并点播；切换形象会更新动作列表，无动作时入口禁用。
 
-开发构建会在缺包时补齐程序占位；生成失败不留下目标半包。已有合法包与已准备 fallback 保持不变，损坏包报错并保留现场。它不启动生成模型，也不代表正式橘猫娘素材已准备完成。收到版本化动作包目录后，显式安装并检查（先安装依赖并构建 Core）：
+开发构建会在缺包时补齐程序占位；生成失败不留下目标半包。已有合法包与已准备 fallback 保持不变，损坏包报错并保留现场。它不启动生成模型，也不提供正式橘猫娘素材。收到版本化动作包目录后，显式安装并检查（先安装依赖并构建 Core）；将下列源目录占位符替换为实际绝对路径，避免 pnpm 在 `apps/desktop` 下执行脚本时解析到错误位置：
 
 ```sh
 pnpm --filter @maneki-pet/core build
-pnpm --filter @maneki-pet/desktop import:pack <source-pack-dir>
+pnpm --filter @maneki-pet/desktop import:pack "<absolute-source-pack-dir>"
 pnpm --filter @maneki-pet/desktop generate:packs
 pnpm --filter @maneki-pet/desktop prepare:packs
 ```
