@@ -157,6 +157,14 @@ M1 固定 v1 的加载语义与 JSON Schema。包根目录的描述文件名为 
 - 校验失败不得修改当前包。安装按 `id/version` 写入新目录，完整校验后原子切换活动版本；失败保留旧版本。哈希仅验证完整性，发布者信任另见 §7.5。
 - 素材配方、转码/抠像脚本和授权说明入库；大渲染产物 ignore，发行渠道另行分发。AI 生成可重复运行不代表逐像素确定性，记录模型/版本/提示词/参数与输出哈希。
 
+#### 橘猫娘素材准备（#59，2026-11-02）
+
+- `generate-packs.mjs` 只在包目录不存在时补齐程序占位包；已有包须通过 v1 与真实文件完整性校验并匹配目录 ID，合法包不写入，损坏包报错且不覆盖。日志明确区分占位与已准备素材。`validate-packs.mjs` 是只读准备检查，缺包提示通过 `install-pack.mjs` 显式导入；导入继续使用既有原子安装路径。构建不启动模型或获取外部素材。
+- 本角色离线入口为 `build-catgirl-pack.mjs <recipe.json> --packs-dir <输出目录>`；只执行本机 FFmpeg/ffprobe，不运行模型、不下载、不联网。工具配方不是 Pet Pack 公共 Schema：`recipeVersion: 1`，`id/name/version`，`clips` 映射到 `{ input, startSeconds?, crop?: { x, y, width, height }, loop?: "forward" | "ping-pong" }`；`input` 相对配方目录解析，`states/actions` 沿用 v1 映射。只接受声明字段，不接受任意滤镜或命令。默认 `startSeconds: 0`、`loop: "forward"`；`chromaKey` 可指定 `{ color, similarity, blend }`，默认 `0x00ff00/0.15/0.05`，并去绿溢色。
+- 每段输出固定 384×384、24 fps、120 帧、5 秒静音 VP9-alpha WebM；裁切后等比缩放并透明补边，底部居中。`forward` 取连续 5 秒，`ping-pong` 取前 60 帧加倒序 60 帧；这是显式往返修整，不声称原片天然无缝。素材不足时失败，不重复静帧补齐。兼容 PNG 为 8 fps、40 帧的单横排（15,360×384，共 5,898,240 像素），遵守整图与包预算。
+- 处理先在临时目录完成，完整解码并检查实际帧数、时长、音轨与 alpha，再生成 v1 描述/清单并经既有安装器写入输出目录。输出目录旁的 `<id>.build.json` 记录配方、输入摘要、FFmpeg 版本、处理命令与媒体检查结果；它是制作证据，不进入正式包 Schema。失败保留已安装包。配方不提供默认形象提升开关。
+- 三段试片固定使用独立 ID `xiaozhao-catgirl-trial`，只声明 `idle/working` 和 `wave`；不能写入 `xiaozhao-default`。后续全量映射沿用同一入口，正式默认 ID 仅在七状态十动作均有独立映射素材时允许制作；这只验证完整性，不代替用户观感确认、授权与 Windows 桌面验收。全量验收通过前不将产物导入默认目录。
+
 ### 3.3 桌面壳选型与验证
 
 Tauri v2 优先，Electron 保留备选。M1 测透明窗、透明视频/精灵图切换、点击穿透、多屏 DPI 与托盘；M2 追加 Runtime 后重新测总占用。先在 Windows 完成可用基线，macOS/Linux 分别记录真实设备/CI 证据与限制；本机未验证的项保持未勾选。
