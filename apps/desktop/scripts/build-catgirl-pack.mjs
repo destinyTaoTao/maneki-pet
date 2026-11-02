@@ -11,6 +11,7 @@ import { installPack } from "./lib/pack-fs.mjs";
 const size = 384;
 const frames = 120;
 const fps = 24;
+const spriteSize = 256;
 const spriteFrames = 40;
 const spriteFps = 8;
 const commands = [];
@@ -59,8 +60,8 @@ function packFor(recipe) {
     schemaVersion: 1, id: recipe.id, name: recipe.name, version: recipe.version, permissions: [],
     clips: Object.fromEntries(Object.keys(recipe.clips).map((id) => [id, { sources: [
       { renderer: "video-alpha", path: `assets/${id}.webm`, mimeType: "video/webm" },
-      { renderer: "spritesheet", path: `assets/${id}.png`, mimeType: "image/png", frameWidth: size,
-        frameHeight: size, frameCount: spriteFrames, framesPerSecond: spriteFps },
+      { renderer: "spritesheet", path: `assets/${id}.png`, mimeType: "image/png", frameWidth: spriteSize,
+        frameHeight: spriteSize, frameCount: spriteFrames, framesPerSecond: spriteFps },
     ] }])),
     states: recipe.states, actions: recipe.actions,
   };
@@ -99,13 +100,13 @@ function verifyMedia(video, png) {
   }
   run("ffmpeg", ["-v", "error", "-xerror", "-c:v", "libvpx-vp9", "-i", video, "-f", "null", "-"]);
   const image = probe(png).streams;
-  if (image.length !== 1 || image[0].width !== size * spriteFrames || image[0].height !== size) throw new Error(`Unexpected horizontal sprite dimensions: ${png}`);
+  if (image.length !== 1 || image[0].width !== spriteSize * spriteFrames || image[0].height !== spriteSize) throw new Error(`Unexpected horizontal sprite dimensions: ${png}`);
   run("ffmpeg", ["-v", "error", "-xerror", "-i", png, "-f", "null", "-"]);
   let alphaMin = 255;
   let alphaMax = 0;
   for (const value of alpha) { alphaMin = Math.min(alphaMin, value); alphaMax = Math.max(alphaMax, value); }
   return { width: size, height: size, frames, fps, duration, audio: false, alphaMin, alphaMax, alphaScope: "first frame; full video separately decoded",
-    spriteWidth: size * spriteFrames, spriteHeight: size, spriteFrames, spriteFps };
+    spriteWidth: spriteSize * spriteFrames, spriteHeight: spriteSize, spriteFrames, spriteFps };
 }
 
 // 制作记录不是包内素材，但须和候选一起成功；先准备完整副本，再保留旧两者用于回滚。
@@ -186,7 +187,7 @@ async function main() {
         "-filter_complex", filterFor(clip, key), "-map", "[out]", "-an", "-frames:v", String(frames), "-r", String(fps),
         "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "28", "-auto-alt-ref", "0", video]);
       run("ffmpeg", ["-y", "-v", "error", "-c:v", "libvpx-vp9", "-i", video, "-an", "-vf",
-        `fps=${spriteFps},format=rgba,tile=${spriteFrames}x1`, "-frames:v", "1", png]);
+        `fps=${spriteFps},scale=${spriteSize}:${spriteSize}:flags=lanczos,format=rgba,tile=${spriteFrames}x1`, "-frames:v", "1", png]);
       report.media[id] = verifyMedia(video, png);
       for (const extension of ["webm", "png"]) {
         const path = `assets/${id}.${extension}`;

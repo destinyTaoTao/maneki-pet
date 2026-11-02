@@ -25,7 +25,7 @@
 - 角色来源为本项目原创设定图与独立生成素材，不使用 dsh-pet 图像、动画或提示词。代码 MIT 许可不代替最终形象授权，正式素材发行须另附来源、授权说明及校验记录；当前试片不视为已发布的正式素材授权包。
 - 原片任务：待机 `20261102-224159-f92acda4`，招手 `20261102-225922-71c4017d`，工作 `20261102-230256-a41024e1`。均在本机 `C:\AI_video\projects\2026\11\02\maneki-catgirl-motion-trials` 保存；此路径是制作证据位置，不是代码或运行依赖。
 - 同项目 `notes/pack-trial-v001.recipe.json` 记录实际输入，`outputs/deliveries/pack-pipeline-v001/xiaozhao-catgirl-trial.build.json` 记录 FFmpeg 版本、命令、输入/输出大小与 SHA-256、媒体检查。独立试片包位于同目录 `xiaozhao-catgirl-trial/`；大素材独立交接，不能靠提示词重跑的近似角色冒充定稿原件。
-- 处理为裁切 `416×416 @ (160,0)`，去绿幕与去溢色后缩至 384×384。待机/工作取前 60 帧再倒序 60 帧，招手取连续前 120 帧；这是显式往返循环修整，不声称原片天然无缝。输出 5 秒、24 fps、120 帧、无音轨 VP9-alpha；fallback 每秒 8 帧，共 40 帧，单横排 15,360×384，总计 5,898,240 像素。
+- v001 试片历史处理为裁切 `416×416 @ (160,0)`，去绿幕与去溢色后缩至 384×384。待机/工作取前 60 帧再倒序 60 帧，招手取连续前 120 帧；这是显式往返循环修整，不声称原片天然无缝。输出 5 秒、24 fps、120 帧、无音轨 VP9-alpha；当时 fallback 每秒 8 帧，共 40 帧，单横排 15,360×384，总计 5,898,240 像素。此处保留原产物事实，当前重建规格见下节。
 - 技术管线通过真实 FFmpeg 解码、alpha 首帧提取、尺寸/帧数/音轨检查及现有 v1 安装器；独立的手工透明检查位于同项目 `notes/*-alpha-check.json`，覆盖各片全部 120 帧。用户观感通过不替代 Windows 正式包切换、状态抢占、回退、资源释放、全量性能或 macOS/Linux 验收。
 
 ## 可重复处理入口
@@ -39,6 +39,8 @@ pnpm --filter @maneki-pet/core build
 pnpm --filter @maneki-pet/desktop build:catgirl-pack <recipe.json> --packs-dir <candidate-output-dir>
 pnpm --filter @maneki-pet/desktop import:pack <candidate-output-dir>/xiaozhao-catgirl-trial
 ```
+
+此示例与后续完整候选配方均使用固定输出：主视频 384×384、24 fps、120 帧；兼容 PNG 独立为每帧 256×256、8 fps、40 帧，单横排 10,240×256（2,621,440 像素）。尺寸不作为配方字段开放。2026-11-03 完整素材的 384×384 兼容图版本在 Windows release 冷启动下测得 Shell + Runtime Private Bytes 合计 321,675,264 字节（306.77 MiB），超过既定 250 MiB 预算；此减量策略不代表预算已达标。重新导出的完整素材、兼容播放质量和冷启动 release 内存仍须实测，不能沿用 v001 试片观感或旧媒体检查代替验收。本机证据为制作项目 `notes/resource-acceptance-failure.md`。
 
 输入不足、源媒体损坏、裁切越界、输出不符规格或包超预算都会失败；不会重复静帧补足，不会把半包替换已有候选。原片须整段含音轨严格解码，即使损坏处在截取片段之后也拒绝。输出先在临时目录完成并通过既有 `installPack` 校验安装，再将候选与同级 `<id>.build.json` 制作记录一起发布；写入或替换失败回滚两者，不承诺跨文件掉电原子性，未扩充 v1 Schema。当前构建入口保留 `xiaozhao-default`，不提供自动晋升选项。
 

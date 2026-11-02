@@ -30,7 +30,7 @@ function trialRecipe() {
   };
 }
 
-it("builds silent transparent trial clips and budgeted horizontal fallback into an installable v1 pack", () => {
+it("builds 384px silent transparent trial clips with independent 256px fallback into an installable v1 pack", () => {
   const root = workspace();
   // 有声绿幕合成探针仅测试媒体管线，不冒充角色动画或视觉验收。
   const fixture = spawnSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i",
@@ -52,7 +52,10 @@ it("builds silent transparent trial clips and budgeted horizontal fallback into 
   expect(Object.keys(pack.states)).toEqual(["idle", "working"]);
   expect(pack.actions.map((action) => action.id)).toEqual(["wave"]);
   const png = readFileSync(join(packRoot, "assets", "idle.png"));
-  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([15_360, 384]);
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([10_240, 256]);
+  expect(pack.clips.idle.sources.find((source) => source.renderer === "spritesheet")).toMatchObject({
+    frameWidth: 256, frameHeight: 256, frameCount: 40, framesPerSecond: 8,
+  });
   const probe = spawnSync("ffprobe", ["-v", "error", "-count_frames", "-show_streams", "-of", "json",
     join(packRoot, "assets", "idle.webm")], { encoding: "utf8" });
   expect(probe.status, probe.stderr).toBe(0);
@@ -68,6 +71,7 @@ it("builds silent transparent trial clips and budgeted horizontal fallback into 
   const report = JSON.parse(readFileSync(join(packs, "xiaozhao-catgirl-trial.build.json"), "utf8"));
   expect(report.inputs.idle.sha256).toMatch(/^[a-f0-9]{64}$/);
   expect(report.media.idle.frames).toBe(120);
+  expect(report.media.idle).toMatchObject({ spriteWidth: 10_240, spriteHeight: 256, spriteFrames: 40, spriteFps: 8 });
   expect(existsSync(join(packs, "xiaozhao-default"))).toBe(false);
 
   // 原片交接不完整时再次运行仍保留上一版可安装候选，不能留下半包。
