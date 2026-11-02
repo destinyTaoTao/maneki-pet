@@ -1,0 +1,346 @@
+{
+  "recipeVersion": 1,
+  "id": "xiaozhao-catgirl-candidate",
+  "name": "小招 · 橘猫娘候选",
+  "version": "1.1.0",
+  "chromaKey": {
+    "color": "0x00ff00",
+    "similarity": 0.15,
+    "blend": 0.05
+  },
+  "clips": {
+    "idle": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/idle.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "thinking": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/thinking.mp4",
+      "startSeconds": 0.75,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "working": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/working.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "waiting": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/waiting.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "celebrating": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/celebrating.mp4",
+      "startSeconds": 0.6,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "error": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/error.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "sleeping": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/sleeping.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "wave": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/wave.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "stretch": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/stretch.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "adjust-gloves": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/adjust-gloves.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "rub-face": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/rub-face.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "scratch-ear": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/scratch-ear.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "yawn": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/yawn.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "head-tilt": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/head-tilt.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "ping-pong"
+    },
+    "pounce-toy": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/pounce-toy.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "snack": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/snack.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    },
+    "click-response": {
+      "input": "../../../renders/orange-catgirl/v1.1.0/sources/click-response.mp4",
+      "startSeconds": 0,
+      "crop": {
+        "x": 144,
+        "y": 0,
+        "width": 448,
+        "height": 416
+      },
+      "loop": "forward"
+    }
+  },
+  "states": {
+    "idle": {
+      "clips": [
+        "idle",
+        "head-tilt",
+        "adjust-gloves",
+        "yawn"
+      ],
+      "weights": [
+        18,
+        1,
+        1,
+        1
+      ]
+    },
+    "thinking": {
+      "clips": [
+        "thinking"
+      ],
+      "weights": [
+        1
+      ]
+    },
+    "working": {
+      "clips": [
+        "working"
+      ],
+      "weights": [
+        1
+      ]
+    },
+    "waiting_input": {
+      "clips": [
+        "waiting"
+      ],
+      "weights": [
+        1
+      ]
+    },
+    "celebrating": {
+      "clips": [
+        "celebrating"
+      ],
+      "weights": [
+        1
+      ]
+    },
+    "error": {
+      "clips": [
+        "error"
+      ],
+      "weights": [
+        1
+      ]
+    },
+    "sleeping": {
+      "clips": [
+        "sleeping"
+      ],
+      "weights": [
+        1
+      ]
+    }
+  },
+  "actions": [
+    {
+      "id": "wave",
+      "clips": [
+        "wave"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "stretch",
+      "clips": [
+        "stretch"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "adjust-gloves",
+      "clips": [
+        "adjust-gloves"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "rub-face",
+      "clips": [
+        "rub-face"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "scratch-ear",
+      "clips": [
+        "scratch-ear"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "yawn",
+      "clips": [
+        "yawn"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "head-tilt",
+      "clips": [
+        "head-tilt"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "pounce-toy",
+      "clips": [
+        "pounce-toy"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "snack",
+      "clips": [
+        "snack"
+      ],
+      "priority": 1,
+      "interruptible": true
+    },
+    {
+      "id": "click-response",
+      "clips": [
+        "click-response"
+      ],
+      "priority": 1,
+      "interruptible": true
+    }
+  ]
+}

@@ -1,0 +1,475 @@
+{
+  "characterReferenceSha256": "e207a3cbf31b9d2114f91de0d386076360fa8b23e0e64851388b11eaeb976001",
+  "assetLicense": "MIT; explicitly confirmed by project owner",
+  "generation": "Local MiniMax H3 image-to-video; 736x416, 24 fps, 124 source frames, ordinary 20 steps",
+  "processing": "Explicit ping-pong repair for state loops; forward playback for actions; silent VP9-alpha + horizontal PNG fallback",
+  "rejectedSourceJobs": [
+    "20261102-231826-f1177cfb",
+    "20261102-232411-97890147",
+    "20261102-234423-9a091671"
+  ],
+  "clips": {
+    "idle": {
+      "job": "20261102-224159-f92acda4",
+      "sourceSha256": "b454f4e51945ef04526b1d72a8e93652e3540c53f37b12cb50241daf87ef7d1f",
+      "sourceBytes": 475381,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110201,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet idle animation of the exact orange tabby catgirl in the first frame. Preserve her identity, proportions, face, short orange bob haircut, cat ears, one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, paw mittens and brown shoes. The character stays in exactly the same place, with both shoes planted on the same baseline. She breathes very gently, blinks once slowly, and makes a small relaxed tail sway. Her arms remain relaxed. Start and finish in the same neutral pose with eyes open and a calm little smile, suitable for a seamless idle loop. Very subtle motion only, no head rotation or body translation. The camera is perfectly static, no cuts, zoom, pan or shake. The entire background remains flat uniform saturated chroma-key green throughout, with no ground, shadows, gradients, scenery, text or additional objects. Soft neutral studio light on the character, crisp silhouette. No speech, music or sound effects; intended as a silent desktop-pet animation.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      }
+    },
+    "thinking": {
+      "job": "20261102-231530-18feb9d9",
+      "sourceSha256": "2132cce1eb89235c2fc651796c3f643ccf7ea6f629cfb7ae5a57f55e1d5336af",
+      "sourceBytes": 490459,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110210,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She thoughtfully raises one paw mitten to her chin, glances slightly upward, makes one small curious ear twitch and briefly blinks, then returns the paw to the relaxed pose. Keep a thoughtful gentle expression, restrained movement, no props. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.",
+      "processing": {
+        "startSeconds": 0.75,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      }
+    },
+    "working": {
+      "job": "20261102-230256-a41024e1",
+      "sourceSha256": "c29b1495a9e64d4ca275672f3bbc32c4aa33ccac85823e1825442f41f448b401",
+      "sourceBytes": 455432,
+      "firstFrameSha256": "4f88558253be5d9b0d0c81d32b34097063bc3efd11f2c5e1fc0bc77467cd7fcb",
+      "seed": 4070110203,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet working animation of the exact orange tabby catgirl in the first frame. Preserve her identity, proportions, face, short orange bob haircut, cat ears, one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, paw mittens and brown shoes. Preserve the same small keyboard shown in the first frame, stationary at her waist. She stays standing centered with both shoes planted and lightly alternates her two paw mittens tapping the keyboard in a steady relaxed typing rhythm, gives one small focused nod and blinks. Keep the keyboard stable and fully visible, two arms and one tail. Start and finish with both mittens in the same poised typing pose, suitable for a working loop. Restrained movement, no turning or walking. The camera is perfectly static, no cuts, zoom, pan or shake. The entire background remains flat uniform saturated chroma-key green throughout, no ground, cast shadows, gradients, scenery, text or extra objects. Soft neutral studio light on the character, crisp silhouette. No speech, music or sound effects; intended as a silent desktop-pet animation.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      }
+    },
+    "waiting": {
+      "job": "20261102-235605-5103e56e",
+      "sourceSha256": "0850d4890eb541f95b15198f1b96c769042c848e353185e400b6fff62382b04b",
+      "sourceBytes": 423954,
+      "firstFrameSha256": "fa6e561f19b2ef38a96e3d1bbc32b848a71a01385e941545cfa777946c7e2128",
+      "seed": 4070110301,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "One single silent five-second locked-off front-view 3D cartoon mascot animation, preserving exactly the first-frame orange tabby catgirl. She holds her raised left paw in its original position with its orange paw pads unchanged and visible. Her lips stay fully closed and still for the entire animation. Only a slow blink, tiny breathing and a subtle tail-tip sway; her raised mitten, arms, stance and shoes stay in place. Preserve all facial structure, hair, ears, costume, apron, neck bow, bell, gloves and tail details, character scale and baseline. Entire background stays uniform flat RGB(0,255,0), with clean empty green space all around. Completely static camera. The image is composed exclusively of the original character and plain green background; no writing, graphics, captions, signage, subtitles or other objects. overall_soundscape: complete silence. Spoken words: none. No speaking or singing.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      }
+    },
+    "celebrating": {
+      "job": "20261102-232121-4f814ce3",
+      "sourceSha256": "aca722c3cf1c32ece5cc152ee0fedb17fb10a3e413e41a8253ed5772051ae553",
+      "sourceBytes": 609437,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110212,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She beams with a delighted closed-eye smile, raises both paw mittens near her shoulders for two tiny excited cheering pumps, gives a happy tail sway, then lowers her hands. No jumping, stepping, props, confetti, sparkles or text. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.",
+      "processing": {
+        "startSeconds": 0.6,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      }
+    },
+    "error": {
+      "job": "20261102-235856-1144da41",
+      "sourceSha256": "ba488e23307f75729752e8eaf963b7dad4b17b99ed8a59624fb332f1b7c88bde",
+      "sourceBytes": 368253,
+      "firstFrameSha256": "9bbeb1a4fa5e1baaf793c9a60c20ea35c3ac61ecf7946579dc833286933582fa",
+      "seed": 4070110302,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "One single silent five-second locked-off front-view 3D cartoon mascot animation, preserving exactly the first-frame orange tabby catgirl and her mild concerned facial expression. Her lips remain fully closed and still, her eyebrows stay mildly worried, and both arms remain in their original relaxed down positions without rotating or touching anything. Keep the original orange paw-pad pattern on the cream mittens completely unchanged throughout. Only a slow blink, gentle breathing and a tiny relaxed tail-tip sway. Preserve exact facial structure, hair, ears, costume, apron, bow, bell, shoes, character scale and baseline. Entire background stays uniform flat RGB(0,255,0). Completely static camera. The frame consists exclusively of this unchanged character and plain green background, with no writing, captions, icons, symbols or extra objects. overall_soundscape: complete silence. Spoken words: none.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      }
+    },
+    "sleeping": {
+      "job": "20261102-235309-9e0ef91f",
+      "sourceSha256": "448cabb783a83535aeecd59c6a3e80e2ba51e70e285b8183eb1c8da20098b908",
+      "sourceBytes": 369672,
+      "firstFrameSha256": "69c9662fcc270c970f64b12b8e8724960028604e5883213c587f9eef91fc9576",
+      "seed": 4070110223,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She stays standing in the same relaxed sleepy pose with both eyes gently closed throughout and paws resting together at her apron. Very soft breathing and one tiny relaxed tail movement only. Her ears stay relaxed, no waking up, opening eyes, walking, falling over, pillows, bed, text or other objects. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      }
+    },
+    "wave": {
+      "job": "20261102-225922-71c4017d",
+      "sourceSha256": "cf4f15e79f52fa76d91ffcb0e001d548addae2f7c002069f21dfe55661dfd950",
+      "sourceBytes": 477632,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110202,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet greeting animation of the exact orange tabby catgirl in the first frame. Preserve her identity, proportions, face, short orange bob haircut, cat ears, one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, paw mittens and brown shoes. Her feet remain planted and her body stays centered. Begin in the neutral first-frame pose. From second one she raises her right paw mitten beside her cheek, gives two small friendly beckoning waves like a maneki-neko lucky cat, smiles warmly, then lowers the same paw and returns to the exact neutral standing pose before the end. The other arm stays relaxed. Gentle tail response only. Keep exactly two arms and exactly one tail. The camera is perfectly static, no cuts, zoom, pan or shake. The entire background remains flat uniform saturated chroma-key green throughout, with no ground, shadows, gradients, scenery, text or additional objects. Soft neutral studio light on the character, crisp silhouette. No speech, music or sound effects; intended as a silent desktop-pet animation.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "stretch": {
+      "job": "20261102-232702-9aabf9b4",
+      "sourceSha256": "110151aec4ea327604c8de12f20ad30a8058e7b291c5c4db907088eff8253c0e",
+      "sourceBytes": 451085,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110214,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. Starting and finishing in her relaxed standing pose, she slowly stretches both arms diagonally outward to shoulder height, with mitten tops never higher than her cat-ear tips, gently extends her back and closes her eyes for a moment, then lowers both paw mittens and relaxes. Feet stay planted, no walking or jumping. Keep the entire raised hands inside the frame. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "adjust-gloves": {
+      "job": "20261102-232952-25341036",
+      "sourceSha256": "f383c4f677de65a19915cddc62c02035bd8e84bbe542338f967750219a339fa7",
+      "sourceBytes": 458307,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110215,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She brings her paw mittens to waist height, uses her left mitten to gently tug and straighten the right mitten cuff, then smooths the left cuff with the right mitten and returns to relaxed standing. Both mittens remain worn throughout, no fingers appearing and no mitten removal. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "rub-face": {
+      "job": "20261102-233242-e65abdd2",
+      "sourceSha256": "3c3fd425553427e605a764bd5f32e739e19d7f7a758bb9d90bab946ec7034ac1",
+      "sourceBytes": 576973,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110216,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She gently brings both soft paw mittens to her cheeks, closes her eyes and rubs the cheeks twice in a cozy feline face-washing gesture, then lowers both mittens and opens her eyes. Keep her face and hairstyle intact and do not add water, brushes or other objects. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "scratch-ear": {
+      "job": "20261102-233537-0b41d550",
+      "sourceSha256": "d2eb18e9010718ad2170a73bc4307801635abe57599381234d253d51bfa383fb",
+      "sourceBytes": 445586,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110217,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She raises her right paw mitten to lightly scratch the outside base of her right cat ear twice, tilts her head just a little toward the mitten with a relaxed smile, then lowers the mitten and returns to neutral. The ear remains attached, visible and anatomically unchanged. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "yawn": {
+      "job": "20261102-233833-8a64f6cf",
+      "sourceSha256": "b6f9695672e1dd0d9087dfbbf097526f82d1ce0e1b6d4d77caf52e2e7d2aaa42",
+      "sourceBytes": 477004,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110218,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She slowly closes her eyes, politely covers a small natural yawn with one paw mitten, gives a tiny relaxed ear droop, then lowers her paw and opens her eyes. Keep the mouth small and consistent with her cartoon face, no huge mouth, teeth distortion or additional objects. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "head-tilt": {
+      "job": "20261102-234128-5eab9d6f",
+      "sourceSha256": "a6ce0126a6412c2df0f0778f91de799a67e0af82fde3b5635fa17e8b2f3bc6fb",
+      "sourceBytes": 457106,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110219,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. With arms relaxed, she curiously tilts her head slightly to her left, blinks, then slightly to her right, flicks one cat ear and returns to a centered neutral head pose. Body and shoes stay stationary, no speaking and no props. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "ping-pong"
+      },
+      "editingNote": "Only source frames 0..59 used forward/reverse; source frames 62..84 show top-edge contact and are excluded from delivery"
+    },
+    "pounce-toy": {
+      "job": "20261102-234719-021a7211",
+      "sourceSha256": "9517aa434da4a66dcaa06ac8c94875647b4d4b8bd8ddda60df062762cf05c96f",
+      "sourceBytes": 632948,
+      "firstFrameSha256": "d9b8343324294da1e3a708990b376a3112fc4090c84a82f48de963fd6593c74d",
+      "seed": 4070110221,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. The same small orange yarn ball in front of her feet stays fully visible. She bends her knees slightly in place, leans forward and playfully pounces with both paw mittens toward the yarn ball, gives it one gentle tap so it rolls only a short distance, then straightens up again. No large leap, walking out of frame, changing costume or extra objects. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "snack": {
+      "job": "20261102-235014-94df565d",
+      "sourceSha256": "83744c99a961e51c3343dbb57c2464d0378e753c9dbbe615ba41bf6f67f3ad84",
+      "sourceBytes": 434304,
+      "firstFrameSha256": "138fe248367c7cbe21076dbf33547470b23401dd2f57f8d804b65ebca23d4a8c",
+      "seed": 4070110222,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "A single continuous five-second locked-off front-view 3D cartoon desktop pet animation of the exact orange tabby catgirl from the first frame. Preserve the approved face, proportions, orange short bob, tabby cat ears, exactly one fluffy striped tail, cream dress, caramel apron, red neck bow, gold bell, cream paw mittens, socks and brown shoes. Keep exactly two arms and two legs. Remain centered at the same scale; keep feet on their baseline and all ears, hands, shoes, tail and props inside frame. She already holds the same small cream-colored cookie in her two paw mittens. She brings it up toward her mouth, takes a small cute nibble, lowers it to chest height and gives one satisfied blink and slight ear twitch. Keep the cookie a stable small object with one small bite, no morphing food, plates, tables or extra hands. The camera remains perfectly static, with no zoom, pan, cuts or shake. Background remains uniform saturated chroma-key green, no floor or cast shadow, gradients, scenery, text, symbols or extra characters. Consistent soft neutral studio light and clean silhouette. No speech, music or sound effects; this is silent desktop-pet animation.\n\noverall_soundscape: complete silence. Spoken words: none. On-screen subtitles, captions and lettering: strictly none. The character does not talk.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    },
+    "click-response": {
+      "job": "20261103-000146-55c524f0",
+      "sourceSha256": "c26b994efc031842d7c9350d62ba1803dff4423d77367ef465e4745353536252",
+      "sourceBytes": 465326,
+      "firstFrameSha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "seed": 4070110303,
+      "steps": 20,
+      "sourceFrames": 124,
+      "prompt": "One single silent five-second locked-off front-view animation of exactly the orange tabby catgirl in the first frame. The head, torso, arms, hips, legs and shoes stay precisely in their original positions and at their original scale. Animate only a brief delighted eye-squeeze, two tiny cat-ear flicks and a small tail-tip flick, then return the eyes and ears to their original relaxed positions. Keep a small closed-mouth pleased smile and keep her lips still. Preserve the exact face, short orange bob, ear shapes, original orange paw-pad mittens, cream dress, caramel apron, red bow, gold bell and single tail. Original foot baseline and ample existing canvas remain unchanged; no body movement or camera movement. Background is uniform RGB(0,255,0) throughout. The entire picture contains only the original character and plain green backdrop, no hands from another person, text, captions, icons, props or extra limbs. overall_soundscape: complete silence. Spoken words: none.",
+      "processing": {
+        "startSeconds": 0,
+        "crop": {
+          "x": 144,
+          "y": 0,
+          "width": 448,
+          "height": 416
+        },
+        "loop": "forward"
+      }
+    }
+  },
+  "framing": "448x416 centered source crop scaled with aspect ratio retained and bottom-aligned in 384x384 transparent canvas; uniform headroom across all clips",
+  "formalPack": {
+    "id": "xiaozhao-default",
+    "version": "1.1.0",
+    "license": "MIT"
+  },
+  "firstFrames": {
+    "neutral-green-v001.png": {
+      "sha256": "73858131662059d968c0de293dd94b9ab1a74396d8f6a1e7cc1c7cbc2662c6a2",
+      "tool": "built-in image_gen",
+      "modelVersion": null,
+      "seed": null,
+      "note": "Tool did not expose model version or seed",
+      "prompt": "Use case: identity-preserve. Asset: first-frame production plate for a desktop pet animation. Use the supplied approved character sheet ONLY as the character identity and costume reference. Create ONE single full-body front view of the exact same orange tabby catgirl, not a character sheet: same three-head-tall proportions, orange short bob, tabby stripes, amber eyes, cream dress, caramel apron with bib and pocket, red neck bow and gold bell, cream paw mittens, cream socks, brown shoes, exactly one fluffy striped tail visible to the side. Calm small smile, eyes open, both arms relaxed slightly away from body, weight centered, feet firmly planted at the same baseline, no movement pose. Preserve all distinctive facial and costume details, soft matte 3D cartoon rendering, frontal orthographic-like camera, no foreshortening. The full character occupies about 78 percent of the canvas height, centered with generous empty margins on every side, ears tail and shoes fully inside frame. Landscape 16:9 canvas, about 1536x864. The entire background is uniform flat saturated chroma-key green RGB(0,255,0), no gradients, floor, horizon, cast shadows, green spill or ground shadow. Soft neutral illumination on the character. No text, labels, palettes, panels, duplicate figures, props, scenery, human ears, extra tails or extra limbs. Keep her exact approved design; this is an identity-preserving extraction into a clean animation plate."
+    },
+    "working-green-v001.png": {
+      "sha256": "4f88558253be5d9b0d0c81d32b34097063bc3efd11f2c5e1fc0bc77467cd7fcb",
+      "tool": "built-in image_gen",
+      "modelVersion": null,
+      "seed": null,
+      "note": "Tool did not expose model version or seed",
+      "prompt": "Use case: identity-preserve. Edit the supplied green-screen image with one tightly constrained change: bring the catgirl's two paw mittens forward to rest naturally over a small simple cream-and-caramel computer keyboard positioned horizontally at waist height. Keyboard is a compact solid readable object, two short rows of keys, slight top-down angle so the keys are visible. It floats in front of the apron as a desktop-pet prop, no desk, no supports or cables, no text. Both arms connect naturally at shoulders and elbows; both mitten paws poised over keys ready to type, not holding additional objects. Keep EVERYTHING ELSE identical: exact face, expression, eye color, orange short bob, tabby ears, striped tail and its shape, body proportions, cream dress, caramel apron, red bow and gold bell, socks and shoes, exact stance, feet baseline, camera, character position and scale, landscape image dimensions, lighting, crisp silhouette. Keep the entire background uniform saturated green RGB(0,255,0) without shadows or gradients. Single full-body character, no cropping, no extra fingers, arms, tails, scenery or typography. This is the working-animation first frame of the SAME character, not a redesign."
+    },
+    "sleeping-green-v001.png": {
+      "sha256": "69c9662fcc270c970f64b12b8e8724960028604e5883213c587f9eef91fc9576",
+      "tool": "built-in image_gen",
+      "modelVersion": null,
+      "seed": null,
+      "note": "Tool did not expose model version or seed",
+      "prompt": "Use case: identity-preserve. Edit this approved single-character green-screen plate only into a gentle sleeping pose for a desktop pet. Preserve exactly the same orange tabby catgirl, face structure, orange short bob, cat ears, striped tail, cream dress, caramel apron, red bow, gold bell, paw mittens, socks and shoes, exact character size, image dimensions, stance, planted feet baseline, lighting and uniform pure RGB(0,255,0) green background. Change only her expression to peacefully closed eyes and a tiny relaxed smile, and bring both paw mittens gently together resting against the front of her apron. Ears slightly relaxed. Keep her standing upright, no body translation, no pillow, bed, props, text, scenery, shadows, additional characters, extra limbs or tails. Everything else remains identical; this is the sleeping-animation first frame of the SAME character."
+    },
+    "toy-green-v001.png": {
+      "sha256": "d9b8343324294da1e3a708990b376a3112fc4090c84a82f48de963fd6593c74d",
+      "tool": "built-in image_gen",
+      "modelVersion": null,
+      "seed": null,
+      "note": "Tool did not expose model version or seed",
+      "prompt": "Use case: identity-preserve. Edit the approved single-character green-screen image by adding just one small soft orange yarn ball in front of the catgirl's feet, slightly to her left, leaving a tiny green gap so its outline is separate from her shoes. The ball is about one shoe wide and rests at the same visual floor baseline. Keep the character completely unchanged in the exact same neutral standing pose, facial expression, three-head-tall proportions, orange short bob, amber eyes, tabby ears, single fluffy striped tail, cream dress, caramel apron, red bow, gold bell, paw mittens, socks and brown shoes. Preserve exact character size, position, foot baseline, camera, lighting and image dimensions. Uniform RGB(0,255,0) background everywhere, no floor surface, cast shadow, gradients or green spill. The yarn ball has clear soft texture and no long loose string, words or branding. No other toys, props, scenery, extra people, extra limbs or tails. This is the first frame for a short playful pounce/tap-the-yarn-ball animation of the SAME approved character."
+    },
+    "snack-green-v001.png": {
+      "sha256": "138fe248367c7cbe21076dbf33547470b23401dd2f57f8d804b65ebca23d4a8c",
+      "tool": "built-in image_gen",
+      "modelVersion": null,
+      "seed": null,
+      "note": "Tool did not expose model version or seed",
+      "prompt": "Use case: identity-preserve. Edit the supplied approved green-screen plate by changing only her hand pose and adding one small cream-colored cookie. She holds a simple small round cream cookie with her two cat-paw mittens at chest height, ready to take a nibble, with the same small smile. Preserve the exact orange tabby catgirl identity, face, amber eyes, short orange bob, cat ears, single fluffy striped tail, cream dress, caramel apron, red bow and gold bell, socks, brown shoes, body proportions, character size and image dimensions, planted feet baseline, camera and lighting. Keep every costume detail consistent with the reference, arms naturally attached and exactly two paw mittens. Same uniform RGB(0,255,0) background without floor, shadows or gradients. No plate, table, bags, extra food, text, scenery, additional characters, fingers or extra limbs. This is the snack-animation first frame of the SAME character, not a redesign."
+    },
+    "waiting-green-v002.png": {
+      "sha256": "fa6e561f19b2ef38a96e3d1bbc32b848a71a01385e941545cfa777946c7e2128",
+      "tool": "built-in image_gen",
+      "modelVersion": null,
+      "seed": null,
+      "note": "Tool did not expose model version or seed",
+      "prompt": "Use case: identity-preserve. Edit the approved single-character green-screen plate only by raising her left paw mitten to shoulder height beside her cheek, with the original orange paw pads facing the viewer as a calm polite raised-hand gesture, and giving her an attentive expression with mouth fully closed. The other arm stays relaxed exactly as in the original. Preserve the exact same orange tabby catgirl identity, amber eyes, short orange bob, cat ears, single fluffy striped tail, cream dress, caramel apron, red bow, gold bell, paw mittens, socks, brown shoes, three-head-tall proportions, foot baseline, character size and image dimensions. Keep the raised paw within the existing canvas, no camera or body shift. Uniform RGB(0,255,0) green background, consistent soft studio lighting, no ground, shadows, scenery, letters, text, captions, symbols, extra objects or characters. This is a stable attentive raised-hand first frame of the SAME character."
+    },
+    "error-green-v002.png": {
+      "sha256": "9bbeb1a4fa5e1baaf793c9a60c20ea35c3ac61ecf7946579dc833286933582fa",
+      "tool": "built-in image_gen",
+      "modelVersion": null,
+      "seed": null,
+      "note": "Tool did not expose model version or seed",
+      "prompt": "Use case: identity-preserve. Edit the approved green-screen neutral orange catgirl plate with only a small expression change: slightly concerned eyebrows and a small closed mouth, with her cat ears tilted outward just a little. Keep BOTH arms down in the exact original relaxed pose and both paw mittens untouched with their original orange paw-pad pattern. Preserve exact identity, facial structure, hairstyle, costume, three-head-tall proportions, single striped tail, shoes, foot baseline, character size, image dimensions, lighting and uniform RGB(0,255,0) background. No additional objects, captions, icons or markings anywhere. This is an identity-preserving mild concerned-expression animation first frame; everything except eyebrows, closed mouth and subtle ear angle stays identical."
+    }
+  },
+  "generationEnvironment": {
+    "comfyuiVersion": "0.39.0",
+    "torchVersion": "2.14.1+cu130",
+    "modelManifest": {
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "files": [
+        {
+          "size": 20970379616,
+          "sha256": "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a",
+          "path": "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+        },
+        {
+          "size": 1956193000,
+          "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e",
+          "path": "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+        },
+        {
+          "size": 15687142551,
+          "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6",
+          "path": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+        },
+        {
+          "size": 605254808,
+          "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+          "path": "vae/minimax_h3_audio_vae_fp32.safetensors"
+        },
+        {
+          "size": 2811065184,
+          "sha256": "52a2c8c73583c86e4f41cdcce3a6ad0ea562987bc0bf3d60a0cef5f5c8e60c0e",
+          "path": "vae/minimax_h3_video_vae_int8_convrot.safetensors"
+        }
+      ]
+    },
+    "steps": 20,
+    "turbo": false
+  },
+  "deliveryMedia": {
+    "video": {
+      "width": 384,
+      "height": 384,
+      "frames": 120,
+      "fps": 24,
+      "audio": false
+    },
+    "spritesheet": {
+      "frameWidth": 256,
+      "frameHeight": 256,
+      "frames": 40,
+      "fps": 8,
+      "width": 10240,
+      "height": 256
+    },
+    "assetFiles": 34,
+    "assetBytes": 31707047,
+    "note": "Compatibility sprites reduced after real release memory exceeded the unchanged budget; final cold-start acceptance recorded separately"
+  }
+}
