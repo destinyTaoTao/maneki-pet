@@ -14,6 +14,7 @@ export const uiText = {
   loadFailure: "动作包加载失败，请重试",
   playbackFallback: "素材无法播放或超出资源限制，已使用内置安全 idle",
   playbackRestricted: "素材受限或加载失败，正在尝试替代素材",
+  playbackRecovered: "部分素材受限，已切换到可用素材",
   runtimeSection: "运行时",
   runtimeConnected: "已连接（127.0.0.1）",
   runtimeConnecting: "正在连接共享运行时…",

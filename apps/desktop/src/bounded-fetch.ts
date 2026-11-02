@@ -1,5 +1,6 @@
 // 受限网络读取：拒绝非 2xx/空 body，并按上限逐块校验总大小，防止超额输入。
 export type BoundedReadFailure = "http" | "limit" | "no-body";
+export const MEDIA_READ_TIMEOUT_MS = 30_000;
 
 export class BoundedReadError extends Error {
   constructor(readonly reason: BoundedReadFailure) {

@@ -7,7 +7,7 @@ import {
 } from "@maneki-pet/core";
 
 import { AssetCache } from "./asset-cache.js";
-import { readBounded } from "./bounded-fetch.js";
+import { MEDIA_READ_TIMEOUT_MS, readBounded } from "./bounded-fetch.js";
 import { imageWithinPixelBudget, withinPixelBudget } from "./media-budget.js";
 
 // 与动作包 v1 单文件上限保持一致。
@@ -24,6 +24,7 @@ export class PetPlayer {
     private readonly container: HTMLElement,
     private readonly onFallback: () => void,
     private readonly onRestricted: () => void = () => {},
+    private readonly onRecovered: () => void = () => {},
   ) {
     this.cache = new AssetCache(
       1,
@@ -67,7 +68,7 @@ export class PetPlayer {
     const path = key.slice(prefix.length);
     const source = Object.values(this.pack?.clips ?? {}).flatMap((clip) => clip.sources).find((item) => item.path === path);
     if (!source) throw new Error("asset source missing");
-    const response = await fetch(`/packs/${key}`, { signal });
+    const response = await fetch(`/packs/${key}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(MEDIA_READ_TIMEOUT_MS)]) });
     const bytes = await readBounded(response, MAX_ASSET_BYTES);
     signal.throwIfAborted();
     if (source.renderer === "spritesheet" && !imageWithinPixelBudget(bytes, source.mimeType)) throw new Error("image exceeds resource budget");
@@ -159,7 +160,7 @@ export class PetPlayer {
         video.onerror = fail;
         video.onloadedmetadata = () => {
           if (!withinPixelBudget(video.videoWidth, video.videoHeight)) { fail(); return; }
-          void video.play().catch(fail);
+          void video.play().then(() => { if (!settled) this.onRecovered(); }).catch(fail);
         };
         video.src = url;
       },
@@ -198,6 +199,7 @@ export class PetPlayer {
     let interval: number | undefined;
     strip.onload = () => {
       if (settled) return;
+      this.onRecovered();
       interval = window.setInterval(() => {
         frame += 1;
         if (frame >= source.frameCount) {

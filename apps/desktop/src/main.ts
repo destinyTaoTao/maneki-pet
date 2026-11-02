@@ -8,7 +8,7 @@ import {
 
 import { invoke } from "@tauri-apps/api/core";
 import { PetPlayer } from "./player.js";
-import { BoundedReadError, readBounded } from "./bounded-fetch.js";
+import { BoundedReadError, MEDIA_READ_TIMEOUT_MS, readBounded } from "./bounded-fetch.js";
 import { imageDimensions, MediaBudgetError, withinPixelBudget } from "./media-budget.js";
 import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
 import * as runtimeClient from "./runtime-client.js";
@@ -25,6 +25,12 @@ petButton.type = "button";
 petButton.setAttribute("aria-label", uiText.petAction);
 const playerRoot = document.createElement("div");
 playerRoot.className = "player-root";
+const placeholder = document.createElement("img");
+placeholder.className = "pet-media";
+placeholder.src = "/fallback.png";
+placeholder.alt = "";
+placeholder.draggable = false;
+playerRoot.append(placeholder);
 petButton.append(playerRoot);
 
 const status = document.createElement("div");
@@ -69,11 +75,21 @@ panel.append(packLabel, stateLabel, runtimeSectionLabel, runtimeStateLine, runti
 app.append(status, petButton, settingsButton, panel);
 
 const player = new PetPlayer(playerRoot, () => {
+  delete status.dataset.playbackRestricted;
   status.textContent = uiText.playbackFallback;
   status.dataset.visible = "true";
 }, () => {
+  status.dataset.playbackRestricted = "true";
   status.textContent = uiText.playbackRestricted;
   status.dataset.visible = "true";
+}, () => {
+  if (status.dataset.playbackRestricted !== "true") return;
+  delete status.dataset.playbackRestricted;
+  if (status.textContent !== uiText.playbackRestricted) return;
+  status.textContent = uiText.playbackRecovered;
+  window.setTimeout(() => {
+    if (status.textContent === uiText.playbackRecovered) status.dataset.visible = "false";
+  }, 4000);
 });
 window.addEventListener("pagehide", () => player.dispose(), { once: true });
 const packs = new Map<string, ValidatedPetPack>();
@@ -105,8 +121,8 @@ function boundedMessage(error: unknown): string {
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
   try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(MEDIA_READ_TIMEOUT_MS) });
     const bytes = await readBounded(response, 1024 * 1024);
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch (error) {
@@ -180,9 +196,9 @@ async function validateMedia(pack: PetPack, path: string, bytes: ArrayBuffer): P
 
 async function verifyAssets({ pack, manifest }: ValidatedPetPack, packId: string): Promise<void> {
   for (const entry of manifest.files) {
-    const response = await fetch(`/packs/${packId}/${entry.path}`);
     let bytes: ArrayBuffer;
     try {
+      const response = await fetch(`/packs/${packId}/${entry.path}`, { signal: AbortSignal.timeout(MEDIA_READ_TIMEOUT_MS) });
       bytes = await readBounded(response, entry.bytes);
     } catch (error) {
       throw new Error(boundedMessage(error));
@@ -209,38 +225,30 @@ async function loadPack(packId: string): Promise<ValidatedPetPack> {
 
 async function start(): Promise<void> {
   try {
-    const results: PromiseSettledResult<ValidatedPetPack>[] = [];
-    for (const id of packIds) {
-      try { results.push({ status: "fulfilled", value: await loadPack(id) }); }
-      catch (reason) { results.push({ status: "rejected", reason }); }
-    }
     const errors: unknown[] = [];
-    results.forEach((result, index) => {
-      const id = packIds[index]!;
-      if (result.status === "rejected") {
-        errors.push(result.reason);
-        return;
-      }
-      const pack = result.value;
+    const saved = localStorage.getItem("maneki.selectedPack");
+    const ordered = saved && packIds.includes(saved) ? [saved, ...packIds.filter((id) => id !== saved)] : packIds;
+    for (const id of ordered) {
+      let pack: ValidatedPetPack;
+      try { pack = await loadPack(id); }
+      catch (error) { errors.push(error); continue; }
       packs.set(id, pack);
       const option = document.createElement("option");
       option.value = id;
       option.textContent = pack.pack.name;
       packSelect.append(option);
-    });
+      if (packs.size === 1) {
+        packSelect.value = id;
+        packSelect.disabled = false;
+        player.loadPack(pack.pack, id);
+        status.dataset.visible = "false";
+      }
+    }
     if (packs.size === 0) throw errors[0] ?? new Error(uiText.loadFailure);
-    const saved = localStorage.getItem("maneki.selectedPack");
-    const selected =
-      saved && packs.has(saved) ? saved : packIds.find((id) => packs.has(id))!;
-    packSelect.value = selected;
-    packSelect.disabled = false;
-    player.loadPack(packs.get(selected)!.pack, selected);
     if (errors.length > 0) {
       const error = errors[0];
       status.textContent = error instanceof Error ? error.message : uiText.loadFailure;
       status.dataset.visible = "true";
-    } else {
-      status.dataset.visible = "false";
     }
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : uiText.loadFailure;
