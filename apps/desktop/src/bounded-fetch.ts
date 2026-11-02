@@ -5,6 +5,7 @@ let mediaReadTail: Promise<void> = Promise.resolve();
 
 /** 播放与校验共用素材读取通道；前次读取结束后才开始下一次。 */
 export function readMedia(url: string, maxBytes: number, signal?: AbortSignal): Promise<ArrayBuffer> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
   const result = mediaReadTail.then(async () => {
     signal?.throwIfAborted();
     const timeout = AbortSignal.timeout(MEDIA_READ_TIMEOUT_MS);
@@ -12,7 +13,15 @@ export function readMedia(url: string, maxBytes: number, signal?: AbortSignal): 
     return readBounded(response, maxBytes);
   });
   mediaReadTail = result.then(() => undefined, () => undefined);
-  return result;
+  if (!signal) return result;
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const abort = (): void => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    result.then(
+      (value) => { signal.removeEventListener("abort", abort); resolve(value); },
+      (error: unknown) => { signal.removeEventListener("abort", abort); reject(error); },
+    );
+  });
 }
 
 export class BoundedReadError extends Error {

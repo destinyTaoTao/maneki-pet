@@ -105,7 +105,7 @@ export class PetPlayer {
     if (!this.chain || this.chain.current.id !== playback.id) return;
     this.cancelCurrent();
     this.cancelCurrent = () => {};
-    this.container.replaceChildren();
+    this.showPlaceholder();
     const source = sources[index];
     if (!source) {
       this.renderFallback();
@@ -151,7 +151,6 @@ export class PetPlayer {
       video.removeAttribute("src");
       video.load();
     };
-    this.container.append(video);
     void this.resolveAssetUrl(path).then(
       (url) => {
         if (settled) return;
@@ -159,7 +158,11 @@ export class PetPlayer {
         video.onerror = fail;
         video.onloadedmetadata = () => {
           if (!withinPixelBudget(video.videoWidth, video.videoHeight)) { fail(); return; }
-          void video.play().then(() => { if (!settled) this.onRecovered(); }).catch(fail);
+          void video.play().then(() => {
+            if (settled) return;
+            this.container.replaceChildren(video);
+            this.onRecovered();
+          }).catch(fail);
         };
         video.src = url;
       },
@@ -181,7 +184,6 @@ export class PetPlayer {
     strip.alt = "";
     strip.style.width = `${source.frameCount * 100}%`;
     frameWindow.append(strip);
-    this.container.append(frameWindow);
     let frame = 0;
     let settled = false;
     const finish = () => {
@@ -198,6 +200,7 @@ export class PetPlayer {
     let interval: number | undefined;
     strip.onload = () => {
       if (settled) return;
+      this.container.replaceChildren(frameWindow);
       this.onRecovered();
       interval = window.setInterval(() => {
         frame += 1;
@@ -228,12 +231,16 @@ export class PetPlayer {
   private renderFallback(): void {
     this.cancelCurrent();
     this.cancelCurrent = () => {};
+    this.showPlaceholder();
+    this.onFallback();
+  }
+
+  private showPlaceholder(): void {
     const image = document.createElement("img");
     image.className = "pet-media";
     image.src = "/fallback.png";
     image.alt = "";
     image.draggable = false;
     this.container.replaceChildren(image);
-    this.onFallback();
   }
 }
