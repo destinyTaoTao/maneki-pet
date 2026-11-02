@@ -40,11 +40,11 @@ pnpm --filter @maneki-pet/desktop build:catgirl-pack <recipe.json> --packs-dir <
 pnpm --filter @maneki-pet/desktop import:pack <candidate-output-dir>/xiaozhao-catgirl-trial
 ```
 
-输入不足、源媒体损坏、裁切越界、输出不符规格或包超预算都会失败；不会重复静帧补足，不会把半包替换已有候选。原片须整段含音轨严格解码，即使损坏处在截取片段之后也拒绝。输出先在临时目录完成，再交给既有 `installPack` 原子安装；同级 `<id>.build.json` 是制作记录，未扩充 v1 Schema。当前构建入口保留 `xiaozhao-default`，不提供自动晋升选项。
+输入不足、源媒体损坏、裁切越界、输出不符规格或包超预算都会失败；不会重复静帧补足，不会把半包替换已有候选。原片须整段含音轨严格解码，即使损坏处在截取片段之后也拒绝。输出先在临时目录完成并通过既有 `installPack` 校验安装，再将候选与同级 `<id>.build.json` 制作记录一起发布；写入或替换失败回滚两者，不承诺跨文件掉电原子性，未扩充 v1 Schema。当前构建入口保留 `xiaozhao-default`，不提供自动晋升选项。
 
-试片只声明 `idle/working` 和 `wave`，其余状态沿用既有 idle 回退，不冒充覆盖齐全。后续补齐素材时保持独立 candidate ID，在配方中增加真实 `clips/states/actions` 映射即可；缺少任何被引用原片即失败。新增动作仍走现有播放链，不增加测试专用入口。
+试片只声明 `idle/working` 和 `wave`，其余状态沿用既有 idle 回退，不冒充覆盖齐全。后续补齐素材时保持独立 candidate ID，在配方中增加真实 `clips/states/actions` 映射即可；缺少任何被引用原片即失败。设置面板按当前包的 `actions` 提供选择与点播，沿用现有播放链；换包更新选项，无动作禁用，不增加测试专用入口。
 
-正式晋升须在七状态十动作、用户观感与 Windows 全量验收全部通过后进行：保留候选包及验收证据，复制到独立发行目录，明确更新描述中的 `id/name/version` 为默认发行版本，复核素材清单；用 `import:pack` 显式安装到内置目录，再执行 `prepare:packs`、构建、测试、重启和换装验证。用户此前选择其他包的偏好沿用既有持久化逻辑，不重置全部用户设置。启动 Vite/桌面读取可能使 Windows 目录暂时被锁；遇到安装失败先停止读取者再显式重试，旧包应保持可用。
+正式晋升须在七状态十动作、用户观感与 Windows 全量验收全部通过后进行：保留候选包及验收证据，复制到独立发行目录，明确更新描述中的 `id/name/version` 为默认发行版本，复核素材清单；从同版本 idle 准备同角色 `public/fallback.png`，用 `import:pack` 显式安装到内置目录，再执行 `prepare:packs`、构建、测试、重启和换装验证。用户此前选择其他包的偏好沿用既有持久化逻辑，不重置全部用户设置。启动 Vite/桌面读取可能使 Windows 目录暂时被锁；遇到安装失败先停止读取者再显式重试，旧包应保持可用。
 
 目前没有正式素材下载渠道；交接时提供版本化目录、发行授权与同版本哈希记录，缺素材直接诊断，不静默获取近似素材或使用云端回退。
 

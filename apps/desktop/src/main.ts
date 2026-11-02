@@ -62,6 +62,15 @@ for (const state of petStates) {
   stateSelect.append(option);
 }
 stateLabel.append(stateSelect);
+const actionLabel = document.createElement("label");
+actionLabel.textContent = uiText.actionLabel;
+const actionSelect = document.createElement("select");
+actionSelect.disabled = true;
+actionLabel.append(actionSelect);
+const playActionButton = document.createElement("button");
+playActionButton.type = "button";
+playActionButton.textContent = uiText.playAction;
+playActionButton.disabled = true;
 const runtimeSectionLabel = document.createElement("label");
 runtimeSectionLabel.textContent = uiText.runtimeSection;
 const runtimeStateLine = document.createElement("div");
@@ -71,7 +80,7 @@ const runtimeLimitsLine = document.createElement("div");
 runtimeLimitsLine.className = "runtime-line";
 const runtimeDndLine = document.createElement("div");
 runtimeDndLine.className = "runtime-line";
-panel.append(packLabel, stateLabel, runtimeSectionLabel, runtimeStateLine, runtimeLimitsLine, runtimeDndLine);
+panel.append(packLabel, stateLabel, actionLabel, playActionButton, runtimeSectionLabel, runtimeStateLine, runtimeLimitsLine, runtimeDndLine);
 app.append(status, petButton, settingsButton, panel);
 
 const player = new PetPlayer(playerRoot, () => {
@@ -106,10 +115,33 @@ petButton.addEventListener("click", () => {
 stateSelect.addEventListener("change", () => {
   player.setState(stateSelect.value as PetState);
 });
+playActionButton.addEventListener("click", () => {
+  if (!actionSelect.disabled) player.playAction(actionSelect.value);
+});
+
+function updateActions(pack: PetPack): void {
+  actionSelect.replaceChildren();
+  for (const action of pack.actions) {
+    const option = document.createElement("option");
+    option.value = action.id;
+    option.textContent = Object.hasOwn(uiText.actions, action.id) ? uiText.actions[action.id]! : action.id;
+    actionSelect.append(option);
+  }
+  const empty = pack.actions.length === 0;
+  if (empty) {
+    const option = document.createElement("option");
+    option.textContent = uiText.noActions;
+    actionSelect.append(option);
+  }
+  actionSelect.disabled = empty;
+  playActionButton.disabled = empty;
+}
+
 packSelect.addEventListener("change", () => {
   const pack = packs.get(packSelect.value);
   if (!pack) return;
   player.loadPack(pack.pack, packSelect.value);
+  updateActions(pack.pack);
   stateSelect.value = "idle";
   localStorage.setItem("maneki.selectedPack", packSelect.value);
 });
@@ -240,6 +272,7 @@ async function start(): Promise<void> {
         packSelect.value = id;
         packSelect.disabled = false;
         player.loadPack(pack.pack, id);
+        updateActions(pack.pack);
         status.dataset.visible = "false";
       }
     }
