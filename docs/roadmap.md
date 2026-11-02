@@ -41,7 +41,7 @@ M3 与 M4 可在 M2 稳定的 Runtime/配置/存储接口上独立推进，M2b �
 - [x] Core 的 PetState 与纯动画选择逻辑；Shell 负责播放与窗口交互（2026-10-31；`packages/core/src/animation-chain.ts`，7 条动画行为测试；原生窗口交互仍由上项验收）
 - [x] 动作包 v1 Schema、素材哈希清单、路径/规格/资源校验、缺省 idle；默认包与第二个测试包（2026-10-31；`packages/core/src/validate-pet-pack.ts` 校验测试 7 条，`apps/desktop/scripts/validate-packs.mjs` 构建期校验，安装器 `apps/desktop/scripts/install-pack.mjs` 含符号链接/junction 逃逸与原子切换测试 7 条，两包在 Edge 实际加载）
 - [x] 带权动画链、动作打断/回退、播放器缓存上限；透明视频与精灵图兼容路径（2026-10-31；动画链测试见上，缓存上限 `apps/desktop/src/asset-cache.ts` 6 条 LRU 测试，透明视频与精灵图双路径在 Edge 实际播放）
-- [ ] 原创拟人橘猫娘正式默认动作包（[Spec #59](https://github.com/destinyTaoTao/maneki-pet/issues/59)，透明视频为主/精灵图兜底）：2026-11-03 全量 17 段动画已覆盖七状态与十项常用动作，素材检查及 Windows release 播放、抢占、兼容回退和换装功能检查已完成；进程树资源预算仍未通过，正式默认晋升及 Windows 剩余桌面验收待完成，见[验收记录](./audits/2026-11-03-catgirl-default-acceptance.md)。具体基线见 architecture §3.1，制作历史见[角色配方](../apps/desktop/recipes/orange-catgirl-v1.md)。开发占位已移除旧招财猫生成逻辑并改为 `1.0.1` 中性三方块；精确旧内置默认准备时报错保留，须显式导入正式包，其他合法包和非旧图 fallback 保留。走动/转向/拖拽悬空/落地交互后续单独验收，dsh 插件复用素材的接入验收单列
+- [x] 原创拟人橘猫娘正式默认动作包（[Spec #59](https://github.com/destinyTaoTao/maneki-pet/issues/59)，透明视频为主/精灵图兜底）：2026-11-03 全量 17 段动画覆盖七状态与十项常用动作，素材检查及 Windows release 播放、抢占、兼容回退、换装通过；用户明确确认总预算 300 MiB、Runtime 75 MiB，固定场景资源采样通过，`xiaozhao-default@1.1.0` 正式默认交付完成，见[验收记录](./audits/2026-11-03-catgirl-default-acceptance.md)。具体基线见 architecture §3.1，制作历史见[角色配方](../apps/desktop/recipes/orange-catgirl-v1.md)。开发占位已移除旧招财猫生成逻辑并改为 `1.0.1` 中性三方块；精确旧内置默认准备时报错保留，须显式导入正式包，其他合法包和非旧图 fallback 保留。安装器、长期资源稳定性、走动/转向/拖拽悬空/落地交互后续单独验收，dsh 插件复用素材的接入验收单列
 - [ ] 多显示器、不同 DPI、鼠标穿透与拖拽甩抛边界（速度采样/衰减/显示器夹取纯函数已在 `apps/desktop/src/fling.ts` 单元测试，单屏真机渲染已验收；多屏/DPI/穿透与甩抛手感待人工验收）
 - [ ] 三平台透明窗/媒体格式 spike 矩阵，记录素材与系统/WebView 版本；按 architecture §3.3 决定是否需要调整
 
@@ -60,7 +60,7 @@ Windows 阶段出口：
 
 依赖：M1。目标：harness 干活时宠物能正确表达状态，完成本机运行与接入可行性验证。
 
-当前进度：`packages/runtime` 底座已实现并通过 43 条测试（生命周期/单实例锁、SQLite 迁移与单一拥有者、127.0.0.1+token/scope/Host/Origin 鉴权矩阵、一次性 WS 票据、MCP 表达桥四工具与勿扰门控）；无窗口启动、双入口拒绝、管理入口优雅退出、无遗留进程已真机验证；安装器已附带 Runtime sidecar（无须另装 Node）并真机验证安装布局与运行（见 [审计记录](./audits/2026-10-31-m2-runtime-spike.md)，2026-10-31）。内存预算按进程树口径未达标（Private ~244MB），已作为架构决策点记录。dsh spike 与外部记忆协议 spike 仍为硬 gate。
+当前进度：`packages/runtime` 底座已实现并通过 43 条测试（生命周期/单实例锁、SQLite 迁移与单一拥有者、127.0.0.1+token/scope/Host/Origin 鉴权矩阵、一次性 WS 票据、MCP 表达桥四工具与勿扰门控）；无窗口启动、双入口拒绝、管理入口优雅退出、无遗留进程已真机验证；安装器已附带 Runtime sidecar（无须另装 Node）并真机验证安装布局与运行（见 [审计记录](./audits/2026-10-31-m2-runtime-spike.md)，2026-10-31）。历史 spike 的进程树 Private ~244MB 超过最初 150MB 目标，后按用户决策改为 250MB；2026-11-03 当前预算再明确为 300 MiB（Runtime 75 MiB），场景证据见下方性能出口。dsh spike 与外部记忆协议 spike 仍为硬 gate。
 
 2026-11-01 增量：#51 已补 WS 异常连接隔离和资源上限的自动测试；#52 已补记忆进程故障隔离、写入结果未知和停止清理的局部验证。#3 的真实审批/恢复尚未通过，Runtime 暂拒绝新派发与未核实取消；dsh Adapter 不再声明未经验证的事件、审批或执行能力。旧任务的完整恢复、跨平台进程清理和各票剩余验收仍待验证，以上不代表票据完成。
 
@@ -85,7 +85,7 @@ Windows 阶段出口：
 - [ ] 真实任务状态联动；正常负载下事件到动画 p95 < 300ms，通知调用 p95 < 1s；记录采样与设备
 - [ ] 两个会话事件不串扰；重复终态只通知一次；迟到 progress 不覆盖 completed；断线后快照与增量衔接不漏终态
 - [ ] 勿扰期间 Maneki 不主动弹出/播报；外部 urgency 不能绕过；用户主动面板仍可用，无语音/模型配置时表达与通知仍可用
-- [x] 空闲全相关进程树私有内存 ≤ 250MB（其中 Runtime ≤ 75MB）；2026-10-31 用户决策修订口径（原 150MB 工作集口径低于 WebView2 多进程实测基线），实测 Runtime 61.5MB + Shell 树 182.2MB = 243.7MB 达标；证据见 [审计记录](./audits/2026-10-31-m2-runtime-spike.md)
+- [x] 空闲全相关进程树私有内存 ≤ 300 MiB（其中 Runtime ≤ 75 MiB）；2026-11-03 用户明确确认保留猫娘原画质并调整总预算，无调试器 release 固定场景为冷启动 266.74 MiB、十动作后 279.19 MiB、继续待机约六分钟 270.03 MiB，Runtime 约 62 MiB，见[猫娘验收记录](./audits/2026-11-03-catgirl-default-acceptance.md)。壳未配对测量中的 Runtime，采样不代表外部任务全链路或长期峰值。历史：2026-10-31 用户将原 150MB 工作集目标修订为 250MB Private Bytes，实测 Runtime 61.5MB + Shell 树 182.2MB = 243.7MB，见[当日审计](./audits/2026-10-31-m2-runtime-spike.md)；正式猫娘后来未过旧 250 MiB 目标，未追改历史结论
 - [ ] Runtime 异常/数据库迁移失败可诊断，未把失联任务标成成功；macOS/Linux 的打包/后台生命周期/通知在平台矩阵另验并保留证据
 
 ## M2b — dsh 文字任务闭环与插件首版

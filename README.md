@@ -43,7 +43,7 @@
 
 - **安全第一**：API 只绑 127.0.0.1 + 随机令牌与分权；派发授权与具体操作审批分开，输出按数据处理；用量与上下文限额三层配置化。
 - **可扩展**：纯 TS Core 定义规则与端口，Runtime 装配具体实现；语音、模型、harness 和形象独立替换，关闭可选能力不影响文字入口。
-- **性能可测**：Tauri v2 优先；空闲全相关进程树 Private Bytes 目标 ≤ 250MB（Runtime ≤ 75MB），计入 WebView、Runtime 和桥。2026-10-31 历史测量约 243.7MB，余量较小，不能代表未来素材和负载仍达标；活跃模型资源另报。
+- **性能可测**：Tauri v2 优先；2026-11-03 用户确认空闲全相关进程树 Private Bytes 目标 ≤ 300 MiB（Runtime ≤ 75 MiB），计入 WebView、Runtime 和桥。正式猫娘无调试器固定场景采样约 267–279 MiB，Runtime 约 62 MiB，详见[验收记录](./docs/audits/2026-11-03-catgirl-default-acceptance.md)；这些采样不代表长期峰值或全部负载。2026-10-31 的约 243.7MB 为旧 250MB 目标下的历史测量；活跃模型资源另报。
 - **按能力接入**：支持 MCP 的宿主可接入表达工具；完整任务代理另需经过会话路由与执行审批验收的 Adapter。
 
 ## 🏗️ 架构总览
@@ -75,7 +75,7 @@ flowchart TB
 
 ## 🎨 素材准备与试片
 
-2026-11-03：橘猫娘全量 17 段动画已覆盖七状态与十项动作，素材检查及 Windows release 的播放、抢占、兼容回退和换装功能检查已完成；进程树资源预算仍未通过，正式默认晋升尚未完成，详见[验收记录](./docs/audits/2026-11-03-catgirl-default-acceptance.md)。配方与制作历史见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md)。大素材不入库，目前没有公开发行下载地址，克隆仓库不会自动获得已批准原片或正式包。
+2026-11-03：橘猫娘 `xiaozhao-default@1.1.0` 已完成正式默认交付，17 段静音透明动画覆盖七状态与十项动作，附同角色兼容精灵图及 MIT 授权；旧程序招财猫已移除。素材检查及 Windows release 播放、抢占、兼容回退、换装和固定场景资源采样通过，资源预算采用用户确认的 300 MiB，详见[验收记录](./docs/audits/2026-11-03-catgirl-default-acceptance.md)。配方与制作历史见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md)。本机交付为 `renders/orange-catgirl/maneki-catgirl-default-1.1.0.zip`，获取后按包内 README 显式安装；大素材不入库，目前没有公开发行下载地址，克隆仓库不会自动获得已批准原片或正式包。
 
 设置面板可选择当前形象声明的动作并点播；切换形象会更新动作列表，无动作时入口禁用。
 

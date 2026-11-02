@@ -1,6 +1,6 @@
 # 小招 · 拟人橘猫娘 v1 素材配方
 
-日期：2026-11-03。范围、外观方向、第一版设定图与三段试片观感均已由用户确认；全量 17 段动画已覆盖七状态十动作，素材与 Windows release 功能检查已完成，进程树资源预算仍未通过，正式默认晋升待完成。证据与剩余边界见[验收记录](../../../docs/audits/2026-11-03-catgirl-default-acceptance.md)，规范基线见 [architecture §3.1](../../../docs/architecture.md#31-动画与交互)。
+日期：2026-11-03。范围、外观方向、第一版设定图与三段试片观感均已由用户确认；全量 17 段动画覆盖七状态十动作，素材与 Windows release 功能检查通过。用户明确确认总预算 300 MiB、Runtime 75 MiB，保留原画质，固定场景资源采样符合新预算；正式默认 `xiaozhao-default@1.1.0` 已完成交付，附 MIT 授权。证据与剩余边界见[验收记录](../../../docs/audits/2026-11-03-catgirl-default-acceptance.md)，规范基线见 [architecture §3.1](../../../docs/architecture.md#31-动画与交互)。
 
 增量规格：[Spec #59：默认形象与首版动作包](https://github.com/destinyTaoTao/maneki-pet/issues/59)。
 
@@ -40,13 +40,13 @@ pnpm --filter @maneki-pet/desktop build:catgirl-pack "<absolute-recipe.json>" --
 pnpm --filter @maneki-pet/desktop import:pack "<absolute-candidate-output-dir>/xiaozhao-catgirl-trial"
 ```
 
-此示例与完整候选配方均使用固定输出：主视频 384×384、24 fps、120 帧；兼容 PNG 独立为每帧 256×256、8 fps、40 帧，单横排 10,240×256（2,621,440 像素）。尺寸不作为配方字段开放。2026-11-03 完整素材的 384×384 兼容图版本在 Windows release 冷启动下测得 Shell + Runtime Private Bytes 合计 321,675,264 字节（306.77 MiB），超过既定 250 MiB 预算；256 像素兼容图的全量素材与功能检查已完成，但减量及播放器生命周期修正仍未使资源验收通过。资源复测以[验收记录](../../../docs/audits/2026-11-03-catgirl-default-acceptance.md)为准，不能沿用 v001 试片观感或旧媒体检查代替验收；首次失败证据保留在制作项目 `notes/resource-acceptance-failure.md`。
+此示例与完整候选配方均使用固定输出：主视频 384×384、24 fps、120 帧；兼容 PNG 独立为每帧 256×256、8 fps、40 帧，单横排 10,240×256（2,621,440 像素）。尺寸不作为配方字段开放。历史诊断：2026-11-03 完整素材的 384×384 兼容图版本在开启调试端口的 Windows release 冷启动下测得 Shell + Runtime Private Bytes 合计 321,675,264 字节（306.77 MiB），超过当时 250 MiB 预算；改用 256 像素兼容图及播放器生命周期修正后，最终无调试器固定场景仍未过旧目标，约 267–279 MiB。用户随后明确确认调整总预算至 300 MiB，保留当前 384 视频/256 兼容图画质，完成正式默认交付。这是预算决策，不是优化至 250 MiB 的成果。资源复测以[验收记录](../../../docs/audits/2026-11-03-catgirl-default-acceptance.md)为准，不能沿用 v001 试片观感或旧媒体检查代替验收；首次失败证据保留在制作项目 `notes/resource-acceptance-failure.md`。
 
 输入不足、源媒体损坏、裁切越界、输出不符规格或包超预算都会失败；不会重复静帧补足，不会把半包替换已有候选。原片须整段含音轨严格解码，即使损坏处在截取片段之后也拒绝。输出先在临时目录完成并通过既有 `installPack` 校验安装，再将候选与同级 `<id>.build.json` 制作记录一起发布；写入或替换失败回滚两者，不承诺跨文件掉电原子性，未扩充 v1 Schema。当前构建入口保留 `xiaozhao-default`，不提供自动晋升选项。
 
 历史三段试片只声明 `idle/working` 和 `wave`，其余状态沿用既有 idle 回退；当前全量配方见 [orange-catgirl-release-v1.1.0.json](./orange-catgirl-release-v1.1.0.json)，17 段真实动画与七状态十动作映射均已完成。重建仍使用独立 candidate ID，缺少任何被引用原片即失败。设置面板按当前包的 `actions` 提供选择与点播，沿用现有播放链；换包更新选项，无动作禁用，不增加测试专用入口。
 
-正式晋升须在七状态十动作、用户观感与 Windows 全量验收全部通过后进行；目前资源预算仍是阻断项。保留候选包及验收证据，复制到独立发行目录，明确更新描述中的 `id/name/version` 为默认发行版本，复核素材清单；从同版本 idle 准备同角色 `public/fallback.png`，用 `import:pack` 显式安装到内置目录（源目录使用绝对路径），再执行 `prepare:packs`、构建、测试、重启和换装验证。用户此前选择其他包的偏好沿用既有持久化逻辑，不重置全部用户设置。启动 Vite/桌面读取可能使 Windows 目录暂时被锁；遇到安装失败先停止读取者再显式重试，旧包应保持可用。
+正式晋升须在七状态十动作、用户观感与本票 Windows 桌面验收通过后进行；2026-11-03 已按用户确认的新预算完成本次晋升。重做步骤：保留候选包及验收证据，复制到独立发行目录，明确更新描述中的 `id/name/version` 为默认发行版本，复核素材清单；从同版本 idle 准备同角色 `public/fallback.png`，用 `import:pack` 显式安装到内置目录（源目录使用绝对路径），再执行 `prepare:packs`、构建、测试、重启和换装验证。用户此前选择其他包的偏好沿用既有持久化逻辑，不重置全部用户设置。启动 Vite/桌面读取可能使 Windows 目录暂时被锁；遇到安装失败先停止读取者再显式重试，旧包应保持可用。
 
 目前没有正式素材下载渠道；交接时提供版本化目录、发行授权与同版本哈希记录，缺素材直接诊断，不静默获取近似素材或使用云端回退。
 
