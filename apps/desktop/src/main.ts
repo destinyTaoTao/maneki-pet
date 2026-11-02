@@ -8,7 +8,7 @@ import {
 
 import { invoke } from "@tauri-apps/api/core";
 import { PetPlayer } from "./player.js";
-import { BoundedReadError, MEDIA_READ_TIMEOUT_MS, readBounded } from "./bounded-fetch.js";
+import { BoundedReadError, MEDIA_READ_TIMEOUT_MS, readBounded, readMedia } from "./bounded-fetch.js";
 import { imageDimensions, MediaBudgetError, withinPixelBudget } from "./media-budget.js";
 import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
 import * as runtimeClient from "./runtime-client.js";
@@ -198,8 +198,7 @@ async function verifyAssets({ pack, manifest }: ValidatedPetPack, packId: string
   for (const entry of manifest.files) {
     let bytes: ArrayBuffer;
     try {
-      const response = await fetch(`/packs/${packId}/${entry.path}`, { signal: AbortSignal.timeout(MEDIA_READ_TIMEOUT_MS) });
-      bytes = await readBounded(response, entry.bytes);
+      bytes = await readMedia(`/packs/${packId}/${entry.path}`, entry.bytes);
     } catch (error) {
       throw new Error(boundedMessage(error));
     }
