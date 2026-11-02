@@ -50,6 +50,8 @@ pnpm --filter @maneki-pet/desktop import:pack "<absolute-candidate-output-dir>/x
 
 目前没有正式素材下载渠道；交接时提供版本化目录、发行授权与同版本哈希记录，缺素材直接诊断，不静默获取近似素材或使用云端回退。
 
+2026-11-03 移除旧程序招财猫：`generate:packs` 缺包时仅生成 `1.0.1` 中性三方块开发占位，不再绘制旧角色；生成与 `prepare:packs` 均拒绝精确匹配 `xiaozhao-default` / `小招 · 招财猫` / `1.0.0` 的退役默认并保留文件，按上面的显式导入步骤迁移。其他合法包不自动替换；若要替换旧测试形象，须显式导入新 `mint-test@1.0.1`。仅旧 fallback 的已知字节指纹迁移为中性图，其他已准备 fallback 保留；图标源复用当前 fallback，隔离 `--public-dir` 不写应用图标。这不改变正式素材晋升条件或资源预算。
+
 ## 设定图完整提示词
 
 ```text

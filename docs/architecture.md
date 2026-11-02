@@ -119,8 +119,8 @@ M1 固定 v1 的加载语义与 JSON Schema。包根目录的描述文件名为 
 {
   "schemaVersion": 1,
   "id": "xiaozhao-default",
-  "name": "小招 · 招财猫",
-  "version": "1.0.0",
+  "name": "开发 · 中性占位",
+  "version": "1.0.1",
   "permissions": [],
   "clips": {
     "breathe": {

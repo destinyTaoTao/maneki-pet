@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { verifyPackOnDisk } from "./lib/pack-fs.mjs";
+import { assertPackNotRetired } from "./lib/pack-preparation.mjs";
 import packIds from "../config/builtin-packs.json" with { type: "json" };
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,6 +21,7 @@ for (const packId of packIds) {
     throw new Error(`Missing prepared pack ${packId} in ${packsRoot}. Import the versioned asset directory with node scripts/install-pack.mjs <source-pack-dir> --packs-dir <dir>. For development placeholders only, run generate:packs.`);
   }
   const pack = JSON.parse(readFileSync(join(packRoot, "pet-pack.json"), "utf8"));
+  assertPackNotRetired(pack);
   const manifest = JSON.parse(readFileSync(join(packRoot, "assets.manifest.json"), "utf8"));
   const result = validatePetPack(pack, manifest);
   if (!result.success) {
