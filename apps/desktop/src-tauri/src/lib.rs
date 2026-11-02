@@ -1,4 +1,6 @@
 mod ui_text;
+#[cfg(windows)]
+mod webview_memory;
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -78,9 +80,14 @@ fn spawn_runtime_child(app: &AppHandle) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let child = cmd.spawn().map_err(|e| format!("spawn runtime failed: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn runtime failed: {e}"))?;
     let runtime_state = app.state::<RuntimeChild>();
-    let mut state = runtime_state.0.lock().expect("runtime child mutex poisoned");
+    let mut state = runtime_state
+        .0
+        .lock()
+        .expect("runtime child mutex poisoned");
     if let Some(existing) = state.as_mut() {
         // 理论上不发生（锁保证单实例）；释放旧 stdin 管道防句柄泄漏。
         let _ = existing.stdin.take();
@@ -142,6 +149,10 @@ pub fn run() {
         .manage(RuntimeChild(Mutex::new(None)))
         .manage(TrayDndItem(Mutex::new(None)))
         .setup(|app| {
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                webview_memory::sync_focus(&window);
+            }
             let _ = spawn_runtime_child(app.handle());
             let show = MenuItem::with_id(app, "show", ui_text::SHOW, true, None::<&str>)?;
             let dnd = CheckMenuItem::with_id(
@@ -186,6 +197,8 @@ pub fn run() {
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
+                            #[cfg(windows)]
+                            webview_memory::request_for_focus(&window, true);
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -224,6 +237,14 @@ pub fn run() {
                 })
                 .build(app)?;
             Ok(())
+        })
+        .on_window_event(|_window, _event| {
+            #[cfg(windows)]
+            if let tauri::WindowEvent::Focused(focused) = _event {
+                if let Some(window) = _window.app_handle().get_webview_window(_window.label()) {
+                    webview_memory::request_for_focus(&window, *focused);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             runtime_info,
