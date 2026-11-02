@@ -13,6 +13,7 @@ import {
   type ShimOptions,
 } from "./platform-commands.js";
 import { BilibiliPlatformAdapter } from "@maneki-pet/platform-bilibili";
+import { douyinReadiness } from "./douyin-readiness.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -57,6 +58,15 @@ async function main(): Promise<void> {
   switch (command) {
     case "platform": {
       const sub = positionals[1];
+      if (sub === "douyin-check") {
+        if (process.argv.slice(2).length !== 2) {
+          process.stderr.write("douyin-check 是无参数的离线诊断，不接受凭证或配置。\n");
+          process.exitCode = 2;
+          return;
+        }
+        process.stdout.write(`${JSON.stringify(douyinReadiness(), null, 2)}\n`);
+        return;
+      }
       const adapter = new BilibiliPlatformAdapter();
       if (sub === "draft" && values["draft-input"]) {
         // 文件模式：{steps:[{step,value}...]}，每条记录 = 该步内容 + 显式用户确认（逐次，按序）。
@@ -147,7 +157,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      process.stderr.write("usage: maneki platform draft|package|receipt|ops-import | experience-span\n");
+      process.stderr.write("usage: maneki platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
       process.exit(2);
   }
 }
