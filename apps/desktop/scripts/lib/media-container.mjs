@@ -9,7 +9,7 @@ export function mediaContainerMime(absolute) {
   finally { closeSync(handle); }
   const head = buffer.subarray(0, size);
   if (head.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
-  if (head.toString("ascii", 0, 4) === "RIFF" && head.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  if (head.toString("latin1", 0, 4) === "RIFF" && head.toString("latin1", 8, 12) === "WEBP") return "image/webp";
   if (head.length >= 5 && head.readUInt32BE(0) === 0x1a45dfa3) {
     const root = vint(head, 4);
     const end = root.next + root.value;
@@ -23,7 +23,7 @@ export function mediaContainerMime(absolute) {
       if (next > end) throw new Error("invalid EBML header");
       if (id.value === 0x4282) {
         if (docType !== undefined) throw new Error("duplicate EBML DocType");
-        docType = head.toString("ascii", length.next, next);
+        docType = head.toString("latin1", length.next, next);
       }
       offset = next;
     }
@@ -33,7 +33,7 @@ export function mediaContainerMime(absolute) {
   // QuickTime ftyp：major brand 或按四字节对齐的 compatible brand 必须含 qt。
   for (let offset = 0; offset + 8 <= head.length;) {
     let length = head.readUInt32BE(offset);
-    const type = head.toString("ascii", offset + 4, offset + 8);
+    const type = head.toString("latin1", offset + 4, offset + 8);
     let header = 8;
     if (length === 1) {
       if (offset + 16 > head.length) break;
@@ -43,9 +43,9 @@ export function mediaContainerMime(absolute) {
     if (!Number.isSafeInteger(length) || length < header || offset + length > head.length) break;
     if (type === "ftyp" && length >= header + 8) {
       const payload = offset + header;
-      if (head.toString("ascii", payload, payload + 4) === "qt  ") return "video/quicktime";
+      if (head.toString("latin1", payload, payload + 4) === "qt  ") return "video/quicktime";
       for (let i = payload + 8; i + 4 <= offset + length; i += 4) {
-        if (head.toString("ascii", i, i + 4) === "qt  ") return "video/quicktime";
+        if (head.toString("latin1", i, i + 4) === "qt  ") return "video/quicktime";
       }
       break;
     }

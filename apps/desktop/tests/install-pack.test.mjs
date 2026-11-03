@@ -115,6 +115,20 @@ function leftoverTempDirs(packsRoot) {
 }
 
 describe("installPack", () => {
+  it("rejects high-bit bytes masquerading as a literal QuickTime brand", () => {
+    const workspace = makeWorkspace();
+    try {
+      const source = join(workspace, "source");
+      const movie = join(workspace, "movie.mp4");
+      execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=s=16x16:d=0.1", "-c:v", "mpeg4", "-f", "mp4", movie], { windowsHide: true });
+      const bytes = readFileSync(movie);
+      bytes.set([0xf1, 0xf4, 0xa0, 0xa0], 8);
+      const fixture = fixturePack({ spriteBytes: bytes });
+      fixture.pack.clips.breathe.sources = [{ renderer: "video-alpha", path: "assets/sprite.png", mimeType: "video/quicktime" }];
+      writeFixture(source, fixture);
+      expect(() => installPack({ sourceDir: source, packsRoot: join(workspace, "packs") })).toThrow(/media/i);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
   it("accepts a real QuickTime container carrying the qt brand", () => {
     const workspace = makeWorkspace();
     try {
