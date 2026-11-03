@@ -15,8 +15,8 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
-export function runtimeIdentityProof(rootToken: string, challenge: string, protocolVersion: number, instanceId: string): string {
-  return createHmac("sha256", rootToken).update(JSON.stringify(["maneki-runtime-identity-v1", challenge, protocolVersion, instanceId])).digest("hex");
+export function runtimeIdentityProof(rootToken: string, challenge: string, protocolVersion: number, instanceId: string, boundPort: number): string {
+  return createHmac("sha256", rootToken).update(JSON.stringify(["maneki-runtime-identity-v1", challenge, protocolVersion, instanceId, boundPort])).digest("hex");
 }
 
 export type AuthCheck = { ok: true } | { ok: false; status: 400 | 401 | 403; reason: string };

@@ -57,10 +57,10 @@ fn spawn_runtime_child(app: &AppHandle) -> Result<(), String> {
     let sidecar = exe_dir.join("maneki-runtime.exe");
     let bundle = exe_dir.join("resources").join("maneki-runtime-bundle.js");
     if !sidecar.exists() {
-        return Err(format!("runtime sidecar missing: {}", sidecar.display()));
+        return Err(ui_text::runtime_error("not_installed").to_string());
     }
     if !bundle.exists() {
-        return Err(format!("runtime bundle missing: {}", bundle.display()));
+        return Err(ui_text::runtime_error("not_installed").to_string());
     }
     let config_dir = runtime_config_dir(app)?;
     let mut cmd = Command::new(&sidecar);

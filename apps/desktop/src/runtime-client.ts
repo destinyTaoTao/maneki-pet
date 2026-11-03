@@ -71,11 +71,7 @@ export async function checkHealth(): Promise<boolean> {
 /** 健康发现失败时经 Rust 命令拉起 sidecar，再轮询就绪。 */
 export async function ensureRuntime(): Promise<boolean> {
   if (await checkHealth()) return true;
-  try {
-    await invoke("spawn_runtime");
-  } catch {
-    // sidecar 缺失等错误：继续轮询确认，最终如实返回不可用。
-  }
+  await invoke("spawn_runtime");
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (await checkHealth()) return true;
     await new Promise((resolve) => setTimeout(resolve, 500));

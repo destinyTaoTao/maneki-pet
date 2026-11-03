@@ -33,7 +33,7 @@ export const uiText = {
   runtimeSection: "运行时",
   runtimeConnected: "已连接（127.0.0.1）",
   runtimeConnecting: "正在连接共享运行时…",
-  runtimeUnavailable: "运行时不可用，稍后自动重试",
+  runtimeUnavailable: "运行时不可用，请检查安装或后台进程后重启小招",
   runtimeDisconnected: "已断开，自动重连中…",
   runtimePairFailure: "运行时配对失败",
   limitsLabel: "今日限额",

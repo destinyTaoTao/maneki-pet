@@ -317,7 +317,13 @@ async function connectRuntime(): Promise<void> {
     runtimeDndLine.remove();
     return;
   }
-  const ready = await runtimeClient.ensureRuntime();
+  let ready: boolean;
+  try {
+    ready = await runtimeClient.ensureRuntime();
+  } catch (error) {
+    runtimeStateLine.textContent = String(error);
+    return;
+  }
   if (!ready) {
     runtimeStateLine.textContent = uiText.runtimeUnavailable;
     return;

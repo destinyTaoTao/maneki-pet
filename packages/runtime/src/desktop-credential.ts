@@ -40,7 +40,7 @@ export async function desktopCredential(configDir: string, port: number): Promis
     throw new DesktopCredentialError("protocol_mismatch");
   }
   const proof = health.body.identityProof;
-  const expected = runtimeIdentityProof(root, challenge, 1, health.body.instanceId);
+  const expected = runtimeIdentityProof(root, challenge, 1, health.body.instanceId, port);
   if (typeof proof !== "string" || !/^[0-9a-f]{64}$/.test(proof) || !timingSafeEqual(Buffer.from(proof, "hex"), Buffer.from(expected, "hex"))) throw new DesktopCredentialError("identity_mismatch");
   // 管理入口并发配对也串行；残锁由现有 PID 存活检查回收。
   const lock = new InstanceLock(join(configDir, "desktop-client.lock"));

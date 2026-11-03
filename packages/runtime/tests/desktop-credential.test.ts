@@ -84,3 +84,24 @@ it("伪装为相同版本的监听者拿不到 root 或客户端 token", async (
     expect(requests).toEqual([{ path: "/v1/health", authorization: undefined }]);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
+
+it("伪服务中继其他端口的真实身份挑战也拿不到凭证", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-desktop-relay-"));
+  dirs.push(dir);
+  const runtime = await startRuntime({ configDir: dir });
+  runtimes.push(runtime);
+  let credentialSeen = false;
+  const server = createServer(async (req, res) => {
+    credentialSeen ||= Boolean(req.headers.authorization);
+    res.setHeader("content-type", "application/json");
+    if (req.url === "/v1/health") {
+      const forwarded = await fetch(`http://127.0.0.1:${runtime.port}/v1/health`, { headers: { "x-maneki-challenge": String(req.headers["x-maneki-challenge"]) } });
+      res.end(await forwarded.text());
+    } else { res.end(JSON.stringify({ token: "fake-token", clientId: "fake-client" })); }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await expect(exec(process.execPath, [cli, "--config-dir", dir, "--port", String((server.address() as { port: number }).port), "--desktop-credential"], { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "identity_mismatch" }) });
+    expect(credentialSeen).toBe(false);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
