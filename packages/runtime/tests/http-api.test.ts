@@ -69,6 +69,38 @@ afterEach(async () => {
 });
 
 describe("本地 HTTP API 鉴权矩阵", () => {
+  it("请求体尚未读完时撤销设置客户端，迟到请求不能修改策略", async () => {
+    const { runtime, base } = await makeRuntime();
+    const pair = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "settings", scopes: "settings" } });
+    const req = httpRequest({ host: "127.0.0.1", port: runtime.port, path: "/v1/dnd", method: "POST", headers: {
+      authorization: `Bearer ${pair.body.token}`, "content-type": "application/json", expect: "100-continue",
+    } });
+    const result = new Promise<number>((resolve, reject) => {
+      req.on("error", reject);
+      req.on("response", (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+    });
+    const continuing = new Promise<void>((resolve) => req.once("continue", resolve));
+    req.flushHeaders();
+    await continuing;
+    await jsonFetch(base, `/v1/clients/${pair.body.clientId}/revoke`, { token: runtime.rootToken, method: "POST" });
+    req.end(JSON.stringify({ enabled: true }));
+    expect(await result).toBe(401);
+    expect((await jsonFetch(base, "/v1/dnd", { token: runtime.rootToken })).body.enabled).toBe(false);
+  });
+  it("表达入口不能修改勿扰或管理凭证，设置入口可修改共享勿扰", async () => {
+    const { runtime, base } = await makeRuntime();
+    const expression = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "expression", scopes: "express" } });
+    const token = expression.body.token as string;
+    expect((await jsonFetch(base, "/v1/dnd", { token, body: { enabled: true } })).status).toBe(403);
+    expect((await jsonFetch(base, "/v1/dnd", { token })).body.enabled).toBe(false);
+    expect((await jsonFetch(base, "/v1/pair", { token, body: { name: "elevated", scopes: "settings" } })).status).toBe(403);
+    expect((await jsonFetch(base, `/v1/clients/${expression.body.clientId}/revoke`, { token, method: "POST" })).status).toBe(403);
+    const settings = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "settings", scopes: "settings" } });
+    expect(settings.status).toBe(200);
+    expect((await jsonFetch(base, "/v1/dnd", { token: settings.body.token, body: { enabled: true } })).status).toBe(200);
+    expect((await jsonFetch(base, "/v1/ws-ticket", { token: settings.body.token, method: "POST" })).status).toBe(403);
+    expect((await jsonFetch(base, "/v1/dnd", { token })).body.enabled).toBe(true);
+  });
   it("宿主失联后表现租约过期，重新读取不把旧动画当作仍在跟踪", async () => {
     const { runtime, base } = await makeRuntime();
     const pair = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "dsh", scopes: "express" } });
@@ -268,7 +300,7 @@ describe("勿扰端到端（#44 的 Runtime 层）", () => {
     runtimes.push(first);
     const pair = await jsonFetch(`http://127.0.0.1:${first.port}`, "/v1/pair", {
       token: first.rootToken,
-      body: { name: "shell", scopes: "express" },
+      body: { name: "shell", scopes: "express,settings" },
     });
     const token = (pair.body as { token: string }).token;
     expect((await jsonFetch(`http://127.0.0.1:${first.port}`, "/v1/dnd", { token })).body.enabled).toBe(false);

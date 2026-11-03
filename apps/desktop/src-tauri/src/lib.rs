@@ -1,3 +1,4 @@
+mod desktop_credential;
 mod ui_text;
 
 use std::path::PathBuf;
@@ -101,14 +102,6 @@ fn runtime_info(app: AppHandle) -> Result<RuntimeInfo, String> {
         port: RUNTIME_PORT,
         config_dir: runtime_config_dir(&app)?.to_string_lossy().into_owned(),
     })
-}
-
-#[tauri::command]
-fn read_root_token(app: AppHandle) -> Result<String, String> {
-    let path = runtime_config_dir(&app)?.join("root-token");
-    std::fs::read_to_string(&path)
-        .map(|s| s.trim().to_string())
-        .map_err(|e| format!("root token unreadable: {e}"))
 }
 
 #[tauri::command]
@@ -227,7 +220,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             runtime_info,
-            read_root_token,
+            desktop_credential::desktop_client_token,
             spawn_runtime,
             sync_tray_dnd
         ])

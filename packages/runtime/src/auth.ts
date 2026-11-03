@@ -3,7 +3,8 @@ import { createHash, randomBytes } from "node:crypto";
 export const ADMIN_SCOPE = "admin";
 export const EXPRESS_SCOPE = "express";
 export const NOTIFY_SCOPE = "notify";
-export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE] as const;
+export const SETTINGS_SCOPE = "settings";
+export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE, "tasks", SETTINGS_SCOPE] as const;
 
 /** 安装期随机令牌：32 字节 base64url；存储只保留 SHA-256。 */
 export function generateToken(): string {
@@ -56,30 +57,42 @@ export function hasScope(scopes: string[], needed: string): boolean {
 
 const TICKET_TTL_MS = 30_000;
 
+export interface TicketIdentity {
+  clientId: string;
+  origin: string | undefined;
+  scopes: string[];
+}
+
 /** 一次性短期 WS 票据：用后即焚，过期失效，防重放。 */
 export class TicketIssuer {
-  private readonly outstanding = new Map<string, number>();
+  private readonly outstanding = new Map<string, TicketIdentity & { expiresAtMs: number }>();
 
-  issue(nowMs: number = Date.now()): { ticket: string; expiresAtMs: number } {
+  issue(identity: TicketIdentity, nowMs: number = Date.now()): { ticket: string; expiresAtMs: number } {
     this.prune(nowMs);
     const ticket = randomBytes(32).toString("base64url");
     const expiresAtMs = nowMs + TICKET_TTL_MS;
-    this.outstanding.set(ticket, expiresAtMs);
+    this.outstanding.set(ticket, { ...identity, scopes: [...identity.scopes], expiresAtMs });
     return { ticket, expiresAtMs };
   }
 
-  redeem(ticket: string, nowMs: number = Date.now()): boolean {
-    const expiresAtMs = this.outstanding.get(ticket);
-    if (expiresAtMs === undefined) {
-      return false;
+  redeem(ticket: string, origin: string | undefined, nowMs: number = Date.now()): TicketIdentity | undefined {
+    const identity = this.outstanding.get(ticket);
+    if (!identity) {
+      return undefined;
     }
     this.outstanding.delete(ticket);
-    return nowMs <= expiresAtMs;
+    return nowMs < identity.expiresAtMs && identity.origin === origin ? identity : undefined;
+  }
+
+  revokeClient(clientId: string): void {
+    for (const [ticket, identity] of this.outstanding) {
+      if (identity.clientId === clientId) this.outstanding.delete(ticket);
+    }
   }
 
   private prune(nowMs: number): void {
-    for (const [ticket, expiresAtMs] of this.outstanding) {
-      if (nowMs > expiresAtMs) {
+    for (const [ticket, identity] of this.outstanding) {
+      if (nowMs >= identity.expiresAtMs) {
         this.outstanding.delete(ticket);
       }
     }

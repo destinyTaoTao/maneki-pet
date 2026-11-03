@@ -48,28 +48,29 @@ describe("Host/Origin 校验", () => {
 });
 
 describe("一次性 WS 票据", () => {
+  const identity = { clientId: "client", origin: undefined, scopes: ["express"] };
   it("签发后可兑换一次，重放被拒绝", () => {
     const issuer = new TicketIssuer();
-    const { ticket } = issuer.issue(1_000);
-    expect(issuer.redeem(ticket, 1_100)).toBe(true);
-    expect(issuer.redeem(ticket, 1_200)).toBe(false);
+    const { ticket } = issuer.issue(identity, 1_000);
+    expect(issuer.redeem(ticket, undefined, 1_100)).toMatchObject(identity);
+    expect(issuer.redeem(ticket, undefined, 1_200)).toBeUndefined();
   });
 
   it("过期票据不能兑换", () => {
     const issuer = new TicketIssuer();
-    const { ticket } = issuer.issue(1_000);
-    expect(issuer.redeem(ticket, 1_000 + 30_000 + 1)).toBe(false);
+    const { ticket } = issuer.issue(identity, 1_000);
+    expect(issuer.redeem(ticket, undefined, 1_000 + 30_000 + 1)).toBeUndefined();
   });
 
   it("未知票据不能兑换", () => {
     const issuer = new TicketIssuer();
-    expect(issuer.redeem("nope")).toBe(false);
+    expect(issuer.redeem("nope", undefined)).toBeUndefined();
   });
 
   it("过期票据被清理，不在发行器中无界累积", () => {
     const issuer = new TicketIssuer();
     for (let index = 0; index < 5; index += 1) {
-      issuer.issue(index * 40_000);
+      issuer.issue(identity, index * 40_000);
     }
     expect(issuer.outstandingCount()).toBeLessThan(5);
   });

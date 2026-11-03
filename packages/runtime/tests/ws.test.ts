@@ -11,18 +11,18 @@ import { startRuntime, type StartedRuntime } from "../src/index.js";
 const runtimes: StartedRuntime[] = [];
 const tempDirs: string[] = [];
 
-async function makeRuntime(): Promise<{ runtime: StartedRuntime; clientToken: string }> {
+async function makeRuntime(originAllowlist: string[] = []): Promise<{ runtime: StartedRuntime; clientToken: string; clientId: string }> {
   const dir = mkdtempSync(join(tmpdir(), "maneki-rt-ws-"));
   tempDirs.push(dir);
-  const runtime = await startRuntime({ configDir: dir, log: () => undefined, wsAuthTimeoutMs: 400 });
+  const runtime = await startRuntime({ configDir: dir, originAllowlist, log: () => undefined, wsAuthTimeoutMs: 400 });
   runtimes.push(runtime);
   const pairResponse = await fetch(`http://127.0.0.1:${runtime.port}/v1/pair`, {
     method: "POST",
     headers: { authorization: `Bearer ${runtime.rootToken}`, "content-type": "application/json" },
     body: JSON.stringify({ name: "shell", scopes: "express" }),
   });
-  const pair = (await pairResponse.json()) as { token: string };
-  return { runtime, clientToken: pair.token };
+  const pair = (await pairResponse.json()) as { token: string; clientId: string };
+  return { runtime, clientToken: pair.token, clientId: pair.clientId };
 }
 
 async function issueTicket(base: string, token: string): Promise<string> {
@@ -77,6 +77,50 @@ afterEach(async () => {
 });
 
 describe("WS 一次性票据鉴权", () => {
+  it("票据精确绑定签发 Origin，即使两个来源都在白名单也不能互换", async () => {
+    const origin = "http://tauri.localhost";
+    const otherOrigin = "http://localhost:5173";
+    const { runtime, clientToken } = await makeRuntime([origin, otherOrigin]);
+    for (const [issuedOrigin, connectedOrigin, expectedOpcode] of [[origin, otherOrigin, 8], [origin, undefined, 8], [undefined, origin, 8], [origin, origin, 1]] as const) {
+      const response = await fetch(`http://127.0.0.1:${runtime.port}/v1/ws-ticket`, {
+        method: "POST", headers: { authorization: `Bearer ${clientToken}`, ...(issuedOrigin ? { origin: issuedOrigin } : {}) },
+      });
+      const { ticket } = await response.json() as { ticket: string };
+      const socket = connectTcp(runtime.port, "127.0.0.1");
+      socket.on("error", () => undefined);
+      try {
+        await new Promise<void>((resolve) => socket.once("connect", resolve));
+        socket.write(`GET /v1/events HTTP/1.1\r\nHost: 127.0.0.1:${runtime.port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n${connectedOrigin ? `Origin: ${connectedOrigin}\r\n` : ""}\r\n`);
+        await new Promise<void>((resolve) => socket.once("data", () => resolve()));
+        const auth = Buffer.from(JSON.stringify({ type: "auth", ticket }));
+        const reply = new Promise<Buffer>((resolve) => socket.once("data", resolve));
+        socket.write(Buffer.concat([Buffer.from([0x81, 0x80 | auth.length]), Buffer.alloc(4), auth]));
+        expect((await reply)[0]! & 15).toBe(expectedOpcode);
+      } finally { socket.destroy(); }
+    }
+  });
+  it("撤销同时关闭该客户端连接并作废未用票据，另一客户端继续收到状态", async () => {
+    const { runtime, clientToken, clientId } = await makeRuntime();
+    const base = `http://127.0.0.1:${runtime.port}`;
+    const secondPair = await fetch(`${base}/v1/pair`, {
+      method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ name: "other", scopes: "express" }),
+    });
+    const other = await secondPair.json() as { token: string };
+    const unused = await issueTicket(base, clientToken);
+    const first = connect(`ws://127.0.0.1:${runtime.port}/v1/events`, JSON.stringify({ type: "auth", ticket: await issueTicket(base, clientToken) }));
+    const second = connect(`ws://127.0.0.1:${runtime.port}/v1/events`, JSON.stringify({ type: "auth", ticket: await issueTicket(base, other.token) }));
+    await Promise.all([clientWaitReady(first), clientWaitReady(second)]);
+    expect((await fetch(`${base}/v1/clients/${clientId}/revoke`, { method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}` } })).status).toBe(200);
+    runtime.feed.publish("revocation.test", {});
+    expect(await Promise.race([first.closed, delay(2000)])).toBe(4001);
+    expect(first.messages.some((m) => (m.event as { kind?: string })?.kind === "revocation.test")).toBe(false);
+    const replay = connect(`ws://127.0.0.1:${runtime.port}/v1/events`, JSON.stringify({ type: "auth", ticket: unused }));
+    expect(await Promise.race([replay.closed, delay(2000)])).toBe(4001);
+    await expect.poll(() => second.messages.some((m) => (m.event as { kind?: string })?.kind === "revocation.test")).toBe(true);
+    expect((await fetch(`${base}/v1/expressions/state`, { headers: { authorization: `Bearer ${clientToken}` } })).status).toBe(401);
+    socketOf(second).close();
+  });
   it("发送缓冲超限时断开慢客户端，服务保持健康", async () => {
     const dir = mkdtempSync(join(tmpdir(), "maneki-rt-ws-slow-"));
     tempDirs.push(dir);

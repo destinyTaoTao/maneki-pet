@@ -17,29 +17,41 @@ if (!configDir) {
 
 const portArg = argValue("--port");
 const originArg = argValue("--origin-allowlist");
-const log = (line: string): void => {
-  process.stderr.write(`${new Date().toISOString()} ${line}\n`);
-};
-
-const runtime = await startRuntime({
-  configDir,
-  port: portArg ? Number(portArg) : 0,
-  originAllowlist: originArg ? originArg.split(",").map((origin) => origin.trim()).filter((origin) => origin.length > 0) : [],
-  log,
-});
-
-await runtime.startMcpStdioBridge();
-
-let stopping = false;
-const shutdown = (signal: string): void => {
-  if (stopping) {
-    return;
+if (process.argv.includes("--desktop-credential")) {
+  try {
+    const { desktopCredential } = await import("./desktop-credential.js");
+    process.stdout.write(JSON.stringify(await desktopCredential(configDir, Number(portArg))));
+  } catch {
+    // 管理凭证、响应正文与文件内容不能出现在错误日志中。
+    process.stderr.write("desktop credential unavailable, revoked or runtime incompatible; use trusted management to re-pair\n");
+    process.exitCode = 1;
   }
-  stopping = true;
-  log(`received ${signal}, stopping`);
-  void runtime.stop().then(() => process.exit(0));
-};
+} else {
+  const log = (line: string): void => {
+    process.stderr.write(`${new Date().toISOString()} ${line}\n`);
+  };
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-setInterval(() => undefined, 60_000).unref();
+  const runtime = await startRuntime({
+    configDir,
+    port: portArg ? Number(portArg) : 0,
+    originAllowlist: originArg ? originArg.split(",").map((origin) => origin.trim()).filter((origin) => origin.length > 0) : [],
+    log,
+  });
+
+  await runtime.startMcpStdioBridge();
+
+  let stopping = false;
+  const shutdown = (signal: string): void => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    log(`received ${signal}, stopping`);
+    void runtime.stop().then(() => process.exit(0));
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  setInterval(() => undefined, 60_000).unref();
+
+}

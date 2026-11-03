@@ -14,7 +14,7 @@ it("HTTP 来源与真实 stdio MCP 共用仲裁、WS 和快照，MCP idle 不能
     await client.connect(transport);
     const base = `http://127.0.0.1:${readFileSync(join(dir, "port"), "utf8")}`;
     const rootToken = readFileSync(join(dir, "root-token"), "utf8").trim();
-    const pairResponse = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${rootToken}`, "content-type": "application/json" }, body: JSON.stringify({ name: "observer", scopes: "express" }) });
+    const pairResponse = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${rootToken}`, "content-type": "application/json" }, body: JSON.stringify({ name: "observer", scopes: "express,settings" }) });
     const { token } = await pairResponse.json() as { token: string };
     const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
     const ticketResponse = await fetch(`${base}/v1/ws-ticket`, { method: "POST", headers });

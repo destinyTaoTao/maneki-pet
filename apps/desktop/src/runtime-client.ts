@@ -1,8 +1,8 @@
 /**
  * 桌宠 Shell ↔ 共享 Runtime 客户端（#43/#44 的 Shell 侧）：
- * 健康发现 →（必要时）拉起 sidecar → root 配对（受信 Shell，同信任域）
+ * 健康发现 →（必要时）拉起 sidecar → native 配对（WebView 不接触 root）
  * → WS 一次性票据订阅事件流；托盘勿扰 ⇄ /v1/dnd 双向同步。
- * 令牌仅存于 Shell WebView 的 localStorage（与 Shell 同信任域，§7.1）。
+ * 客户端令牌由 native 管理入口保存，WebView 仅在内存持有。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -82,24 +82,8 @@ export async function ensureRuntime(): Promise<boolean> {
 }
 
 export async function pairIfNeeded(): Promise<string> {
-  const saved = localStorage.getItem(CLIENT_TOKEN_KEY);
-  if (saved) {
-    const probe = await fetchJson("/v1/limits", { headers: authHeaders(saved) });
-    if (probe.status === 200) return saved;
-    localStorage.removeItem(CLIENT_TOKEN_KEY);
-  }
-  const root = await invoke<string>("read_root_token");
-  const pair = await fetchJson("/v1/pair", {
-    method: "POST",
-    headers: authHeaders(root),
-    body: JSON.stringify({ name: "desktop-shell", scopes: "express,notify" }),
-  });
-  if (pair.status !== 200) {
-    throw new Error(`runtime pairing failed: ${pair.status}`);
-  }
-  const token = (pair.body as { token: string }).token;
-  localStorage.setItem(CLIENT_TOKEN_KEY, token);
-  return token;
+  localStorage.removeItem(CLIENT_TOKEN_KEY);
+  return invoke<string>("desktop_client_token");
 }
 
 export async function getDnd(token: string): Promise<boolean> {

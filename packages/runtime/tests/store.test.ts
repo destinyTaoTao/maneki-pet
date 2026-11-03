@@ -22,6 +22,29 @@ afterEach(() => {
 });
 
 describe("RuntimeStore SQLite 单一拥有者", () => {
+  it("v2 任务备份迁移后保留未终止记录，不猜测旧客户端归属", () => {
+    const dbPath = join(makeTempDir(), "runtime.db");
+    const seed = new DatabaseSync(dbPath);
+    seed.exec(`
+      CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+      INSERT INTO schema_migrations VALUES (2, '2026-01-01');
+      CREATE TABLE broker_tasks (
+        broker_request_id TEXT PRIMARY KEY, client_request_id TEXT NOT NULL,
+        prompt TEXT NOT NULL, workdir TEXT NOT NULL, status TEXT NOT NULL,
+        session_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      INSERT INTO broker_tasks VALUES ('legacy', 'local', 'private prompt', 'C:/project', 'running', 'session', '2026-01-01', '2026-01-01');
+    `);
+    seed.close();
+    const store = new RuntimeStore(dbPath);
+    try {
+      expect(store.getBrokerTask("legacy")).toEqual({ brokerRequestId: "legacy", clientRequestId: "local", prompt: "private prompt", workdir: "C:/project", status: "running", sessionId: "session", createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+      expect(existsSync(`${dbPath}.bak-2`)).toBe(true);
+      const old = new DatabaseSync(`${dbPath}.bak-2`, { readOnly: true });
+      try { expect(old.prepare("SELECT status FROM broker_tasks WHERE broker_request_id = 'legacy'").get()?.status).toBe("running"); }
+      finally { old.close(); }
+    } finally { store.close(); }
+  });
   it("迁移建表：kv、客户端、审计、限额记账", () => {
     const store = new RuntimeStore(":memory:");
     store.kvSet("dnd", "1");

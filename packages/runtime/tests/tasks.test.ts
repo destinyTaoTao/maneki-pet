@@ -145,7 +145,7 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
       headers: { authorization: `Bearer ${restarted.rootToken}`, "content-type": "application/json" },
       body: JSON.stringify({ name: "task-shell", scopes: "tasks" }),
     });
-    const { token: taskToken } = (await taskPair.json()) as { token: string };
+    const { token: taskToken, clientId } = (await taskPair.json()) as { token: string; clientId: string };
     const headers = { authorization: `Bearer ${taskToken}`, "content-type": "application/json" };
 
     const submit = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks`, {
@@ -156,13 +156,22 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
     expect(submit.status).toBe(409);
     expect((await submit.json() as { error: string }).error).toMatch(/approval.*recovery/i);
     const store = restarted.store.asBrokerTaskStore();
-    store.putTask({ brokerRequestId: "old", clientRequestId: "old", prompt: "old", workdir: "C:\\tmp", status: "running", sessionId: "s", createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    store.putTask({ brokerRequestId: "old", clientId, clientRequestId: "old", prompt: "old", workdir: "C:\\tmp", status: "running", sessionId: "s", createdAt: "2026-01-01", updatedAt: "2026-01-01" });
     store.putTask({ brokerRequestId: "queued", clientRequestId: "queued", prompt: "next", workdir: "C:\\tmp", status: "queued", sessionId: "", createdAt: "2026-01-02", updatedAt: "2026-01-02" });
     const query = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old`, { headers });
     expect(query.status).toBe(200);
     const snapshot = await query.json() as { status: string; gatewaySnapshot?: { outcome?: string; reason?: string } };
     expect(snapshot.status).toBe("unknown");
     expect(snapshot.gatewaySnapshot).toMatchObject({ outcome: "unknown" });
+    const otherPair = await fetch(`http://127.0.0.1:${restarted.port}/v1/pair`, {
+      method: "POST", headers: { authorization: `Bearer ${restarted.rootToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ name: "other", scopes: "tasks" }),
+    });
+    const { token: otherToken } = await otherPair.json() as { token: string };
+    const otherHeaders = { authorization: `Bearer ${otherToken}` };
+    expect((await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old`, { headers: otherHeaders })).status).toBe(404);
+    expect((await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old/cancel`, { method: "POST", headers: otherHeaders })).status).toBe(404);
+    expect((await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/queued`, { headers })).status).toBe(404);
     const cancel = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old/cancel`, { method: "POST", headers });
     expect(cancel.status).toBe(503);
     expect(store.getTask("old")?.status).toBe("running");

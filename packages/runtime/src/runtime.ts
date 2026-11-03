@@ -120,6 +120,17 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       feed.publish("tasks.configured", { adapter: "dsh", gateway: config.dsh.baseUrl });
     }
 
+    const hub = new WsHub({
+      tickets,
+      feed,
+      clientScopes: (clientId) => {
+        const client = store.findClient(clientId);
+        return client && !client.revokedAt ? client.scopes : undefined;
+      },
+      originAllowlist: options.originAllowlist ?? [],
+      log,
+      ...(options.wsAuthTimeoutMs !== undefined ? { authTimeoutMs: options.wsAuthTimeoutMs } : {}),
+    });
     const api = new LocalHttpApi({
       host: "127.0.0.1",
       port: options.port ?? 0,
@@ -135,20 +146,17 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       feed,
       expressions,
       dnd,
-      ...(tasks ? { tasks: { submit: (e: { clientRequestId: string; prompt: string; workdir: string }) => tasks.submit(e), describe: (id: string) => tasks.describe(id), cancel: (id: string) => tasks.cancel(id) } } : {}),
+      ...(tasks ? { tasks } : {}),
+      onClientRevoked: (clientId) => {
+        hub.revokeClient(clientId);
+        expressions.current();
+      },
       onShutdown: () => {
         // 受信管理入口退出：优雅停机，事件循环随服务关闭自然排空。
         void started?.stop();
       },
     });
     const { port } = await api.start();
-    const hub = new WsHub({
-      tickets,
-      feed,
-      originAllowlist: options.originAllowlist ?? [],
-      log,
-      ...(options.wsAuthTimeoutMs !== undefined ? { authTimeoutMs: options.wsAuthTimeoutMs } : {}),
-    });
     hub.attach(api.rawServer);
 
     const sinks: ExpressionSinks = {

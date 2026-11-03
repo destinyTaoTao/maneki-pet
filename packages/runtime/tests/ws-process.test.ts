@@ -34,7 +34,7 @@ it("异常首帧只关闭该连接，独立 Runtime 与受信客户端继续工�
     expect(port, stderr).toBeGreaterThan(0);
     const base = `http://127.0.0.1:${port}`;
     const root = readFileSync(join(dir, "root-token"), "utf8").trim();
-    const paired = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${root}`, "content-type": "application/json" }, body: JSON.stringify({ name: "test", scopes: "express" }) });
+    const paired = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${root}`, "content-type": "application/json" }, body: JSON.stringify({ name: "test", scopes: "express,settings" }) });
     const { token } = await paired.json() as { token: string };
     const ticketResponse = await fetch(`${base}/v1/ws-ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
     const { ticket } = await ticketResponse.json() as { ticket: string };

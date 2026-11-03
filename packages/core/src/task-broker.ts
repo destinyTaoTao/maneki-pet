@@ -9,6 +9,8 @@ import type { TaskStatus } from "./harness-adapter.js";
 export interface BrokerTask {
   brokerRequestId: string;
   clientRequestId: string;
+  /** 已鉴权来源；旧记录缺失时禁止通过任务 API 访问。 */
+  clientId?: string;
   /** 入口请求快照：同键异内容冲突判定与审计依据（不可变）。 */
   prompt: string;
   workdir: string;

@@ -16,17 +16,22 @@ export class TaskService {
   }
 
   /** 本地记录保留原值；无可靠外部查询时向调用方报告未知。 */
-  async describe(brokerRequestId: string): Promise<BrokerTask & { gatewaySnapshot?: Record<string, unknown> }> {
-    const task = this.broker.describeTask(brokerRequestId);
-    if (!task) {
-      throw Object.assign(new Error(`task ${brokerRequestId} not found`), { code: "not_found" });
-    }
+  async describe(brokerRequestId: string, clientId: string): Promise<BrokerTask & { gatewaySnapshot?: Record<string, unknown> }> {
+    const task = this.ownedTask(brokerRequestId, clientId);
     return { ...task, status: "unknown", gatewaySnapshot: { outcome: "unknown", reason: "tracking unavailable; inspect the harness directly" } };
   }
 
-  async cancel(brokerRequestId: string): Promise<BrokerTask> {
-    void brokerRequestId;
+  async cancel(brokerRequestId: string, clientId: string): Promise<BrokerTask> {
+    this.ownedTask(brokerRequestId, clientId);
     // 取消受理并不证明任务停止，也不能因此推进旧队列（#13）。
     throw Object.assign(new Error("task cancellation is not verified; inspect the harness directly"), { code: "unavailable" });
+  }
+
+  private ownedTask(brokerRequestId: string, clientId: string): BrokerTask {
+    const task = this.broker.describeTask(brokerRequestId);
+    if (!task?.clientId || task.clientId !== clientId) {
+      throw Object.assign(new Error("task not found"), { code: "not_found" });
+    }
+    return task;
   }
 }

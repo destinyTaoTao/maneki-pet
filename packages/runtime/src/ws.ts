@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { checkHost, checkOrigin, TicketIssuer } from "./auth.js";
+import { checkHost, checkOrigin, EXPRESS_SCOPE, TicketIssuer } from "./auth.js";
 import type { EventFeed, RuntimeEvent } from "./events.js";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -29,14 +29,16 @@ export class WsHub {
   private readonly authTimeoutMs: number;
   private readonly originAllowlist: string[];
   private readonly log: (line: string) => void;
+  private readonly clientScopes: (clientId: string) => string[] | undefined;
   private unsubscribe: (() => void) | undefined;
 
-  constructor(deps: { tickets: TicketIssuer; feed: EventFeed; authTimeoutMs?: number; originAllowlist?: string[]; log?: (line: string) => void }) {
+  constructor(deps: { tickets: TicketIssuer; feed: EventFeed; clientScopes: (clientId: string) => string[] | undefined; authTimeoutMs?: number; originAllowlist?: string[]; log?: (line: string) => void }) {
     this.tickets = deps.tickets;
     this.feed = deps.feed;
     this.authTimeoutMs = deps.authTimeoutMs ?? 5_000;
     this.originAllowlist = deps.originAllowlist ?? [];
     this.log = deps.log ?? (() => undefined);
+    this.clientScopes = deps.clientScopes;
   }
 
   attach(server: Server): void {
@@ -66,7 +68,7 @@ export class WsHub {
       );
       this.sockets.add(socket);
       socket.once("close", () => this.sockets.delete(socket));
-      this.awaitAuthentication(socket, head);
+      this.awaitAuthentication(socket, head, req.headers.origin);
     });
     this.unsubscribe = this.feed.subscribe((event) => {
       this.broadcast({ type: "event", event });
@@ -81,7 +83,16 @@ export class WsHub {
     this.ready.clear();
   }
 
-  private awaitAuthentication(socket: Duplex, head: Buffer): void {
+  revokeClient(clientId: string): void {
+    for (const connection of this.ready) {
+      if (connection.clientId === clientId) {
+        this.ready.delete(connection);
+        this.closeSocket(connection.socket, 4001, "client revoked");
+      }
+    }
+  }
+
+  private awaitAuthentication(socket: Duplex, head: Buffer, origin: string | undefined): void {
     let buffer = Buffer.alloc(0);
     let settled = false;
     const timer = setTimeout(() => {
@@ -103,7 +114,7 @@ export class WsHub {
         return;
       }
       settled = true;
-      const authCheck = this.authenticateFrame(frame);
+      const authCheck = this.authenticateFrame(frame, origin);
       if (!authCheck.ok) {
         this.closeSocket(socket, 4001, authCheck.reason);
         return;
@@ -135,7 +146,7 @@ export class WsHub {
     if (head.length) receive(head);
   }
 
-  private authenticateFrame(frame: { opcode: number; payload: Buffer }): { ok: true; clientId: string } | { ok: false; reason: string } {
+  private authenticateFrame(frame: { opcode: number; payload: Buffer }, origin: string | undefined): { ok: true; clientId: string } | { ok: false; reason: string } {
     if (frame.opcode !== 0x1) {
       return { ok: false, reason: "first frame must be a text auth message" };
     }
@@ -152,10 +163,11 @@ export class WsHub {
     if ((message as { type?: string }).type !== "auth" || typeof ticket !== "string") {
       return { ok: false, reason: "auth message must be {type:\"auth\", ticket}" };
     }
-    if (!this.tickets.redeem(ticket)) {
+    const identity = this.tickets.redeem(ticket, origin);
+    if (!identity || !identity.scopes.includes(EXPRESS_SCOPE) || !this.clientScopes(identity.clientId)?.includes(EXPRESS_SCOPE)) {
       return { ok: false, reason: "ticket invalid, expired or already redeemed" };
     }
-    return { ok: true, clientId: "ticket-holder" };
+    return { ok: true, clientId: identity.clientId };
   }
 
   private handleLaterFrames(socket: Duplex, chunk: Buffer): Buffer {

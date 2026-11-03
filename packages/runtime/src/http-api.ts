@@ -6,6 +6,7 @@ import type { DailyQuotaPolicy, QuotaKind } from "@maneki-pet/core";
 import {
   ADMIN_SCOPE,
   EXPRESS_SCOPE,
+  SETTINGS_SCOPE,
   checkHost,
   checkOrigin,
   generateToken,
@@ -38,11 +39,12 @@ export interface LocalHttpApiDeps {
   dnd: { get(): boolean; set(value: boolean): void };
   /** 受信管理入口请求退出（保存状态、关服务、释放锁）后回调。 */
   onShutdown?: () => void;
+  onClientRevoked: (clientId: string) => void;
   /** M2b 派发：配置了 dsh 网关时提供任务服务；未配置时任务路由显式 501。 */
   tasks?: {
     submit(entry: { clientRequestId: string; prompt: string; workdir: string }): Promise<{ outcome: string; task?: unknown; reason?: string }>;
-    describe(brokerRequestId: string): Promise<unknown>;
-    cancel(brokerRequestId: string): Promise<unknown>;
+    describe(brokerRequestId: string, clientId: string): Promise<unknown>;
+    cancel(brokerRequestId: string, clientId: string): Promise<unknown>;
   };
 }
 
@@ -178,8 +180,8 @@ export class LocalHttpApi {
         return;
       }
       const requested = (checked.value.scopes as string).split(",").map((scope) => scope.trim());
-      const invalid = requested.find((scope) => !["express", "notify", "tasks"].includes(scope));
-      if (invalid) {
+      const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE].includes(scope));
+      if (invalid !== undefined) {
         this.sendJson(res, 400, { error: `unknown scope "${invalid}"` });
         return;
       }
@@ -209,6 +211,8 @@ export class LocalHttpApi {
         return;
       }
       this.deps.store.revokeClient(targetId, new Date().toISOString());
+      this.deps.tickets.revokeClient(targetId);
+      this.deps.onClientRevoked(targetId);
       this.deps.store.audit("client.revoked", targetId, { by: client.clientId }, new Date().toISOString());
       this.sendJson(res, 200, { revoked: targetId });
       return;
@@ -228,7 +232,7 @@ export class LocalHttpApi {
         this.forbidden(res, "ws tickets require express scope");
         return;
       }
-      const issued = this.deps.tickets.issue();
+      const issued = this.deps.tickets.issue({ clientId: client.clientId, origin: req.headers.origin, scopes: client.scopes });
       this.sendJson(res, 200, { ticket: issued.ticket, expiresAtMs: issued.expiresAtMs, path: "/v1/events" });
       return;
     }
@@ -239,8 +243,8 @@ export class LocalHttpApi {
     }
 
     if (method === "POST" && url === "/v1/dnd") {
-      if (!hasScope(client, EXPRESS_SCOPE)) {
-        this.forbidden(res, "dnd toggle requires express scope");
+      if (!hasScope(client, SETTINGS_SCOPE)) {
+        this.forbidden(res, "dnd toggle requires settings scope");
         return;
       }
       const body = await this.readJson(req, res);
@@ -331,7 +335,7 @@ export class LocalHttpApi {
       }
       const id = url.slice("/v1/tasks/".length);
       try {
-        this.sendJson(res, 200, await this.deps.tasks.describe(id));
+        this.sendJson(res, 200, await this.deps.tasks.describe(id, client.clientId));
       } catch (error) {
         this.sendJson(res, 404, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -349,7 +353,7 @@ export class LocalHttpApi {
       }
       const id = url.slice("/v1/tasks/".length, -"/cancel".length);
       try {
-        this.sendJson(res, 200, await this.deps.tasks.cancel(id));
+        this.sendJson(res, 200, await this.deps.tasks.cancel(id, client.clientId));
       } catch (error) {
         const status = (error as { code?: unknown })?.code === "unavailable" ? 503 : 404;
         this.sendJson(res, status, { error: error instanceof Error ? error.message : String(error) });
@@ -405,6 +409,12 @@ export class LocalHttpApi {
         return undefined;
       }
       chunks.push(chunk as Buffer);
+    }
+    // 读取请求体会让出事件循环；期间撤销的凭证不能继续完成写操作。
+    const auth = this.authenticate(req);
+    if (!auth.ok) {
+      this.sendJson(res, auth.status, { error: auth.reason });
+      return undefined;
     }
     const raw = Buffer.concat(chunks).toString("utf8");
     if (raw.length === 0) {
