@@ -4,9 +4,16 @@ const native = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: native.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: native.listen }));
 
-import { getDnd, setDnd, syncRuntimeDnd, watchTrayDnd } from "./runtime-client";
+import { ensureRuntime, getDnd, setDnd, syncRuntimeDnd, watchTrayDnd } from "./runtime-client";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetAllMocks(); });
+
+it("缺安装的 native 启动错误原样传到界面，不假称后台会自动重试", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 503 })));
+  native.invoke.mockRejectedValue(new Error("Runtime 安装文件缺失，请重新安装小招"));
+  await expect(ensureRuntime()).rejects.toThrow(/安装文件缺失/);
+  expect(native.invoke).toHaveBeenCalledOnce();
+});
 
 it("勿扰写入被撤销或拒绝时明确失败，不能返回成功", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "revoked" }), { status: 401 })));
