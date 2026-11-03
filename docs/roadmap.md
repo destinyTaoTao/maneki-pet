@@ -58,7 +58,7 @@ Windows 阶段出口：
 
 ## M2 — Runtime、本地接口与状态联动
 
-- [x] dsh 状态观察增量（2026-11-03）：显式宿主插件经 Adapter → 鉴权 HTTP → Runtime 租约仲裁 → WS → 桌面状态；Windows dsh `0.2.1-rc.5` 真实任务与原生 WebView 连接验证见[记录](./audits/2026-11-03-dsh-observation-mvp.md)。这是反向派发的前置增量，不勾选完整 dsh spike、M2b overlay 或可靠交付出口。
+- [x] dsh 状态联动 MVP（2026-11-03，用户确认本轮先交付此范围）：显式宿主插件经 Adapter → 鉴权 HTTP → Runtime 租约仲裁 → WS → 桌面状态；Windows dsh `0.2.1-rc.5` 真实任务与原生 WebView 连接验证见[记录](./audits/2026-11-03-dsh-observation-mvp.md)。任务与审批继续在 dsh 原生界面操作；反向派发后续补齐，不勾选完整 dsh spike、M2b overlay 或可靠交付出口。
 
 依赖：M1。目标：harness 干活时宠物能正确表达状态，完成本机运行与接入可行性验证。
 
