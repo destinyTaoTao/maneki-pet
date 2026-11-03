@@ -25,7 +25,7 @@ function cli(script, args, env = process.env) {
   });
 }
 function writeApprovedPack(root, identity = {}) {
-  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==", "base64");
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/Qr7XacAAAAASUVORK5CYII=", "base64");
   mkdirSync(join(root, "assets"), { recursive: true });
   writeFileSync(join(root, "assets", "approved.png"), bytes);
   writeFileSync(join(root, "pet-pack.json"), JSON.stringify({

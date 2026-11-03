@@ -1,6 +1,7 @@
 // 动作包安装器行为测试：覆盖成功安装、原子替换、损坏/逃逸拒绝与旧包保留。
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { deflateSync } from "node:zlib";
 import {
   existsSync,
@@ -114,6 +115,18 @@ function leftoverTempDirs(packsRoot) {
 }
 
 describe("installPack", () => {
+  it.each([["mp4", "mpeg4", "video/quicktime"], ["matroska", "libvpx-vp9", "video/webm"]])("rejects %s masquerading as an allowed video container", (format, codec, mimeType) => {
+    const workspace = makeWorkspace();
+    try {
+      const source = join(workspace, "source");
+      const path = join(workspace, "video");
+      execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=s=16x16:d=0.1", "-c:v", codec, "-f", format, path], { windowsHide: true });
+      const fixture = fixturePack({ spriteBytes: readFileSync(path) });
+      fixture.pack.clips.breathe.sources = [{ renderer: "video-alpha", path: "assets/sprite.png", mimeType }];
+      writeFixture(source, fixture);
+      expect(() => installPack({ sourceDir: source, packsRoot: join(workspace, "packs") })).toThrow(/media/i);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
   it.each(["wrong MIME", "wrong strip dimensions", "corrupt pixels"])("rejects %s with matching manifest hashes", (kind) => {
     const workspace = makeWorkspace();
     try {

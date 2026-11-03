@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { mediaContainerMime } from "./media-container.mjs";
 
 const FORMATS = "png_pipe,webp_pipe,matroska,webm,mov";
 const OPTIONS = { timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] };
@@ -6,6 +7,8 @@ const OPTIONS = { timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true, st
 /** 安装期完整媒体验证，复用开发素材管线的 FFmpeg，不进入常驻 Runtime。 */
 export function verifyMedia(absolute, sources) {
   try {
+    const actualMime = mediaContainerMime(absolute);
+    if (sources.some((source) => source.mimeType !== actualMime)) throw new Error("media container does not match declared MIME");
     const probe = JSON.parse(execFileSync("ffprobe", [
       "-v", "error", "-protocol_whitelist", "file", "-format_whitelist", FORMATS,
       "-show_entries", "stream=codec_type,codec_name,width,height:format=format_name", "-of", "json", "-i", absolute,
