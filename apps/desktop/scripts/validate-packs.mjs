@@ -1,10 +1,10 @@
 // 构建期内置包校验：Schema/语义校验走 @maneki-pet/core，真实文件层校验走共享 pack-fs。
 import { validatePetPack } from "@maneki-pet/core";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { verifyPackOnDisk } from "./lib/pack-fs.mjs";
+import { readPackJson, verifyPackOnDisk } from "./lib/pack-fs.mjs";
 import { assertPackNotRetired } from "./lib/pack-preparation.mjs";
 import packIds from "../config/builtin-packs.json" with { type: "json" };
 
@@ -20,9 +20,9 @@ for (const packId of packIds) {
   if (!existsSync(join(packRoot, "pet-pack.json")) || !existsSync(join(packRoot, "assets.manifest.json"))) {
     throw new Error(`Missing prepared pack ${packId} in ${packsRoot}. Import the versioned asset directory with node scripts/install-pack.mjs <source-pack-dir> --packs-dir <dir>. For development placeholders only, run generate:packs.`);
   }
-  const pack = JSON.parse(readFileSync(join(packRoot, "pet-pack.json"), "utf8"));
+  const pack = readPackJson(join(packRoot, "pet-pack.json"));
   assertPackNotRetired(pack);
-  const manifest = JSON.parse(readFileSync(join(packRoot, "assets.manifest.json"), "utf8"));
+  const manifest = readPackJson(join(packRoot, "assets.manifest.json"));
   const result = validatePetPack(pack, manifest);
   if (!result.success) {
     throw new Error(`${packId}: ${JSON.stringify(result.errors)}`);

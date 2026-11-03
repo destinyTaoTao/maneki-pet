@@ -8,14 +8,15 @@ import {
   openSync,
   readSync,
   readdirSync,
-  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
-  statSync,
+  writeFileSync,
   closeSync,
+  fstatSync,
 } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { verifyMedia } from "./verify-media.mjs";
 
 /**
  * 对包目录做真实文件层校验：重新计算每个清单项的哈希与大小，
@@ -24,6 +25,7 @@ import { dirname, join, resolve, sep } from "node:path";
  */
 export function verifyPackOnDisk(packRoot, pack, manifest) {
   const errors = [];
+  let totalBytes = 0;
   const realPackRoot = realpathSync(packRoot);
   const referenced = new Set(
     Object.values(pack.clips).flatMap((clip) => clip.sources.map((source) => source.path)),
@@ -61,11 +63,21 @@ export function verifyPackOnDisk(packRoot, pack, manifest) {
       errors.push(`Asset path cannot be resolved: ${entry.path}`);
       continue;
     }
-    const bytes = readAllBytes(absolute);
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    if (bytes.length !== entry.bytes || sha256 !== entry.sha256) {
-      errors.push(`Integrity mismatch for ${entry.path}`);
+    totalBytes += stats.size;
+    if (stats.size !== entry.bytes || stats.size > 64 * 1024 * 1024 || totalBytes > 256 * 1024 * 1024) {
+      errors.push(`Integrity mismatch (byte size or byte limit) for ${entry.path}`);
+      continue;
     }
+    let sha256;
+    try { sha256 = hashAsset(absolute, stats); }
+    catch { errors.push(`Integrity mismatch (file changed during read) for ${entry.path}`); continue; }
+    if (sha256 !== entry.sha256) {
+      errors.push(`Integrity mismatch for ${entry.path}`);
+      continue;
+    }
+    try {
+      verifyMedia(absolute, Object.values(pack.clips).flatMap((clip) => clip.sources).filter((source) => source.path === entry.path));
+    } catch (error) { errors.push(`${entry.path}: ${error.message}`); }
   }
   // assets 目录里的其他文件必须登记在清单中，防止夹带未声明内容。
   for (const relative of listAssetFiles(join(packRoot, "assets"), "assets")) {
@@ -82,19 +94,22 @@ export function verifyPackOnDisk(packRoot, pack, manifest) {
   return errors;
 }
 
-function readAllBytes(absolute) {
-  // statSync 在 lstat/realpath 确认是包内普通文件之后执行，不存在跟随逃逸。
-  const { size } = statSync(absolute);
-  const buffer = Buffer.alloc(size);
+function hashAsset(absolute, expected) {
+  const buffer = Buffer.alloc(64 * 1024);
+  const hash = createHash("sha256");
   const handle = openSync(absolute, "r");
   try {
+    const opened = fstatSync(handle);
+    if (!opened.isFile() || opened.size !== expected.size || opened.ino !== expected.ino || opened.dev !== expected.dev) throw new Error("asset changed before read");
     let offset = 0;
-    while (offset < size) {
-      const read = readSync(handle, buffer, offset, size - offset, offset);
-      if (read === 0) break;
+    while (offset < expected.size) {
+      const read = readSync(handle, buffer, 0, Math.min(buffer.length, expected.size - offset), offset);
+      if (read === 0) throw new Error("asset truncated");
+      hash.update(buffer.subarray(0, read));
       offset += read;
     }
-    return buffer.subarray(0, offset);
+    if (readSync(handle, buffer, 0, 1, offset) !== 0) throw new Error("asset grew");
+    return hash.digest("hex");
   } finally {
     closeSync(handle);
   }
@@ -128,8 +143,8 @@ function listAssetFiles(dir, prefix = "") {
  * 通过后原子切换；已有旧版本时失败则回滚保留旧包。
  */
 export function installPack({ sourceDir, packsRoot, randomSuffix = defaultSuffix }) {
-  const pack = readJson(join(sourceDir, "pet-pack.json"));
-  const manifest = readJson(join(sourceDir, "assets.manifest.json"));
+  const pack = readPackJson(join(sourceDir, "pet-pack.json"));
+  const manifest = readPackJson(join(sourceDir, "assets.manifest.json"));
   const validated = validatePetPack(pack, manifest);
   if (!validated.success) {
     throw new Error(`Pack failed validation: ${JSON.stringify(validated.errors)}`);
@@ -151,8 +166,9 @@ export function installPack({ sourceDir, packsRoot, randomSuffix = defaultSuffix
   try {
     rmSync(staging, { recursive: true, force: true });
     mkdirSync(join(staging, "assets"), { recursive: true });
-    copyFileSync(join(sourceDir, "pet-pack.json"), join(staging, "pet-pack.json"));
-    copyFileSync(join(sourceDir, "assets.manifest.json"), join(staging, "assets.manifest.json"));
+    // 固化已校验快照，不能再次复制可能已被替换的源 JSON。
+    writeFileSync(join(staging, "pet-pack.json"), JSON.stringify(validPack));
+    writeFileSync(join(staging, "assets.manifest.json"), JSON.stringify(validManifest));
     for (const entry of validManifest.files) {
       const destination = join(staging, entry.path);
       mkdirSync(dirname(destination), { recursive: true });
@@ -194,8 +210,23 @@ function exists(absolute) {
   }
 }
 
-function readJson(absolute) {
-  return JSON.parse(readFileSync(absolute, "utf8"));
+export function readPackJson(absolute) {
+  const expected = lstatSync(absolute);
+  if (!expected.isFile() || expected.isSymbolicLink() || expected.size > 1024 * 1024) throw new Error("Pack JSON file type or size exceeds limit");
+  const handle = openSync(absolute, "r");
+  try {
+    const opened = fstatSync(handle);
+    if (!opened.isFile() || opened.size !== expected.size || opened.dev !== expected.dev || opened.ino !== expected.ino) throw new Error("Pack JSON changed before read");
+    const buffer = Buffer.alloc(expected.size + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const bytes = readSync(handle, buffer, offset, buffer.length - offset, offset);
+      if (!bytes) break;
+      offset += bytes;
+    }
+    if (offset !== expected.size) throw new Error("Pack JSON changed during bounded read");
+    return JSON.parse(buffer.subarray(0, offset).toString("utf8"));
+  } finally { closeSync(handle); }
 }
 
 let suffixCounter = 0;

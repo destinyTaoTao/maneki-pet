@@ -10,6 +10,7 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -113,6 +114,56 @@ function leftoverTempDirs(packsRoot) {
 }
 
 describe("installPack", () => {
+  it.each(["wrong MIME", "wrong strip dimensions", "corrupt pixels"])("rejects %s with matching manifest hashes", (kind) => {
+    const workspace = makeWorkspace();
+    try {
+      const source = join(workspace, "source");
+      const fixture = fixturePack();
+      if (kind === "wrong MIME") fixture.pack.clips.breathe.sources[0].mimeType = "image/webp";
+      if (kind === "wrong strip dimensions") fixture.pack.clips.breathe.sources[0].frameCount = 2;
+      if (kind === "corrupt pixels") {
+        fixture.spriteBytes = Buffer.from(SPRITE_BYTES);
+        fixture.spriteBytes[45] ^= 255;
+        fixture.manifest.files[0].sha256 = createHash("sha256").update(fixture.spriteBytes).digest("hex");
+      }
+      writeFixture(source, fixture);
+      expect(() => installPack({ sourceDir: source, packsRoot: join(workspace, "packs") })).toThrow(/media/i);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
+  it("rejects oversized but valid JSON before parsing or installing", () => {
+    const workspace = makeWorkspace();
+    try {
+      const source = join(workspace, "source");
+      const fixture = fixturePack();
+      writeFixture(source, fixture);
+      writeFileSync(join(source, "pet-pack.json"), " ".repeat(1024 * 1024) + JSON.stringify(fixture.pack));
+      expect(() => installPack({ sourceDir: source, packsRoot: join(workspace, "packs") })).toThrow(/JSON.*(limit|size)/i);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
+  it("rejects actual oversized assets before loading or decoding them", () => {
+    const workspace = makeWorkspace();
+    try {
+      const source = join(workspace, "source");
+      writeFixture(source, fixturePack());
+      truncateSync(join(source, "assets/sprite.png"), 64 * 1024 * 1024 + 1);
+      expect(() => installPack({ sourceDir: source, packsRoot: join(workspace, "packs") })).toThrow(/byte size|byte limit/i);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
+  it("rejects fake media with a correct manifest and keeps the installed pack", () => {
+    const workspace = makeWorkspace();
+    try {
+      const source = join(workspace, "source");
+      const packsRoot = join(workspace, "packs");
+      writeFixture(source, fixturePack());
+      installPack({ sourceDir: source, packsRoot });
+      const fake = fixturePack({ spriteBytes: Buffer.from("not an image, but hash and length are correct") });
+      fake.pack.version = "2.0.0";
+      writeFixture(source, fake);
+      expect(() => installPack({ sourceDir: source, packsRoot })).toThrow(/media/i);
+      expect(JSON.parse(readFileSync(join(packsRoot, "fixture-pack/pet-pack.json"), "utf8")).version).toBe("1.0.0");
+      expect(leftoverTempDirs(packsRoot)).toEqual([]);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
   it("installs a valid pack into the packs root", () => {
     const workspace = makeWorkspace();
     try {
