@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { startRuntime, type StartedRuntime } from "../src/index.js";
 
@@ -59,6 +59,7 @@ function rawRequest(
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   for (const runtime of runtimes.splice(0)) {
     await runtime.stop();
   }
@@ -68,6 +69,38 @@ afterEach(async () => {
 });
 
 describe("本地 HTTP API 鉴权矩阵", () => {
+  it("宿主失联后表现租约过期，重新读取不把旧动画当作仍在跟踪", async () => {
+    const { runtime, base } = await makeRuntime();
+    const pair = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "dsh", scopes: "express" } });
+    const token = pair.body.token as string;
+    const path = "/v1/expressions/state";
+    await jsonFetch(base, path, { token, body: { sourceId: "00000000-0000-4000-8000-000000000001", state: "working" } });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 16_000);
+    expect((await jsonFetch(base, path, { token })).body).toEqual({ state: "idle" });
+  });
+
+  it("表达凭证可联动表现，多来源完成不会覆盖工作；任务凭证不能写表现", async () => {
+    const { runtime, base } = await makeRuntime();
+    const pair = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "dsh", scopes: "express" } });
+    const token = pair.body.token as string;
+    const path = "/v1/expressions/state";
+    const first = "00000000-0000-4000-8000-000000000001";
+    const second = "00000000-0000-4000-8000-000000000002";
+    expect((await jsonFetch(base, path)).status).toBe(401);
+    expect((await jsonFetch(base, path, { token, body: { sourceId: first, state: "working" } })).status).toBe(202);
+    await jsonFetch(base, path, { token, body: { sourceId: second, state: "celebrating" } });
+    expect((await jsonFetch(base, path, { token })).body).toEqual({ state: "working" });
+    await jsonFetch(base, path, { token, body: { sourceId: first, state: "idle" } });
+    expect((await jsonFetch(base, path, { token })).body).toEqual({ state: "celebrating" });
+    expect((await jsonFetch(base, path, { token, body: { sourceId: second, state: "execute" } })).status).toBe(400);
+    const taskPair = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "tasks", scopes: "tasks" } });
+    expect((await jsonFetch(base, path, { token: taskPair.body.token, body: { sourceId: first, state: "working" } })).status).toBe(403);
+    await jsonFetch(base, `/v1/clients/${pair.body.clientId}/revoke`, { token: runtime.rootToken, method: "POST" });
+    const observer = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "desktop", scopes: "express" } });
+    expect((await jsonFetch(base, path, { token: observer.body.token })).body).toEqual({ state: "idle" });
+  });
+
   it("拒绝异常和超额 JSON 请求后健康接口仍可用", async () => {
     const { runtime, base } = await makeRuntime();
     for (const body of ["null", "[]", "42", '"x"', "{"]) {

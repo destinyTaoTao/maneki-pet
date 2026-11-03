@@ -1,4 +1,4 @@
-export { DshAdapter, type DshAdapterOptions, type DshGatewayOptions } from "./dsh-adapter.js";
+export { DshAdapter, type DshAdapterOptions, type DshGatewayOptions, type DshSessionEvent } from "./dsh-adapter.js";
 export {
   DshEventMapper,
   type DshEventMapperOptions,

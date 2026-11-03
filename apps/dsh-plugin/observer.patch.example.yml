@@ -1,0 +1,5 @@
+# 使用 --patch 显式加载；修改为当前 checkout 的绝对路径，不改变 dsh 的项目目录。
+# MANEKI_TOKEN_FILE 指向单独配对的 express 客户端凭证，禁止使用 root-token。
+- insert:
+    - id: maneki-observer
+      name: 'C:/myProject/maneki-pet/apps/dsh-plugin/dist/index.js'

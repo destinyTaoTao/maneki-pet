@@ -6,6 +6,7 @@ import { DailyQuotaPolicy, MemoryContextService, TaskBroker } from "@maneki-pet/
 
 import { generateToken, hashToken, TicketIssuer } from "./auth.js";
 import { EventFeed } from "./events.js";
+import { ExpressionStateFeed } from "./expression-state.js";
 import { LocalHttpApi } from "./http-api.js";
 import { InstanceLock, RuntimeLifecycle, type RuntimeState } from "./lifecycle.js";
 import { McpExpressionBridge, type ExpressionSinks } from "./mcp-bridge.js";
@@ -69,6 +70,13 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
     const root = ensureRootToken(options.configDir, store);
 
     const feed = new EventFeed();
+    const expressions = new ExpressionStateFeed({
+      active: (clientId) => {
+        const client = store.findClient(clientId);
+        return client != null && !client.revokedAt;
+      },
+      publish: (state) => feed.publish("expression.state", { state }),
+    });
     const dnd = {
       get: (): boolean => store.kvGet("dnd") === "1",
       set: (value: boolean): void => {
@@ -125,6 +133,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       quotaPolicy,
       notifications,
       feed,
+      expressions,
       dnd,
       ...(tasks ? { tasks: { submit: (e: { clientRequestId: string; prompt: string; workdir: string }) => tasks.submit(e), describe: (id: string) => tasks.describe(id), cancel: (id: string) => tasks.cancel(id) } } : {}),
       onShutdown: () => {
@@ -200,6 +209,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
           return;
         }
         lifecycle.transition("stopping");
+        expressions.close();
         hub.detach();
         await api.stop();
         await bridge.close();

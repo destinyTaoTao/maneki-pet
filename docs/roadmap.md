@@ -58,6 +58,8 @@ Windows 阶段出口：
 
 ## M2 — Runtime、本地接口与状态联动
 
+- [x] dsh 状态观察增量（2026-11-03）：显式宿主插件经 Adapter → 鉴权 HTTP → Runtime 租约仲裁 → WS → 桌面状态；Windows dsh `0.2.1-rc.5` 真实任务与原生 WebView 连接验证见[记录](./audits/2026-11-03-dsh-observation-mvp.md)。这是反向派发的前置增量，不勾选完整 dsh spike、M2b overlay 或可靠交付出口。
+
 依赖：M1。目标：harness 干活时宠物能正确表达状态，完成本机运行与接入可行性验证。
 
 当前进度：`packages/runtime` 底座已实现并通过 43 条测试（生命周期/单实例锁、SQLite 迁移与单一拥有者、127.0.0.1+token/scope/Host/Origin 鉴权矩阵、一次性 WS 票据、MCP 表达桥四工具与勿扰门控）；无窗口启动、双入口拒绝、管理入口优雅退出、无遗留进程已真机验证；安装器已附带 Runtime sidecar（无须另装 Node）并真机验证安装布局与运行（见 [审计记录](./audits/2026-10-31-m2-runtime-spike.md)，2026-10-31）。历史 spike 的进程树 Private ~244MB 超过最初 150MB 目标，后按用户决策改为 250MB；2026-11-03 当前预算再明确为 300 MiB（Runtime 75 MiB），场景证据见下方性能出口。dsh spike 与外部记忆协议 spike 仍为硬 gate。

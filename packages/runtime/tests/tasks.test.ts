@@ -131,7 +131,22 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
       body: JSON.stringify({ name: "shell", scopes: "express" }),
     });
     const { token } = (await pair.json()) as { token: string };
-    const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const expressionHeaders = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const expressionSubmit = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks`, {
+      method: "POST",
+      headers: expressionHeaders,
+      body: JSON.stringify({ clientRequestId: "expression", prompt: "test", workdir: "C:\\tmp" }),
+    });
+    expect(expressionSubmit.status).toBe(403);
+    expect((await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old`, { headers: expressionHeaders })).status).toBe(403);
+    expect((await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks/old/cancel`, { method: "POST", headers: expressionHeaders })).status).toBe(403);
+    const taskPair = await fetch(`http://127.0.0.1:${restarted.port}/v1/pair`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${restarted.rootToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ name: "task-shell", scopes: "tasks" }),
+    });
+    const { token: taskToken } = (await taskPair.json()) as { token: string };
+    const headers = { authorization: `Bearer ${taskToken}`, "content-type": "application/json" };
 
     const submit = await fetch(`http://127.0.0.1:${restarted.port}/v1/tasks`, {
       method: "POST",

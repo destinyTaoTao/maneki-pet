@@ -107,6 +107,12 @@ export async function getDnd(token: string): Promise<boolean> {
   return (body as { enabled?: boolean })?.enabled === true;
 }
 
+export async function getExpressionState(token: string): Promise<unknown> {
+  const { status, body } = await fetchJson("/v1/expressions/state", { headers: authHeaders(token) });
+  if (status !== 200) throw new Error("expression snapshot unavailable");
+  return (body as { state?: unknown })?.state;
+}
+
 export async function setDnd(token: string, enabled: boolean): Promise<void> {
   await fetchJson("/v1/dnd", {
     method: "POST",

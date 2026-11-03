@@ -14,6 +14,7 @@ import {
   TicketIssuer,
 } from "./auth.js";
 import type { EventFeed } from "./events.js";
+import { expressionStates, type ExpressionStateFeed } from "./expression-state.js";
 import type { LimitsView, NotificationBudget, RuntimeLimitsConfig } from "./quota.js";
 import type { RuntimeStore } from "./store.js";
 import { validateObject } from "./validate.js";
@@ -33,6 +34,7 @@ export interface LocalHttpApiDeps {
   quotaPolicy: DailyQuotaPolicy;
   notifications: NotificationBudget;
   feed: EventFeed;
+  expressions: ExpressionStateFeed;
   dnd: { get(): boolean; set(value: boolean): void };
   /** 受信管理入口请求退出（保存状态、关服务、释放锁）后回调。 */
   onShutdown?: () => void;
@@ -132,6 +134,31 @@ export class LocalHttpApi {
       return;
     }
     const client = auth.client;
+
+    if ((method === "GET" || method === "POST") && url === "/v1/expressions/state") {
+      if (!hasScope(client, EXPRESS_SCOPE)) {
+        this.forbidden(res, "expression state requires express scope");
+        return;
+      }
+      if (method === "POST") {
+        const body = await this.readJson(req, res);
+        if (body === undefined) return;
+        const checked = validateObject(body, {
+          sourceId: { type: "string", required: true, maxLength: 36 },
+          state: { type: "string", required: true, maxLength: 20, enumValues: expressionStates },
+        });
+        if (!checked.ok || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(checked.value.sourceId as string)) {
+          this.sendJson(res, 400, { error: checked.ok ? "sourceId must be a UUID" : checked.reason });
+          return;
+        }
+        if (!this.deps.expressions.update(client.clientId, checked.value.sourceId as string, checked.value.state as typeof expressionStates[number])) {
+          this.sendJson(res, 429, { error: "expression source limit reached" });
+          return;
+        }
+      }
+      this.sendJson(res, method === "POST" ? 202 : 200, { state: this.deps.expressions.current() });
+      return;
+    }
 
     if (method === "POST" && url === "/v1/pair") {
       if (!hasScope(client, ADMIN_SCOPE)) {
@@ -267,8 +294,8 @@ export class LocalHttpApi {
         this.sendJson(res, 501, { error: "task dispatch not configured (config.dsh missing)" });
         return;
       }
-      if (!hasScope(client, EXPRESS_SCOPE)) {
-        this.forbidden(res, "task dispatch requires express scope");
+      if (!hasScope(client, "tasks")) {
+        this.forbidden(res, "task dispatch requires tasks scope");
         return;
       }
       const body = await this.readJson(req, res);
@@ -298,8 +325,8 @@ export class LocalHttpApi {
         this.sendJson(res, 501, { error: "task dispatch not configured (config.dsh missing)" });
         return;
       }
-      if (!hasScope(client, EXPRESS_SCOPE)) {
-        this.forbidden(res, "task query requires express scope");
+      if (!hasScope(client, "tasks")) {
+        this.forbidden(res, "task query requires tasks scope");
         return;
       }
       const id = url.slice("/v1/tasks/".length);
@@ -316,8 +343,8 @@ export class LocalHttpApi {
         this.sendJson(res, 501, { error: "task dispatch not configured (config.dsh missing)" });
         return;
       }
-      if (!hasScope(client, EXPRESS_SCOPE)) {
-        this.forbidden(res, "task cancel requires express scope");
+      if (!hasScope(client, "tasks")) {
+        this.forbidden(res, "task cancel requires tasks scope");
         return;
       }
       const id = url.slice("/v1/tasks/".length, -"/cancel".length);

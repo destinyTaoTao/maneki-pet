@@ -342,9 +342,29 @@ async function connectRuntime(): Promise<void> {
   settingsButton.addEventListener("click", () => {
     void refreshRuntimePanel(token);
   });
+  let stateRevision = 0;
+  const applyExpressionState = (state: unknown): void => {
+    if (typeof state === "string" && petStates.includes(state as PetState)) {
+      player.setState(state as PetState);
+      stateSelect.value = state;
+    }
+  };
   await runtimeClient.connectEvents(
     token,
     (event) => {
+      if (event.kind === "expression.state") {
+        stateRevision += 1;
+        applyExpressionState(event.payload.state);
+        return;
+      }
+      if (event.kind === "expression.say") {
+        if (typeof event.payload.text === "string") showBubble(event.payload.text);
+        return;
+      }
+      if (event.kind === "expression.play") {
+        if (typeof event.payload.action === "string") player.playAction(event.payload.action);
+        return;
+      }
       if (event.kind === "notification.sent") {
         const title = String(event.payload.title ?? "");
         const body = String(event.payload.body ?? "");
@@ -362,6 +382,14 @@ async function connectRuntime(): Promise<void> {
     },
     (connected) => {
       runtimeStateLine.textContent = connected ? uiText.runtimeConnected : uiText.runtimeDisconnected;
+      stateRevision += 1;
+      if (connected) {
+        const revision = stateRevision;
+        void runtimeClient.getExpressionState(token).then((state) => {
+          // 订阅先就绪；快照请求期间的新事件优先，断线的旧请求也不能覆盖新连接。
+          if (stateRevision === revision) applyExpressionState(state);
+        }).catch(() => undefined);
+      }
     },
   );
 }
