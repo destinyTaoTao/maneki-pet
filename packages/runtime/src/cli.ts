@@ -21,9 +21,10 @@ if (process.argv.includes("--desktop-credential")) {
   try {
     const { desktopCredential } = await import("./desktop-credential.js");
     process.stdout.write(JSON.stringify(await desktopCredential(configDir, Number(portArg))));
-  } catch {
+  } catch (error) {
     // 管理凭证、响应正文与文件内容不能出现在错误日志中。
-    process.stderr.write("desktop credential unavailable, revoked or runtime incompatible; use trusted management to re-pair\n");
+    const { DesktopCredentialError } = await import("./desktop-credential.js");
+    process.stdout.write(JSON.stringify({ error: error instanceof DesktopCredentialError ? error.code : "invalid_config" }));
     process.exitCode = 1;
   }
 } else {

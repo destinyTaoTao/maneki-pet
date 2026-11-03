@@ -325,8 +325,8 @@ async function connectRuntime(): Promise<void> {
   let token: string;
   try {
     token = await runtimeClient.pairIfNeeded();
-  } catch {
-    runtimeStateLine.textContent = uiText.runtimePairFailure;
+  } catch (error) {
+    runtimeStateLine.textContent = `${uiText.runtimePairFailure}：${String(error)}`;
     return;
   }
   runtimeStateLine.textContent = uiText.runtimeConnected;

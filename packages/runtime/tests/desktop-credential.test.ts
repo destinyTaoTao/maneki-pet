@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -41,18 +41,19 @@ it("受信 sidecar 配对只返回最小客户端凭证，跨进程重用且不�
   expect(readFileSync(join(dir, "desktop-client.json"), "utf8")).not.toContain(runtime.rootToken);
   const paired = clients.clients.find((c) => !c.scopes.includes("admin")) as { clientId: string; scopes: string[] };
   await fetch(`${base}/v1/clients/${paired.clientId}/revoke`, { method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}` } });
-  await expect(exec(process.execPath, args, { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: "" });
+  await expect(exec(process.execPath, args, { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "credential_rejected" }) });
   const after = await (await fetch(`${base}/v1/clients`, { headers: { authorization: `Bearer ${runtime.rootToken}` } })).json() as { clients: unknown[] };
   expect(after.clients).toHaveLength(2);
   await runtime.stop();
   const restarted = await startRuntime({ configDir: dir, port: runtime.port });
   runtimes.push(restarted);
-  await expect(exec(process.execPath, args, { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: "" });
+  await expect(exec(process.execPath, args, { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "credential_rejected" }) });
 });
 
 it("协议不匹配时管理模式不配对、不启动另一份助理", async () => {
   const dir = mkdtempSync(join(tmpdir(), "maneki-desktop-version-"));
   dirs.push(dir);
+  writeFileSync(join(dir, "root-token"), "private-test-root");
   const paths: string[] = [];
   const server = createServer((req, res) => {
     paths.push(req.url ?? "");
@@ -61,8 +62,25 @@ it("协议不匹配时管理模式不配对、不启动另一份助理", async (
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
-    await expect(exec(process.execPath, [cli, "--config-dir", dir, "--port", String((server.address() as { port: number }).port), "--desktop-credential"], { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: "" });
+    await expect(exec(process.execPath, [cli, "--config-dir", dir, "--port", String((server.address() as { port: number }).port), "--desktop-credential"], { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "protocol_mismatch" }) });
     expect(paths).toEqual(["/v1/health"]);
     expect((await import("node:fs")).existsSync(join(dir, "runtime.db"))).toBe(false);
+  } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+it("伪装为相同版本的监听者拿不到 root 或客户端 token", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-desktop-impostor-"));
+  dirs.push(dir);
+  writeFileSync(join(dir, "root-token"), "private-test-root");
+  const requests: Array<{ path: string; authorization: string | undefined }> = [];
+  const server = createServer((req, res) => {
+    requests.push({ path: req.url ?? "", authorization: req.headers.authorization });
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ protocolVersion: 1, instanceId: "impostor", token: "stolen-root" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await expect(exec(process.execPath, [cli, "--config-dir", dir, "--port", String((server.address() as { port: number }).port), "--desktop-credential"], { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "identity_mismatch" }) });
+    expect(requests).toEqual([{ path: "/v1/health", authorization: undefined }]);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });

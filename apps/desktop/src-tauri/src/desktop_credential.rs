@@ -10,8 +10,13 @@ pub async fn desktop_client_token(app: AppHandle) -> Result<String, String> {
             .parent()
             .ok_or("app directory unavailable")?
             .to_path_buf();
-        let mut cmd = Command::new(exe_dir.join("maneki-runtime.exe"));
-        cmd.arg(exe_dir.join("resources").join("maneki-runtime-bundle.js"))
+        let sidecar = exe_dir.join("maneki-runtime.exe");
+        let bundle = exe_dir.join("resources").join("maneki-runtime-bundle.js");
+        if !sidecar.is_file() || !bundle.is_file() {
+            return Err(super::ui_text::runtime_error("not_installed").to_string());
+        }
+        let mut cmd = Command::new(sidecar);
+        cmd.arg(bundle)
             .arg("--config-dir")
             .arg(super::runtime_config_dir(&app)?)
             .arg("--port")
@@ -25,14 +30,18 @@ pub async fn desktop_client_token(app: AppHandle) -> Result<String, String> {
         }
         let output = cmd
             .output()
-            .map_err(|_| "desktop pairing helper unavailable")?;
-        if !output.status.success() {
-            return Err(
-                "desktop credential revoked, unavailable or runtime incompatible".to_string(),
-            );
-        }
+            .map_err(|_| super::ui_text::runtime_error("runtime_unavailable"))?;
         let value: serde_json::Value = serde_json::from_slice(&output.stdout)
-            .map_err(|_| "invalid desktop credential response")?;
+            .map_err(|_| super::ui_text::runtime_error("invalid_config"))?;
+        if !output.status.success() {
+            return Err(super::ui_text::runtime_error(
+                value
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("invalid_config"),
+            )
+            .to_string());
+        }
         value
             .get("token")
             .and_then(|v| v.as_str())

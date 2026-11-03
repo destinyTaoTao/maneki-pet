@@ -12,6 +12,7 @@ import {
   generateToken,
   hashToken,
   parseBearer,
+  runtimeIdentityProof,
   TicketIssuer,
 } from "./auth.js";
 import type { EventFeed } from "./events.js";
@@ -126,7 +127,10 @@ export class LocalHttpApi {
 
     if (method === "GET" && url === "/v1/health") {
       // 发现元数据只含端口、协议版本、实例 ID，不含令牌（§6.1）。
-      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version });
+      const challenge = req.headers["x-maneki-challenge"];
+      const proof = typeof challenge === "string" && /^[A-Za-z0-9_-]{43}$/.test(challenge)
+        ? { identityProof: runtimeIdentityProof(this.deps.rootToken, challenge, 1, this.deps.instanceId) } : {};
+      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version, ...proof });
       return;
     }
 
