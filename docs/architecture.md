@@ -413,6 +413,8 @@ interface HarnessAdapter {
 
 插件将同宿主多会话状态合并（至多跟踪 64 个活动会话）；一个会话结束不覆盖其他活动会话。Runtime 按 clientId + sourceId 保存最多 64 个活动表现租约，优先级为 waiting_input > working > thinking > error > celebrating > idle，每 5 秒续租、15 秒无更新或凭证撤销则回收。租约仅为表现缓存，不承诺任务跟踪、持久化或交付。插件最多一个在途请求与一个合并后的最新状态，请求超时 2 秒，不阻塞 harness；断线期间不重放庆祝或错误，重连只恢复当前活动状态。关闭插件释放连接与定时器，清理自身租约，不退出共享 Runtime 或取消外部任务。Shell 在 WS 认证后读取当前状态，重连恢复表现，不以动画作为任务结果。
 
+MCP `maneki_set_state` 同样进入此仲裁与快照链，stdio 桥使用独立的内部来源，每次调用续租 15 秒，`idle` 只清理该来源；MCP 可用的 `sleeping` 优先级低于其他活动状态，不扩大 HTTP 状态枚举。租约满时明确失败，不报告已送达。此项修正旧的直接广播行为，MCP 不能覆盖活动宿主的等待或工作状态。dsh 直接宿主事件观察按最近 128 个会话保留序列/终态水位，拒绝重复、倒退与已结束 turn 的迟到事件；缓存不持久化、不承诺已淘汰会话的历史重放，完整恢复 gate 仍关闭。
+
 `query: full` 要求恢复与当前状态相符的完整快照：completed 必须有 result（允许明确的空产物集合）；waiting_input 必须有待答问题与 inputId；waiting_permission 必须有可用的原生路由或 bridge 请求。不能恢复的字段不填虚构值，应返回 status_only/unknown 并标明交付或等待详情缺失；not_found 也不能自动推出“从未执行”。首个可用版本的执行 Adapter 必须通过完整快照恢复验收，否则仅作为有限观察接入，不宣称可靠任务闭环。事件重放可用于实现该快照，但不新增一套通用历史总线。
 
 上游 harness → Runtime 的恢复也必须无缝衔接，不能只保证 Shell → Runtime：`subscribe` 成功表示上游订阅已就绪，此时 Runtime 已缓冲事件，再调用 query 取快照。Adapter 应提供同会话流的 sourcePosition，让快照与后续事件按位置合并；若宿主没有可用版本/游标，Adapter 必须验证另一种等效的一致快照与订阅衔接方式，不能仅凭本地到达计数假造源位置。无法证明无遗漏或无法排除旧待输入事件重开时，不声明 full。订阅初始化超时不进入已连接状态；成功后由返回的注销函数、signal 或源断线结束订阅，deadline 仅限制建立阶段。
