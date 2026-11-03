@@ -21,6 +21,8 @@
 > **当前执行限制：** dsh 原生审批和完整恢复尚未通过验收，新任务派发及未经核实的取消均已关闭；已有本地任务记录可查询，重启后的真实外部状态请到 harness 核查。
 >
 > **2026-11-03 可用增量：** [dsh 状态联动 MVP](./apps/dsh-plugin/README.md) 已通过 Windows 真实 dsh 文字任务验证。任务在 dsh 原生界面操作，小招显示工作、思考、等待和完成等状态；本增量不含反向派发、overlay 或完整交付恢复。需要使用本轮构建的桌面与 Runtime，不能沿用旧安装版。
+
+2026-11-04 安全迁移：桌面与 Runtime 须一同更新并重启后台。桌面改由 native 配对，WebView 不再获取 root；修改勿扰需单独 `settings` 权限，旧 `express` 凭证不会自动提权。桌面凭证被撤销后须由受信管理入口重新配对；旧无归属任务不向新客户端开放，先到原 harness 核查。实现与安装验收边界见[记录](./docs/audits/2026-11-04-mvp-reliability-implementation.md)。
 >
 > 抖音发布资格可通过构建后的 `node packages/cli/dist/main.js platform douyin-check` 查看离线诊断；它不核验真实账号、不接受凭证，也不启用发布。
 
@@ -90,7 +92,7 @@ pnpm --filter @maneki-pet/desktop generate:packs
 pnpm --filter @maneki-pet/desktop prepare:packs
 ```
 
-`prepare:packs` 只读校验当前内置列表的 v1 结构、映射和文件哈希，不生成或下载素材，不代替 Windows 播放与创作验收。独立候选包导入后，还需在 `apps/desktop/config/builtin-packs.json` 中显式登记 ID 才能出现在换装列表；不要把未验收试片改为默认。制作入口与正式晋升步骤见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md#可重复处理入口)。
+开发环境的安装、`prepare:packs` 和动作包测试需要本机 PATH 中的 `ffmpeg` / `ffprobe`。它们只读校验当前内置列表的 v1 结构、映射、文件哈希、真实媒体格式/尺寸与完整解码；JSON 各限 1 MiB、素材单文件 64 MiB、包合计 256 MiB，缺工具或校验失败明确拒绝并保留旧包。不生成或下载素材，不代替 Windows 播放与创作验收。独立候选包导入后，还需在 `apps/desktop/config/builtin-packs.json` 中显式登记 ID 才能出现在换装列表；不要把未验收试片改为默认。制作入口与正式晋升步骤见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md#可重复处理入口)。
 
 ## 🛡️ 安全模型（摘要）
 
