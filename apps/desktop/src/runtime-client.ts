@@ -13,6 +13,8 @@ const BASE = `http://127.0.0.1:${RUNTIME_PORT}`;
 const CLIENT_TOKEN_KEY = "maneki.clientToken";
 const RECONNECT_MS = 3_000;
 let confirmedDnd: boolean | undefined;
+let dndRevision = 0;
+let dndReadSequence = 0;
 
 export interface RuntimeInfo {
   port: number;
@@ -85,10 +87,20 @@ export async function pairIfNeeded(): Promise<string> {
 }
 
 export async function getDnd(token: string): Promise<boolean> {
+  const revision = dndRevision;
+  const sequence = ++dndReadSequence;
   const { status, body } = await fetchJson("/v1/dnd", { headers: authHeaders(token) });
   if (status !== 200 || typeof (body as { enabled?: unknown })?.enabled !== "boolean") throw new Error(`${uiText.dndSyncFailure}（HTTP ${status}）`);
-  confirmedDnd = (body as { enabled: boolean }).enabled;
-  return confirmedDnd;
+  const enabled = (body as { enabled: boolean }).enabled;
+  if (revision === dndRevision && sequence === dndReadSequence) confirmedDnd = enabled;
+  return confirmedDnd ?? enabled;
+}
+
+/** 已确认的共享事件优先于在途旧读取，也作为失败回滚的事实来源。 */
+export async function syncRuntimeDnd(enabled: boolean): Promise<void> {
+  confirmedDnd = enabled;
+  dndRevision += 1;
+  await invoke("sync_tray_dnd", { enabled });
 }
 
 export async function getExpressionState(token: string): Promise<unknown> {
@@ -98,13 +110,17 @@ export async function getExpressionState(token: string): Promise<unknown> {
 }
 
 export async function setDnd(token: string, enabled: boolean): Promise<void> {
+  const revision = dndRevision;
   const { status, body } = await fetchJson("/v1/dnd", {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ enabled }),
   });
   if (status !== 200 || (body as { enabled?: unknown })?.enabled !== enabled) throw new Error(`${uiText.dndSyncFailure}（HTTP ${status}）`);
-  confirmedDnd = enabled;
+  if (revision === dndRevision) {
+    confirmedDnd = enabled;
+    dndRevision += 1;
+  }
 }
 
 export async function getLimits(token: string): Promise<LimitsView> {

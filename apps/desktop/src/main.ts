@@ -382,7 +382,7 @@ async function connectRuntime(): Promise<void> {
       }
       if (event.kind === "dnd.changed") {
         if (typeof event.payload.enabled === "boolean") {
-          void invoke("sync_tray_dnd", { enabled: event.payload.enabled }).catch(() => {
+          void runtimeClient.syncRuntimeDnd(event.payload.enabled).catch(() => {
             runtimeStateLine.textContent = uiText.dndSyncFailure;
           });
         }
