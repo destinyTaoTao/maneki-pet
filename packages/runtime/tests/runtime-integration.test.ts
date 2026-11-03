@@ -60,6 +60,20 @@ describe("Runtime 装配与生命周期", () => {
 });
 
 describe("外挂记忆装配（#46 的 Runtime 层）", () => {
+  it.skipIf(process.platform !== "win32")("独立记忆进程关闭管道读端后明确降级，Runtime 与第二客户端仍健康", async () => {
+    const dir = makeTempDir();
+    const pidFile = join(dir, "memory.pid");
+    const fixture = join(import.meta.dirname, "fixtures", "memory-pipe-fault.mjs");
+    const serverExe = join(dir, "memory-pipe-fault.exe");
+    const compiler = join(process.env.SystemRoot ?? "C:/Windows", "Microsoft.NET/Framework64/v4.0.30319/csc.exe");
+    await promisify(execFile)(compiler, ["/nologo", "/out:" + serverExe, join(import.meta.dirname, "fixtures", "memory-pipe-fault.cs")]);
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ schemaVersion: 1, limits: { proactiveDailyTokenLimit: 100000, interactiveDailyTokenLimit: null, maxNotificationsPerHour: 30 }, externalMemory: { command: serverExe, args: [pidFile] }, dsh: { baseUrl: "http://127.0.0.1:1", token: "test-token" } }));
+    const { stdout } = await promisify(execFile)(process.execPath, [fixture, dir], { timeout: 10000 });
+    const result = JSON.parse(stdout);
+    expect(result).toMatchObject({ outcome: "degraded", reason: expect.stringMatching(/pipe error/), health: 200, other: 200, taskBefore: 409, taskAfter: 409 });
+    const pid = Number((await import("node:fs")).readFileSync(pidFile, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+  }, 15000);
   it("独立 Runtime 中缺失记忆程序只降级记忆，健康接口继续可用", async () => {
     const dir = makeTempDir();
     writeFileSync(join(dir, "config.json"), JSON.stringify({ schemaVersion: 1, limits: { proactiveDailyTokenLimit: 100000, interactiveDailyTokenLimit: null, maxNotificationsPerHour: 30 }, externalMemory: { command: join(dir, "missing-executable") }, dsh: { baseUrl: "http://127.0.0.1:1", token: "test-token" } }));
