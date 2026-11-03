@@ -337,7 +337,9 @@ async function connectRuntime(): Promise<void> {
   } catch {
     // 托盘对齐失败不阻塞连接。
   }
-  await runtimeClient.watchTrayDnd(token);
+  await runtimeClient.watchTrayDnd(token, () => {
+    runtimeStateLine.textContent = uiText.dndSyncFailure;
+  });
   await refreshRuntimePanel(token);
   settingsButton.addEventListener("click", () => {
     void refreshRuntimePanel(token);
@@ -373,6 +375,11 @@ async function connectRuntime(): Promise<void> {
         return;
       }
       if (event.kind === "dnd.changed") {
+        if (typeof event.payload.enabled === "boolean") {
+          void invoke("sync_tray_dnd", { enabled: event.payload.enabled }).catch(() => {
+            runtimeStateLine.textContent = uiText.dndSyncFailure;
+          });
+        }
         void refreshRuntimePanel(token);
         return;
       }

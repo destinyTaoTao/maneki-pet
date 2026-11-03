@@ -39,6 +39,7 @@ export const uiText = {
   limitsLabel: "今日限额",
   notificationsLabel: "通知预算",
   dndStateLabel: "勿扰状态",
+  dndSyncFailure: "勿扰状态未同步，请检查运行时连接和设置权限",
   dndOn: "开启（主动打扰已静默）",
   dndOff: "关闭",
   states: {

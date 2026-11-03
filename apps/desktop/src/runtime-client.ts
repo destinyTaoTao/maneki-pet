@@ -6,11 +6,13 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { uiText } from "./ui-text";
 
 const RUNTIME_PORT = 18100;
 const BASE = `http://127.0.0.1:${RUNTIME_PORT}`;
 const CLIENT_TOKEN_KEY = "maneki.clientToken";
 const RECONNECT_MS = 3_000;
+let confirmedDnd: boolean | undefined;
 
 export interface RuntimeInfo {
   port: number;
@@ -87,8 +89,10 @@ export async function pairIfNeeded(): Promise<string> {
 }
 
 export async function getDnd(token: string): Promise<boolean> {
-  const { body } = await fetchJson("/v1/dnd", { headers: authHeaders(token) });
-  return (body as { enabled?: boolean })?.enabled === true;
+  const { status, body } = await fetchJson("/v1/dnd", { headers: authHeaders(token) });
+  if (status !== 200 || typeof (body as { enabled?: unknown })?.enabled !== "boolean") throw new Error(`${uiText.dndSyncFailure}（HTTP ${status}）`);
+  confirmedDnd = (body as { enabled: boolean }).enabled;
+  return confirmedDnd;
 }
 
 export async function getExpressionState(token: string): Promise<unknown> {
@@ -98,11 +102,13 @@ export async function getExpressionState(token: string): Promise<unknown> {
 }
 
 export async function setDnd(token: string, enabled: boolean): Promise<void> {
-  await fetchJson("/v1/dnd", {
+  const { status, body } = await fetchJson("/v1/dnd", {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ enabled }),
   });
+  if (status !== 200 || (body as { enabled?: unknown })?.enabled !== enabled) throw new Error(`${uiText.dndSyncFailure}（HTTP ${status}）`);
+  confirmedDnd = enabled;
 }
 
 export async function getLimits(token: string): Promise<LimitsView> {
@@ -197,8 +203,18 @@ export async function getRuntimeInfo(): Promise<RuntimeInfo> {
 }
 
 /** 托盘勿扰开关 ⇄ Runtime：托盘变更事件转写为 /v1/dnd。 */
-export async function watchTrayDnd(token: string): Promise<() => void> {
+export async function watchTrayDnd(token: string, onError: (error: unknown) => void): Promise<() => void> {
+  let pending = Promise.resolve();
   return listen<boolean>("maneki://dnd-changed", (event) => {
-    void setDnd(token, event.payload).catch(() => undefined);
+    // 同一托盘的连续点击按顺序提交；失败恢复最后一次已确认状态。
+    pending = pending.then(async () => {
+      try {
+        await setDnd(token, event.payload);
+        await invoke("sync_tray_dnd", { enabled: confirmedDnd });
+      } catch (error) {
+        if (confirmedDnd !== undefined) await invoke("sync_tray_dnd", { enabled: confirmedDnd }).catch(() => undefined);
+        onError(error);
+      }
+    });
   });
 }
