@@ -405,7 +405,13 @@ interface HarnessAdapter {
 
 能力与方法在注册时一致性校验；未声明/未实现的操作返回 `UNSUPPORTED`，不运行兜底命令。`discover` 不支持自动发现时返回显式配置的会话列表，空列表不代表接入已就绪。`CallContext` 见 §4.1，仅作调用关联/取消，不替代业务幂等键；`HarnessEvent` 见 §5.2。`TaskRequest` 不接受外部传入的 `confirmPolicy`；策略由 Runtime 根据用户设置与当次授权计算。dataBoundary 来自受信 Adapter 与用户实际端点配置，未知目的地明确告知并单独确认，不根据 CLI 在本机或模型自述推断本地处理。
 
-尚未验证事件或执行能力的 Adapter 可以注册为未就绪状态，所有能力均声明为关闭；`discover` 仍可返回显式配置的列表，但不表示可观察或可执行。dsh 当前处于此状态，即使配置网关也不开放订阅、派发、回复、取消或状态查询；直接调用这些方法返回 `UNSUPPORTED`。此前依赖网关配置自动启用 dsh 的调用方须检查能力并处理不支持，待真实宿主验收后再接入。
+尚未验证事件或执行能力的 Adapter 可以注册为未就绪状态，所有能力均声明为关闭；`discover` 仍可返回显式配置的列表，但不表示可观察或可执行。dsh 仅在显式接入宿主 `session/event` 源时开放事件观察；仅配置网关仍不开放订阅、派发、回复、取消或状态查询。未经验证的方法返回 `UNSUPPORTED`，调用方须检查能力并处理不支持；观察接入不授予执行能力。
+
+2026-11-03 dsh 联动增量：`apps/dsh-plugin` 作为受信宿主插件订阅 dsh `0.2.1-rc.5` 的真实 `session/event`，经 DshAdapter 将 turn/step/tool 与审批等待事件归一，再向共享 Runtime 发送聚合表现状态。插件不收集提示词、工具参数、回答或项目路径，不改宿主权限，不回答任何输入或审批；任务创建与操作仍在 dsh 原生界面进行。本增量不等于 M2b 反向派发、插件 overlay 或完整交付恢复验收。
+
+状态通道使用 `GET/POST /v1/expressions/state`，均需 `express` scope；GET 返回当前 `{state}`，POST 仅接受 `{sourceId, state}`（sourceId 为插件实例随机 UUID，state 为 idle/thinking/working/waiting_input/celebrating/error），不接受 adapterId、任务内容或控制命令。来源身份绑定已鉴权 clientId；每个宿主单独配对凭证，插件只读取该凭证，不持有 root、不自动配对或启动另一份数据库。当前本地入口仅允许 `http://127.0.0.1:<port>`，插件不静默下载或启动 Runtime。
+
+插件将同宿主多会话状态合并（至多跟踪 64 个活动会话）；一个会话结束不覆盖其他活动会话。Runtime 按 clientId + sourceId 保存最多 64 个活动表现租约，优先级为 waiting_input > working > thinking > error > celebrating > idle，每 5 秒续租、15 秒无更新或凭证撤销则回收。租约仅为表现缓存，不承诺任务跟踪、持久化或交付。插件最多一个在途请求与一个合并后的最新状态，请求超时 2 秒，不阻塞 harness；断线期间不重放庆祝或错误，重连只恢复当前活动状态。关闭插件释放连接与定时器，清理自身租约，不退出共享 Runtime 或取消外部任务。Shell 在 WS 认证后读取当前状态，重连恢复表现，不以动画作为任务结果。
 
 `query: full` 要求恢复与当前状态相符的完整快照：completed 必须有 result（允许明确的空产物集合）；waiting_input 必须有待答问题与 inputId；waiting_permission 必须有可用的原生路由或 bridge 请求。不能恢复的字段不填虚构值，应返回 status_only/unknown 并标明交付或等待详情缺失；not_found 也不能自动推出“从未执行”。首个可用版本的执行 Adapter 必须通过完整快照恢复验收，否则仅作为有限观察接入，不宣称可靠任务闭环。事件重放可用于实现该快照，但不新增一套通用历史总线。
 
