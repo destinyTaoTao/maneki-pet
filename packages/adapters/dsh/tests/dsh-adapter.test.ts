@@ -15,6 +15,20 @@ const ctx: CallContext = {
 };
 
 describe("DshAdapter 观察适配器 v0（能力声明忠实于活体 spike）", () => {
+  it("重复与迟到事件不能重开终态，下一个 turn 仍可观察", async () => {
+    let receive: (entry: DshSessionEvent) => void = () => undefined;
+    const adapter = new DshAdapter({ eventSource: { subscribe: (listener) => { receive = listener; return () => undefined; } } });
+    const events: unknown[] = [];
+    const stop = await adapter.subscribe((event) => events.push(event.payload), ctx);
+    receive({ sessionId: "s", event: { seq: 3, type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } } });
+    receive({ sessionId: "s", event: { seq: 2, type: "step/start", data: { turn: 1 } } });
+    receive({ sessionId: "s", event: { seq: 3, type: "turn/end", data: { turn: 1, reason: { kind: "completed" } } } });
+    receive({ sessionId: "s", event: { seq: 4, type: "step/start", data: { turn: 1 } } });
+    receive({ sessionId: "s", event: { seq: 5, type: "turn/start", data: { turn: 2 } } });
+    expect(events).toEqual([{ type: "task.completed" }, { type: "task.started" }]);
+    stop();
+  });
+
   it("取消观察后立即停止回调，过期调用和缺失 turn 身份不能生成任务事件", async () => {
     const controller = new AbortController();
     let receive: (entry: DshSessionEvent) => void = () => undefined;

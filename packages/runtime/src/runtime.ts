@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
 
-import { DailyQuotaPolicy, MemoryContextService, TaskBroker } from "@maneki-pet/core";
+import { DailyQuotaPolicy, MemoryContextService, TaskBroker, type PetState } from "@maneki-pet/core";
 
 import { generateToken, hashToken, TicketIssuer } from "./auth.js";
 import { EventFeed } from "./events.js";
@@ -153,7 +153,10 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
 
     const sinks: ExpressionSinks = {
       say: (text, mood) => feed.publish("expression.say", { text, mood }),
-      setState: (state) => feed.publish("expression.state", { state }),
+      setState: (state) => {
+        // stdio 桥只有表达能力；内部来源仅用于租约归属，不授予 MCP 管理权限。
+        if (!expressions.update("root", "mcp-stdio", state as PetState)) throw new Error("expression source limit reached");
+      },
       play: (action) => feed.publish("expression.play", { action }),
       notify: (title, body, urgency) => feed.publish("notification.sent", { title, body, urgency }),
     };

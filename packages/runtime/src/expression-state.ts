@@ -1,8 +1,8 @@
 import type { PetState } from "@maneki-pet/core";
 
 export const expressionStates = ["idle", "thinking", "working", "waiting_input", "celebrating", "error"] as const;
-type ExpressionState = typeof expressionStates[number];
-const PRIORITY: ExpressionState[] = ["waiting_input", "working", "thinking", "error", "celebrating"];
+type ExpressionState = PetState;
+const PRIORITY: ExpressionState[] = ["waiting_input", "working", "thinking", "error", "celebrating", "sleeping"];
 
 /** 短租约只仲裁表现，不代表任务状态或交付记录。 */
 export class ExpressionStateFeed {

@@ -74,12 +74,15 @@ export class DshAdapter implements HarnessAdapter {
     const remaining = ctx.deadlineAtMs - Date.now();
     if (remaining <= 0) throw new DOMException("dsh subscription deadline exceeded", "TimeoutError");
     let active = true;
+    // 仅观察当前直接宿主源；保留最近 128 个会话的位置，不承诺无限历史重放。
+    const positions = new Map<string, { sequence: number; settledTurn: number }>();
     let unsubscribe: (() => void) | undefined;
     const stop = (): void => {
       active = false;
       ctx.signal.removeEventListener("abort", stop);
       unsubscribe?.();
       unsubscribe = undefined;
+      positions.clear();
     };
     ctx.signal.addEventListener("abort", stop, { once: true });
     try {
@@ -89,6 +92,12 @@ export class DshAdapter implements HarnessAdapter {
         if (!payload || !sessionId || !Number.isSafeInteger(event.seq) || event.seq < 0) return;
         const turn = event.data.turn;
         if (payload.type.startsWith("task.") && (!Number.isSafeInteger(turn) || (turn as number) < 0)) return;
+        const previous = positions.get(sessionId);
+        if (previous && (event.seq <= previous.sequence || (typeof turn === "number" && turn <= previous.settledTurn))) return;
+        const terminal = payload.type === "task.completed" || payload.type === "task.error" || payload.type === "task.cancelled";
+        positions.delete(sessionId);
+        positions.set(sessionId, { sequence: event.seq, settledTurn: terminal ? turn as number : previous?.settledTurn ?? -1 });
+        if (positions.size > 128) positions.delete(positions.keys().next().value!);
         cb({
           eventId: `${this.id}:${sessionId}:${event.seq}`,
           adapterId: this.id,

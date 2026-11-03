@@ -12,7 +12,7 @@
 
 ## 自动验证
 
-`pnpm -r build`、`pnpm -r typecheck`、`pnpm -r test` 全部通过（237 项：Core 91、desktop 38、dsh Adapter 21、Runtime 70、platform-core 8、bilibili 5、CLI 4）。新回归位于已确认的 Adapter 公共接口与 Runtime HTTP 边界：宿主事件、注销/取消、失败语义、权限隔离、多来源仲裁、凭证撤销和失联租约。
+`pnpm -r build`、`pnpm -r typecheck`、`pnpm -r test` 在审查修复后全部通过（239 项：Core 91、desktop 38、dsh Adapter 22、Runtime 71、platform-core 8、bilibili 5、CLI 4）。新回归位于已确认的 Adapter 公共接口与 Runtime HTTP 边界：宿主事件、注销/取消、失败语义、权限隔离、多来源仲裁、凭证撤销和失联租约；真实 stdio MCP 与 HTTP/WS 同时接入的回归验证二者状态一致。
 
 原生 `pnpm --filter @maneki-pet/desktop tauri build --no-bundle` 通过，生成当前 checkout 的 Windows release 程序。中途一次构建被运行中的测试 Runtime sidecar 锁文件阻止；退出本轮测试实例后重新构建通过，没有因此修改构建管线。
 
@@ -25,6 +25,14 @@
 3. 原生 release WebView 最初显示连接断开，CDP `Log.entryAdded` 复现精确错误：本地 WebSocket 被 `connect-src` 拦截。增加固定 WS 地址后重建，原生 DOM 状态为 `已连接（127.0.0.1）`，同一日志探针无 CSP 违规。测试期开启的本机 CDP 端口只用于诊断，未写入程序配置。
 
 自动 HTTP/Adapter 测试证明多来源、失联、等待/失败转换与清理语义；上述真实任务证明自然产生的宿主事件确实到达 Runtime。原生验证证明正式 WebView 能建立事件连接；本轮没有以此冒充所有动画状态的人工视觉验收。
+
+## 双轴审查与处置
+
+审查基线 `d1fd0ee`，规范与规格由两个独立上下文只读审查。
+
+- Standards：初审 2 项 P2。MCP 直接广播绕过新仲裁，使 WS 的 idle 与 GET 的 waiting_input 不一致；Adapter 未拒绝倒退事件。前者已统一 MCP/HTTP 租约与快照，后者已加入有界序列及已结束 turn 的水位。两项均先以公共接口复现失败，再修复通过。
+- Spec：初审 1 项 P2，即上述重复/迟到事件可重开已结束会话，已修复。原完整首版的审批、派发与恢复未实现属于已承认的剩余 gate，不能记为已完成。
+- 序列水位仅覆盖当前订阅最近 128 个会话；不以此声称可恢复已淘汰流或跨重启完整交付。
 
 ## 验证边界与下一步
 
