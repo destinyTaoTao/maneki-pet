@@ -26,7 +26,8 @@ describe("pet interaction native bridge", () => {
   let canvas: { width: number; height: number; getContext: ReturnType<typeof vi.fn> };
   let unavailable: ReturnType<typeof vi.fn>;
   let unsubscribes: Array<ReturnType<typeof vi.fn>>;
-  const attach = (): Promise<() => void> => attachPetInteraction(pet as unknown as HTMLElement, () => [], vi.fn(), vi.fn(), unavailable);
+  let controls: HTMLElement[];
+  const attach = (): Promise<() => void> => attachPetInteraction(pet as unknown as HTMLElement, () => controls, vi.fn(), vi.fn(), unavailable);
   const pointer = (type: string, pointerId: number): void => {
     const event = new Event(type);
     Object.defineProperties(event, { target: { value: pet }, button: { value: 0 }, pointerId: { value: pointerId } });
@@ -48,7 +49,7 @@ describe("pet interaction native bridge", () => {
     native.invoke.mockResolvedValue(undefined);
     unsubscribes = [];
     native.listen.mockImplementation(async () => { const unsubscribe = vi.fn(); unsubscribes.push(unsubscribe); return unsubscribe; });
-    unavailable = vi.fn();
+    unavailable = vi.fn(); controls = [];
   });
   afterEach(() => { stop?.(); stop = undefined; vi.unstubAllGlobals(); });
 
@@ -83,6 +84,18 @@ describe("pet interaction native bridge", () => {
     const data = new Uint8ClampedArray(MASK_SIZE * MASK_SIZE * 4); data[3] = 255;
     context.getImageData.mockReturnValue({ data }); timer(); await settle();
     expect(lastMap().mask[0]).toBe(1);
+  });
+
+  it("keeps tray recovery and control hit maps available without a canvas context", async () => {
+    canvas.getContext.mockReturnValue(null);
+    stop = await attach(); await settle();
+    expect(unavailable).toHaveBeenCalledOnce();
+    expect(native.listen).toHaveBeenCalledWith("maneki://show-controls", expect.any(Function));
+    controls = [pet as unknown as HTMLElement]; timer(); await settle();
+    expect(native.invoke).toHaveBeenLastCalledWith("update_hit_map", expect.objectContaining({
+      map: expect.objectContaining({ controls: [expect.objectContaining({ left: 10, top: 20, width: 224, height: 224 })] }),
+    }));
+    expect(lastMap().mask.every((value) => value === 0)).toBe(true);
   });
 
   it("removes subscriptions and listeners and never drains queued maps after disposal", async () => {

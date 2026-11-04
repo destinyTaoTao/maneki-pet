@@ -206,8 +206,11 @@ if (isTauriRuntime()) {
   void attachPetInteraction(petButton, () => app.dataset.controlsVisible === "true" ? [controls, ...(!panel.hidden ? [panel] : [])] : [],
     (hover) => {
       nativeHover = !hover.unavailable;
-      hovered = hover.overPet || hover.overControls;
-      refreshControls();
+      const next = hover.overPet || hover.overControls;
+      if (hovered !== next) {
+        hovered = next;
+        refreshControls();
+      }
     }, showControls, () => { nativeHover = false; showBubble(uiText.interactionUnavailable); showControls(); },
   ).then((stop) => { if (pageClosed) stop(); else stopInteraction = stop; }).catch(() => { nativeHover = false; showControls(); showBubble(uiText.interactionUnavailable); });
 }

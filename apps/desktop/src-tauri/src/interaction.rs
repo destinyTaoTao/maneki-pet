@@ -119,6 +119,7 @@ pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
         let mut ignored = false;
         let mut last_hover = None;
+        let mut last_emit = Instant::now();
         loop {
             std::thread::sleep(Duration::from_millis(16));
             let Some(window) = app.get_webview_window("main") else {
@@ -158,9 +159,12 @@ pub fn start(app: AppHandle) {
                     hover.unavailable = true;
                 }
             }
-            if last_hover != Some(hover) {
-                let _ = window.emit("maneki://pointer-region", hover);
-                last_hover = Some(hover);
+            // 重载后的 WebView 也需拿到当前悬停状态，即使光标没有移动。
+            if last_hover != Some(hover) || last_emit.elapsed() >= Duration::from_secs(1) {
+                if window.emit("maneki://pointer-region", hover).is_ok() {
+                    last_hover = Some(hover);
+                    last_emit = Instant::now();
+                }
             }
         }
     });

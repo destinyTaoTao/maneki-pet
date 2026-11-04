@@ -26,7 +26,6 @@ export async function attachPetInteraction(
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = MASK_SIZE;
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) { onUnavailable(); return () => undefined; }
   let closed = false;
   let pressedPointer: number | undefined;
   let pending = false;
@@ -52,8 +51,9 @@ export async function attachPetInteraction(
   };
   const update = (): void => {
     if (closed) return;
-    context.clearRect(0, 0, MASK_SIZE, MASK_SIZE);
     try {
+      if (!context) throw new Error("alpha sampling unavailable");
+      context.clearRect(0, 0, MASK_SIZE, MASK_SIZE);
       const video = pet.querySelector("video");
       const strip = pet.querySelector<HTMLImageElement>(".sprite-strip");
       const image = pet.querySelector<HTMLImageElement>("img.pet-media");
