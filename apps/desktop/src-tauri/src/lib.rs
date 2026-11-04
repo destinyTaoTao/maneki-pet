@@ -1,4 +1,5 @@
 mod desktop_credential;
+mod interaction;
 mod ui_text;
 
 use std::path::PathBuf;
@@ -134,6 +135,7 @@ pub fn run() {
         })))
         .manage(RuntimeChild(Mutex::new(None)))
         .manage(TrayDndItem(Mutex::new(None)))
+        .manage(interaction::InteractionState::default())
         .setup(|app| {
             let _ = spawn_runtime_child(app.handle());
             let show = MenuItem::with_id(app, "show", ui_text::SHOW, true, None::<&str>)?;
@@ -178,9 +180,12 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "show" => {
+                        with_settings(app, |settings| settings.click_through = false);
+                        let _ = click_through_for_event.set_checked(false);
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                            let _ = window.emit("maneki://show-controls", ());
                         }
                     }
                     "dnd" => {
@@ -207,22 +212,21 @@ pub fn run() {
                             settings.click_through = !settings.click_through;
                             settings.click_through
                         });
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.set_ignore_cursor_events(enabled);
-                        }
                         let _ = click_through_for_event.set_checked(enabled);
                     }
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
+            interaction::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             runtime_info,
             desktop_credential::desktop_client_token,
             spawn_runtime,
-            sync_tray_dnd
+            sync_tray_dnd,
+            interaction::update_hit_map
         ])
         .run(tauri::generate_context!())
         .expect("error while running Maneki");

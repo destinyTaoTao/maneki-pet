@@ -43,6 +43,9 @@ body,
   cursor: grabbing;
 }
 
+.pet-button:focus { outline: none; }
+.pet-button:focus-visible { filter: drop-shadow(0 0 4px #e79b55); }
+
 .player-root,
 .pet-media,
 .sprite-frame {
@@ -90,32 +93,54 @@ body,
   opacity: 1;
 }
 
-.settings-button {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  padding: 5px 9px;
-  border: 1px solid rgb(113 85 58 / 16%);
-  border-radius: 10px;
-  color: #594c44;
-  background: rgb(255 252 244 / 88%);
-  font-size: 11px;
-  cursor: pointer;
+.pet-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  width: 260px;
+  max-width: 100%;
+  height: 44px;
+  margin-top: 8px;
+  padding: 5px;
+  border: 1px solid rgb(255 255 255 / 90%);
+  border-radius: 24px;
+  background: rgb(255 249 239 / 96%);
+  box-shadow: 0 4px 16px rgb(66 42 22 / 16%), inset 0 0 0 1px rgb(132 90 48 / 8%);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
 }
+
+#app[data-controls-visible="true"] .pet-controls { opacity: 1; transform: none; pointer-events: auto; }
+.draft-input { display: flex; align-items: center; flex: 1; min-width: 0; gap: 3px; margin: 0; padding: 0 7px 0 9px; height: 32px; border-radius: 18px; background: #fffdf8; box-shadow: inset 0 0 0 1px #ecdfce; }
+.draft-input:focus-within { box-shadow: inset 0 0 0 1.5px #d88a45; }
+.draft-input input { width: 100%; min-width: 0; padding: 0; border: 0; outline: none; background: transparent; color: #514033; font: inherit; font-size: 11px; user-select: text; }
+.draft-input input::placeholder { color: #9c8d7d; }
+.draft-note { flex-shrink: 0; color: #a4998d; font-size: 9px; }
+.control-button { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; padding: 7px; border: 0; border-radius: 50%; background: transparent; color: #926746; cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+.control-button svg { width: 18px; height: 18px; }
+.control-button:hover { background: #f3e5d1; color: #a95d29; }
+.control-button:focus-visible { outline: 2px solid #d88a45; outline-offset: 1px; }
+.control-button[aria-disabled="true"] { color: #b6a795; cursor: not-allowed; }
+.settings-button[aria-expanded="true"] { background: #f0ddc3; color: #9f5723; }
+.settings-button[aria-expanded="true"] svg { transform: rotate(180deg); }
 
 .settings-panel {
   position: absolute;
-  right: 12px;
-  bottom: 46px;
+  left: 50%;
+  bottom: 66px;
+  transform: translateX(-50%);
   display: grid;
   gap: 10px;
-  width: 210px;
-  max-height: calc(100% - 60px);
+  width: 248px;
+  max-height: calc(100% - 82px);
   overflow-y: auto;
   padding: 14px;
   border: 1px solid rgb(113 85 58 / 18%);
   border-radius: 16px;
-  background: rgb(255 252 244 / 97%);
+  background: rgb(255 251 244 / 98%);
   box-shadow: 0 8px 28px rgb(63 45 26 / 18%);
   font-size: 12px;
 }
@@ -136,4 +161,8 @@ body,
   border-radius: 7px;
   color: #342d2a;
   background: #fffdf8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-controls, .control-button, .status-bubble { transition: none; }
 }

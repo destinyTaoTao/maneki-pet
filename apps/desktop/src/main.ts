@@ -11,6 +11,7 @@ import { PetPlayer } from "./player.js";
 import { BoundedReadError, MEDIA_READ_TIMEOUT_MS, readBounded, readMedia } from "./bounded-fetch.js";
 import { imageDimensions, MediaBudgetError, withinPixelBudget } from "./media-budget.js";
 import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
+import { attachPetInteraction } from "./pet-interaction.js";
 import * as runtimeClient from "./runtime-client.js";
 import { uiText } from "./ui-text.js";
 import "./style.css";
@@ -38,14 +39,58 @@ status.className = "status-bubble";
 status.setAttribute("role", "status");
 status.textContent = uiText.loading;
 
+function controlIcon(path: string): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "1.8");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  line.setAttribute("d", path);
+  icon.append(line);
+  return icon;
+}
+
+const controls = document.createElement("div");
+controls.className = "pet-controls";
+controls.setAttribute("aria-label", uiText.petControls);
+const textForm = document.createElement("form");
+textForm.className = "draft-input";
+const messageInput = document.createElement("input");
+messageInput.type = "text";
+messageInput.maxLength = 2000;
+messageInput.autocomplete = "off";
+messageInput.placeholder = uiText.messagePlaceholder;
+messageInput.setAttribute("aria-label", uiText.messageInput);
+messageInput.title = uiText.textUnavailable;
+const draftNote = document.createElement("span");
+draftNote.className = "draft-note";
+draftNote.textContent = uiText.notEnabled;
+textForm.append(messageInput, draftNote);
+const voiceButton = document.createElement("button");
+voiceButton.className = "control-button voice-button";
+voiceButton.type = "button";
+voiceButton.setAttribute("aria-label", uiText.voiceUnavailable);
+voiceButton.setAttribute("aria-disabled", "true");
+voiceButton.title = uiText.voiceUnavailable;
+voiceButton.append(controlIcon("M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM5 11v1a7 7 0 0 0 14 0v-1M12 19v3M8 22h8"));
 const settingsButton = document.createElement("button");
-settingsButton.className = "settings-button";
+settingsButton.className = "control-button settings-button";
 settingsButton.type = "button";
-settingsButton.textContent = uiText.settings;
 settingsButton.setAttribute("aria-label", uiText.settings);
+settingsButton.setAttribute("aria-expanded", "false");
+settingsButton.setAttribute("aria-controls", "pet-settings");
+settingsButton.title = uiText.settings;
+settingsButton.append(controlIcon("m6 9 6 6 6-6"));
+controls.append(textForm, voiceButton, settingsButton);
 
 const panel = document.createElement("section");
 panel.className = "settings-panel";
+panel.id = "pet-settings";
+panel.setAttribute("aria-label", uiText.settings);
 panel.hidden = true;
 const packLabel = document.createElement("label");
 packLabel.textContent = uiText.packLabel;
@@ -81,7 +126,7 @@ runtimeLimitsLine.className = "runtime-line";
 const runtimeDndLine = document.createElement("div");
 runtimeDndLine.className = "runtime-line";
 panel.append(packLabel, stateLabel, actionLabel, playActionButton, runtimeSectionLabel, runtimeStateLine, runtimeLimitsLine, runtimeDndLine);
-app.append(status, petButton, settingsButton, panel);
+app.append(status, petButton, controls, panel);
 
 const player = new PetPlayer(playerRoot, () => {
   delete status.dataset.playbackRestricted;
@@ -104,9 +149,71 @@ window.addEventListener("pagehide", () => player.dispose(), { once: true });
 const packs = new Map<string, ValidatedPetPack>();
 const dragHandle = isTauriRuntime() ? attachWindowDrag(petButton) : undefined;
 
+let hovered = false;
+let hideControlsTimer: number | undefined;
+let showControlsTimer: number | undefined;
+let forceControls = false;
+const refreshControls = (): void => {
+  clearTimeout(hideControlsTimer);
+  const active = document.activeElement;
+  const editing = document.hasFocus() && (active === messageInput || (active instanceof HTMLElement && app.contains(active) && active.matches(":focus-visible")));
+  if (hovered || editing || !panel.hidden || forceControls) app.dataset.controlsVisible = "true";
+  else hideControlsTimer = window.setTimeout(() => { app.dataset.controlsVisible = "false"; }, 1000);
+};
+const setPanelOpen = (open: boolean): void => {
+  panel.hidden = !open;
+  settingsButton.setAttribute("aria-expanded", String(open));
+  refreshControls();
+};
+const showControls = (): void => {
+  clearTimeout(showControlsTimer);
+  forceControls = true;
+  refreshControls();
+  showControlsTimer = window.setTimeout(() => { forceControls = false; refreshControls(); }, 2000);
+};
+let nativeHover = isTauriRuntime();
+const observeDomHover = (): void => {
+  if (nativeHover) return;
+  hovered = petButton.matches(":hover") || controls.matches(":hover") || (!panel.hidden && panel.matches(":hover"));
+  refreshControls();
+};
+for (const element of [petButton, controls, panel]) {
+  element.addEventListener("pointerenter", observeDomHover);
+  element.addEventListener("pointerleave", observeDomHover);
+}
+app.addEventListener("focusin", refreshControls);
+app.addEventListener("focusout", () => queueMicrotask(refreshControls));
+window.addEventListener("focus", refreshControls);
+window.addEventListener("blur", () => { setPanelOpen(false); refreshControls(); });
+app.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    setPanelOpen(false);
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }
+});
+textForm.addEventListener("submit", (event) => { event.preventDefault(); showBubble(uiText.textUnavailable); });
+voiceButton.addEventListener("click", () => showBubble(uiText.voiceUnavailable));
+if (isTauriRuntime()) {
+  let pageClosed = false;
+  let stopInteraction: (() => void) | undefined;
+  window.addEventListener("pagehide", () => {
+    pageClosed = true;
+    stopInteraction?.();
+    clearTimeout(hideControlsTimer);
+    clearTimeout(showControlsTimer);
+    dragHandle?.detach();
+  }, { once: true });
+  void attachPetInteraction(petButton, () => app.dataset.controlsVisible === "true" ? [controls, ...(!panel.hidden ? [panel] : [])] : [],
+    (hover) => {
+      nativeHover = !hover.unavailable;
+      hovered = hover.overPet || hover.overControls;
+      refreshControls();
+    }, showControls, () => { nativeHover = false; showBubble(uiText.interactionUnavailable); showControls(); },
+  ).then((stop) => { if (pageClosed) stop(); else stopInteraction = stop; }).catch(() => { nativeHover = false; showControls(); showBubble(uiText.interactionUnavailable); });
+}
+
 settingsButton.addEventListener("click", () => {
-  panel.hidden = !panel.hidden;
-  settingsButton.textContent = panel.hidden ? uiText.settings : uiText.closeSettings;
+  setPanelOpen(panel.hidden);
 });
 petButton.addEventListener("click", () => {
   if (dragHandle?.consumeRecentDrag()) return;
