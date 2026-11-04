@@ -38,6 +38,8 @@ M3 与 M4 可在 M2 稳定的 Runtime/配置/存储接口上独立推进，M2b �
 
 2026-11-02：#54 已按单素材、字节与像素预算限制加载，并在 Windows WebView2 用接近 64 MiB 的图片验证播放、切换与超限回退；少量进程树采样和剩余风险见[资源记录](./audits/2026-11-01-media-budget.md)。长期内存稳定性、GPU 显存和安装版等验收尚未完成。
 
+2026-11-04：修复拖拽使用局部坐标导致的窗口回跳，位置更新按帧合并且最多一个在途，隔离旧甩抛回调；9 项拖拽回归、全仓构建/测试及 Windows release 实际拖动通过，已更新当前运行程序。动态重影、多屏/DPI 与长期资源仍分别验收，见[修复记录](./audits/2026-11-04-pet-drag-stability.md)。
+
 - [x] pnpm workspace / TypeScript strict / 最小构建与测试；仅创建 desktop 和实际需要的 core 模块（2026-10-31；`packages/core`、`apps/desktop`，全仓 build/test/typecheck 通过）
 - [ ] Tauri v2 透明置顶窗、托盘、退出/勿扰/置顶开关、点击与拖拽（窗口配置、托盘菜单与手动拖拽/甩抛代码已在 `apps/desktop/src-tauri`、`apps/desktop/src/window-drag.ts` 就位；release 编译、启动、透明窗与点击动作已真机验收，托盘菜单逐项交互与拖拽手感待人工验收）
 - [x] Core 的 PetState 与纯动画选择逻辑；Shell 负责播放与窗口交互（2026-10-31；`packages/core/src/animation-chain.ts`，7 条动画行为测试；原生窗口交互仍由上项验收）
