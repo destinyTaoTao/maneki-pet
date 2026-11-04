@@ -30,18 +30,19 @@ M3 与 M4 可在 M2 稳定的 Runtime/配置/存储接口上独立推进，M2b �
 
 ## M1 — 最小桌宠与动作包
 
-- [ ] 无框、人物轮廓鼠标穿透与下方控制条（2026-11-04）：已实现文字草稿/未启用语音/下拉设置、悬停或聚焦显隐、拖拽期间保留交互与失效地图释放；全仓 280 项测试、3 项原生命中测试、Windows release 构建与本机安装目录程序验证通过。真实穿透、人物点击/拖动、草稿、设置、重载与 Runtime 配对及短时资源采样见[交互验收记录](./audits/2026-11-04-pet-interaction-acceptance.md)；托盘手动切换/故障恢复、混合 DPI、多屏与长期资源另验，整项与整阶段出口仍不提前勾选。需求来源见[设计记录](./audits/2026-11-03-pet-interaction-design-review.md)。
+- [ ] 无框、人物轮廓鼠标穿透与下方控制条（2026-11-04）：已实现文字草稿/未启用语音/下拉设置、悬停或聚焦显隐、拖拽期间保留交互与失效地图释放；全仓 280 项测试、3 项原生命中测试、Windows release 构建与本机安装目录程序验证通过。真实穿透、人物点击/拖动、草稿、设置、重载与 Runtime 配对及短时资源采样见[交互验收记录](./audits/2026-11-04-pet-interaction-acceptance.md)；托盘手动穿透与“显示小招”正常恢复已由用户人工确认通过，真实驱动故障恢复、混合 DPI、多屏与长期资源另验，整项与整阶段出口仍不提前勾选。需求来源见[设计记录](./audits/2026-11-03-pet-interaction-design-review.md)。
+- [x] Windows 托盘整窗穿透与“显示小招”正常恢复（2026-11-04）：用户人工确认开启穿透后人物不能接收点击；“显示小招”使控制条出现、人物与设置恢复可点击；再次打开托盘时穿透勾选已取消。证据及自动化边界见[人工验收补充](./audits/2026-11-04-pet-interaction-acceptance.md#托盘穿透与显示小招人工验收补充)，不代表其他托盘菜单项或故障恢复已验收。
 
 目标：在 Windows 上运行一只可换装、可交互的小招，验证桌面技术路线。
 
-当前进度：workspace/Core 已验证，默认视频包与第二精灵图包已在 Edge 实际加载、换装和播放。动作包 v1 校验/安装、带权动画链、播放器缓存上限、拖拽甩抛与边界夹取已实现并有单元测试（见各项证据）。原生 Tauri 已于本机完成 debug/release 编译并产出 MSI/NSIS 安装包；release 真机启动验收通过：透明置顶窗、透明视频（video-alpha WebM）实际播放、点击 wave 动作生效、空闲内存约 29MB（CDP 检查与截屏证据，2026-10-31）。验收中发现并修复 Ajv 运行时 codegen 与桌面 CSP 冲突导致的白屏（见 architecture §9 选型修订）。托盘菜单交互、拖拽甩抛手感、多屏/DPI 与安装器流程仍待人工逐项验收。
+当前进度：workspace/Core 已验证，默认视频包与第二精灵图包已在 Edge 实际加载、换装和播放。动作包 v1 校验/安装、带权动画链、播放器缓存上限、拖拽甩抛与边界夹取已实现并有单元测试（见各项证据）。原生 Tauri 已于本机完成 debug/release 编译并产出 MSI/NSIS 安装包；release 真机启动验收通过：透明置顶窗、透明视频（video-alpha WebM）实际播放、点击 wave 动作生效、空闲内存约 29MB（CDP 检查与截屏证据，2026-10-31）。验收中发现并修复 Ajv 运行时 codegen 与桌面 CSP 冲突导致的白屏（见 architecture §9 选型修订）。托盘穿透与“显示小招”正常恢复已于 2026-11-04 由用户人工验收通过；其他托盘菜单项、拖拽甩抛手感、多屏/DPI 与安装器流程仍待人工逐项验收。
 
 2026-11-02：#54 已按单素材、字节与像素预算限制加载，并在 Windows WebView2 用接近 64 MiB 的图片验证播放、切换与超限回退；少量进程树采样和剩余风险见[资源记录](./audits/2026-11-01-media-budget.md)。长期内存稳定性、GPU 显存和安装版等验收尚未完成。
 
 2026-11-04：修复拖拽使用局部坐标导致的窗口回跳，位置更新按帧合并且最多一个在途，隔离旧甩抛回调；9 项拖拽回归、全仓构建/测试及 Windows release 实际拖动通过，已更新当前运行程序。动态重影、多屏/DPI 与长期资源仍分别验收，见[修复记录](./audits/2026-11-04-pet-drag-stability.md)。
 
 - [x] pnpm workspace / TypeScript strict / 最小构建与测试；仅创建 desktop 和实际需要的 core 模块（2026-10-31；`packages/core`、`apps/desktop`，全仓 build/test/typecheck 通过）
-- [ ] Tauri v2 透明置顶窗、托盘、退出/勿扰/置顶开关、点击与拖拽（窗口配置、托盘菜单与手动拖拽/甩抛代码已在 `apps/desktop/src-tauri`、`apps/desktop/src/window-drag.ts` 就位；release 编译、启动、透明窗与点击动作已真机验收，托盘菜单逐项交互与拖拽手感待人工验收）
+- [ ] Tauri v2 透明置顶窗、托盘、退出/勿扰/置顶开关、点击与拖拽（窗口配置、托盘菜单与手动拖拽/甩抛代码已在 `apps/desktop/src-tauri`、`apps/desktop/src/window-drag.ts` 就位；release 编译、启动、透明窗与点击动作已真机验收，托盘穿透与“显示小招”正常恢复已于 2026-11-04 由用户人工验收通过；其他托盘菜单项与拖拽手感待人工验收）
 - [x] Core 的 PetState 与纯动画选择逻辑；Shell 负责播放与窗口交互（2026-10-31；`packages/core/src/animation-chain.ts`，7 条动画行为测试；原生窗口交互仍由上项验收）
 - [x] 动作包 v1 Schema、素材哈希清单、路径/规格/资源校验、缺省 idle；默认包与第二个测试包（2026-10-31；`packages/core/src/validate-pet-pack.ts` 校验测试 7 条，`apps/desktop/scripts/validate-packs.mjs` 构建期校验，安装器 `apps/desktop/scripts/install-pack.mjs` 含符号链接/junction 逃逸与原子切换测试 7 条，两包在 Edge 实际加载）
 - [x] 带权动画链、动作打断/回退、播放器缓存上限；透明视频与精灵图兼容路径（2026-10-31；动画链测试见上，缓存上限 `apps/desktop/src/asset-cache.ts` 6 条 LRU 测试，透明视频与精灵图双路径在 Edge 实际播放）
