@@ -632,6 +632,16 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 - 半双工：按键开始前停止已有播放；麦克风关闭后才允许合成/播放，客户端 lease 过期、WS 断线、设置关闭、页面隐藏、清空、取消时立即停止采集/播放并释放。TTS 仅朗读本客户端主动请求的结果或明确点击的已有回复，不自动播报全部历史/其他 profile 结果/主动提醒；输出关闭绝不播放，勿扰不拦用户主动按键。浏览器播放被拒绝时保留文字且不自动重试。
 - Shell 通过 AudioWorklet 在内存采集、结束后重采样/编码 WAV，结束即释放 MediaStream、AudioContext 与对象 URL；Runtime 不持久化原始音频。有限租约约束失联客户端，不能承诺阻止不受信程序直接使用设备。接口新增须同步桌面与 Runtime；旧观察插件仍仅 express，语音不开放工程派发或代批。
 
+### 6.5 可选百炼在线语音 v1（2026-11-07，#60；待实现验收）
+
+- 继续仅适配 dsh，沿用 §6.4 的按键、租约、两步提交和业务入口。ASR/TTS 各增加 `provider: local | bailian`，默认 local；`voice.bailian` 保存 workspaceId（可空）、asrModel（默认 qwen3-asr-flash）、ttsModel（默认 qwen3-tts-flash）、voiceId（默认 Cherry）。首轮只支持百炼北京地域，不增加任意服务 URL、跨地域或全双工。
+- `PUT /settings` 增加可选 `speechApiKey`，未提供保留、空字符串删除。独立密钥文件仅 Runtime 读取，不复用对话模型/dsh 密钥；设置响应只返回 `voice.apiKeyConfigured`，不返回密钥或文件引用。旧配置/旧客户端缺新增语音字段时默认或保留原值，schemaVersion 1 / SQLite v5 不变；桌面与 Runtime 同步更新。
+- 选择云端、启用对应 ASR/TTS、全局 cloudEnabled 和独立语音密钥均满足后才可调用；输入还需 microphoneEnabled。每次调用检查，关闭/更换设置立即取消在途、隔离迟到结果；不自动尝试本地或其他服务商。设置明确说明 ASR 上传本段录音、TTS 上传本段回复文字和可能计费，不上传会话历史、项目上下文或待办列表。最多 30 秒 / 150 字，不作真实金额封顶承诺，不开放主动收费播报。
+- 百炼协议依据官方 [Qwen-ASR](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference) 与 [Qwen-TTS](https://help.aliyun.com/zh/model-studio/qwen-tts-api)（2026-11-07 核验）：ASR 调用 `/compatible-mode/v1/chat/completions`，仅一条 input_audio 的 WAV Data URI、非流式、按语言设置 asr_options，完整 stop 才接收文本；TTS 调用 `/api/v1/services/aigc/multimodal-generation/generation`，仅本次 text、音色与 Auto 语言，不附历史。
+- 两个 API 固定为 `https://dashscope.aliyuncs.com`，或显式 workspaceId 的 `https://<id>.cn-beijing.maas.aliyuncs.com`。TTS 返回 WAV 下载仅接受 `dashscope-result-bj.oss-cn-beijing.aliyuncs.com` 的默认端口、无用户信息链接，官方示例的 HTTP URL 在本地先升级 HTTPS，绝不发明文请求；不接受任意 URL。API 密钥绝不随下载请求传出；签名 URL 不回显、不日志记录。全部请求禁止重定向、无自动重试，取消/超时覆盖 API、响应体与下载全过程。
+- ASR JSON 最多 256 KiB、TTS JSON 最多 64 KiB、WAV 最多 2 MiB，必须通过已有 PCM WAV 校验。错误只用固定分类，不回传服务商正文/密钥/URL。组件检查不发在线探测或计费请求，云端仅展示本地配置状态，不能冒充真实账号可用。
+- 验收先覆盖官方协议替身、云端关闭时零请求、独立密钥/兼容保存、取消超时、迟到结果、下载白名单/无凭证/大小与格式；真实账号计费、北京地域可用性、准确率、设备和延迟继续人工验收。未获真实服务凭证时不宣称云端实测通过。
+
 ## 7. 安全与信任边界
 
 ### 7.1 本地服务与宿主
