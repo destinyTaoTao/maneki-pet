@@ -18,6 +18,7 @@ export interface PersonalReminder {
   attempts: number;
   code: string | null;
   version: number;
+  seenAt?: number | null;
 }
 export interface SystemNotifier {
   notify(input: {

@@ -8,6 +8,7 @@ export class ReminderScheduler {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running: Promise<void> | undefined;
   private stopped = false;
+  private backingOff = false;
   constructor(
     private readonly store: AssistantStore,
     private readonly notifier: SystemNotifier,
@@ -18,13 +19,20 @@ export class ReminderScheduler {
   ) {}
   wake(): void {
     if (this.stopped) return;
+    if (this.backingOff && this.timer) return;
     clearTimeout(this.timer);
+    this.timer = undefined;
     if (this.running) return;
     this.timer = setTimeout(() => {
-      this.running = this.deliver().finally(() => {
-        this.running = undefined;
-        this.schedule();
-      });
+      this.timer = undefined;
+      this.running = this.deliver()
+        .catch(() => {
+          this.backingOff = true;
+        })
+        .finally(() => {
+          this.running = undefined;
+          this.schedule();
+        });
       void this.running.catch(() => undefined);
     }, 0);
     this.timer.unref();
@@ -32,13 +40,24 @@ export class ReminderScheduler {
   private schedule(): void {
     if (this.stopped) return;
     clearTimeout(this.timer);
-    const next = this.store.nextDue();
-    const blocked = this.dnd() || !this.budget.canSend(this.now()).allowed;
-    const interval =
-      next === null || blocked
-        ? 30_000
-        : Math.min(30_000, Math.max(1, next - this.now()));
-    this.timer = setTimeout(() => this.wake(), interval);
+    let interval = 30_000;
+    if (!this.backingOff) {
+      try {
+        const next = this.store.nextDue();
+        const blocked = this.dnd() || !this.budget.canSend(this.now()).allowed;
+        interval =
+          next === null || blocked
+            ? 30_000
+            : Math.min(30_000, Math.max(1, next - this.now()));
+      } catch {
+        this.backingOff = true;
+      }
+    }
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      this.backingOff = false;
+      this.wake();
+    }, interval);
     this.timer.unref();
   }
   private async deliver(): Promise<void> {

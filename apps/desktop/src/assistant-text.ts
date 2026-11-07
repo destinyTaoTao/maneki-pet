@@ -73,6 +73,11 @@ export const assistantText = {
   deadline: "截止日期（不会自动提醒）",
   remindTime: "提醒日期与时间",
   remindBody: "提醒内容",
+  reminderAck: "我已查看",
+  reminderSeen: "已确认查看",
+  reminderRetry: "重试系统通知",
+  reminderRetryHint:
+    "失败可手动重试，仍受勿扰和通知限额限制；此前已受理但回执丢失时，重试可能产生重复通知。查看确认不会完成待办。",
   independent: "独立提醒",
   link: "关联待办（可选）",
   save: "保存",
@@ -83,7 +88,7 @@ export const assistantText = {
   timeZone: "时区",
   persona: "助理人设",
   enableModel: "启用对话模型（交互调用可能收费）",
-  cloud: "允许助理使用云端对话",
+  cloud: "允许 Maneki 自身云端调用（对话 / 语音）",
   locality: "处理端点",
   local: "本机回环端点",
   remote: "云端 HTTPS 端点",
@@ -111,6 +116,9 @@ export const assistantText = {
     cancelled: "已取消",
   } as Record<string, string>,
   errors: {
+    reminder_not_delivered: "提醒尚未投递，不能确认查看。",
+    reminder_not_failed:
+      "只有通知失败的提醒可手动重试；请刷新清单查看当前状态。",
     speech_result_unknown:
       "语音请求结果待核实，请查看聊天历史和待办清单；不会自动重发。",
     asr_version_unsupported:

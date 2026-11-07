@@ -116,7 +116,7 @@ export class AssistantStore {
   reminders(): PersonalReminder[] {
     return this.db
       .prepare(
-        "SELECT id,todo_id AS todoId,message,remind_at AS remindAt,time_zone AS timeZone,status,attempts,code,version FROM assistant_reminders ORDER BY remind_at,id LIMIT 200",
+        "SELECT id,todo_id AS todoId,message,remind_at AS remindAt,time_zone AS timeZone,status,attempts,code,version,seen_at AS seenAt FROM assistant_reminders ORDER BY remind_at,id LIMIT 200",
       )
       .all() as unknown as PersonalReminder[];
   }
@@ -142,6 +142,20 @@ export class AssistantStore {
   }
   deleteReminder(id: string): void {
     this.db.prepare("DELETE FROM assistant_reminders WHERE id=?").run(id);
+  }
+  acknowledgeReminder(id: string, seenAt: number): void {
+    this.db
+      .prepare(
+        "UPDATE assistant_reminders SET seen_at=?,version=version+1 WHERE id=? AND seen_at IS NULL AND status IN ('accepted','failed')",
+      )
+      .run(seenAt, id);
+  }
+  retryReminder(id: string): void {
+    this.db
+      .prepare(
+        "UPDATE assistant_reminders SET status='pending',code=NULL,seen_at=NULL,delivery_id=NULL,version=version+1 WHERE id=? AND status='failed'",
+      )
+      .run(id);
   }
   nextDue(): number | null {
     return (

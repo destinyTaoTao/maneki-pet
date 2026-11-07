@@ -642,7 +642,7 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 - ASR JSON 最多 256 KiB、TTS JSON 最多 64 KiB、WAV 最多 2 MiB，必须通过已有 PCM WAV 校验。错误只用固定分类，不回传服务商正文/密钥/URL。组件检查不发在线探测或计费请求，云端仅展示本地配置状态，不能冒充真实账号可用。
 - 验收先覆盖官方协议替身、云端关闭时零请求、独立密钥/兼容保存、取消超时、迟到结果、下载白名单/无凭证/大小与格式；真实账号计费、北京地域可用性、准确率、设备和延迟继续人工验收。未获真实服务凭证时不宣称云端实测通过。
 
-### 6.6 提醒查看确认与失败重试（2026-11-08，待实现验收）
+### 6.6 提醒查看确认与失败重试（2026-11-08，#61，代码与局部验收已落地）
 
 - 个人助理提醒保留原 status（pending/sending/accepted/failed/cancelled），增加 `seenAt: number | null`，表示用户在提醒清单明确点击“我已查看”的 UTC 时间，不因打开面板、OS 受理或通知点击推定。该操作不完成待办、不抹去通知失败事实；只允许 accepted / failed，重复请求按既有 client/requestId 去重。
 - 在既有 `POST /v1/assistant/mutations` 增加 `reminder.ack` / `reminder.retry`，只接受 requestId、action、id、version，沿用 assistant scope、版本检查、事务与私有变更事件。dsh express 凭证、MCP 输出和模型回复不能调用个人变更；不新增隐式语音/文本批量命令。

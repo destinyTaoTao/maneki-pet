@@ -182,6 +182,8 @@ export class AssistantService {
           "reminder.create",
           "reminder.update",
           "reminder.delete",
+          "reminder.ack",
+          "reminder.retry",
         ],
         maxLength: 30,
       },
@@ -197,6 +199,13 @@ export class AssistantService {
       remindAt: { type: "number", required: false, min: 1 },
     });
     if (!checked.ok) throw new AssistantError(400, "mutation_invalid");
+    if (
+      ["reminder.ack", "reminder.retry"].includes(String(raw.action)) &&
+      Object.keys(raw).some(
+        (key) => !["requestId", "action", "id", "version"].includes(key),
+      )
+    )
+      throw new AssistantError(400, "mutation_invalid");
     const settings = readAssistantSettings(this.store);
     const result = this.store.transaction(() => {
       let result: Record<string, unknown>;
@@ -259,6 +268,22 @@ export class AssistantService {
         if (raw.action === "reminder.delete") {
           this.store.deleteReminder(current!.id);
           result = { reminderId: current!.id, deleted: true };
+        } else if (raw.action === "reminder.ack") {
+          if (!["accepted", "failed"].includes(current!.status))
+            throw new AssistantError(409, "reminder_not_delivered");
+          const seenAt = current!.seenAt ?? this.now();
+          this.store.acknowledgeReminder(current!.id, seenAt);
+          result = { reminderId: current!.id, seenAt };
+        } else if (raw.action === "reminder.retry") {
+          if (current!.status !== "failed")
+            throw new AssistantError(409, "reminder_not_failed");
+          if (current!.todoId) {
+            const todo = this.store.todo(current!.todoId);
+            if (!todo || todo.completed)
+              throw new AssistantError(409, "todo_unavailable");
+          }
+          this.store.retryReminder(current!.id);
+          result = { reminderId: current!.id, retried: true };
         } else {
           if (current && current.status !== "pending")
             throw new AssistantError(409, "reminder_not_pending");

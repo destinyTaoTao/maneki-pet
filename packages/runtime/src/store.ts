@@ -22,7 +22,7 @@ export class MigrationError extends Error {
   }
 }
 
-const KNOWN_SCHEMA_VERSION = 5;
+const KNOWN_SCHEMA_VERSION = 6;
 
 /**
  * Runtime 单一 SQLite 拥有者（architecture §6.2）：迁移先备份，
@@ -127,6 +127,14 @@ export class RuntimeStore {
         try {
           this.db.exec("CREATE TABLE assistant_voice_requests(client_id TEXT NOT NULL,request_id TEXT NOT NULL,hash TEXT NOT NULL,epoch INTEGER NOT NULL,status TEXT NOT NULL,code TEXT,PRIMARY KEY(client_id,request_id))");
           this.db.prepare("INSERT INTO schema_migrations(version,applied_at) VALUES(5,?)").run(new Date().toISOString());
+          this.db.exec("COMMIT");
+        } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+      }
+      if (current < 6) {
+        this.db.exec("BEGIN IMMEDIATE");
+        try {
+          this.db.exec("ALTER TABLE assistant_reminders ADD COLUMN seen_at INTEGER");
+          this.db.prepare("INSERT INTO schema_migrations(version,applied_at) VALUES(6,?)").run(new Date().toISOString());
           this.db.exec("COMMIT");
         } catch (error) { this.db.exec("ROLLBACK"); throw error; }
       }

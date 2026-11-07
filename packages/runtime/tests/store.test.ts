@@ -25,7 +25,7 @@ describe("RuntimeStore SQLite 单一拥有者", () => {
   it("v4 到 v5 升级先备份，保留历史与设置，清空后语音请求也成为墓碑",()=>{
     const dbPath=join(makeTempDir(),"runtime.db"),seed=new RuntimeStore(dbPath),personal=seed.assistantStore();
     const seq=personal.append("user","保留历史");personal.createRequest("client","original","hash",seq);seed.kvSet("dnd","1");seed.close();
-    const old=new DatabaseSync(dbPath);old.exec("DROP TABLE assistant_voice_requests; DELETE FROM schema_migrations WHERE version=5");old.close();
+    const old=new DatabaseSync(dbPath);old.exec("ALTER TABLE assistant_reminders DROP COLUMN seen_at; DROP TABLE assistant_voice_requests; DELETE FROM schema_migrations WHERE version>=5");old.close();
     const upgraded=new RuntimeStore(dbPath);try{
       expect(existsSync(`${dbPath}.bak-4`)).toBe(true);expect(upgraded.kvGet("dnd")).toBe("1");const voice=upgraded.assistantStore();expect(voice.messages()[0]?.text).toBe("保留历史");
       voice.createVoiceRequest("client","voice","audio-hash");voice.clearHistory();expect(voice.voiceRequest("client","voice")).toMatchObject({status:"cleared",code:"history_cleared"});

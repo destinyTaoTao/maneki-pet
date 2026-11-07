@@ -544,7 +544,7 @@ export function createAssistantPanel(
       resetReminder();
     });
   });
-  reminders.append(reminderForm, reminderList);
+  reminders.append(reminderForm, el("p", t.reminderRetryHint), reminderList);
   function renderReminders() {
     zone.textContent = `${t.timeZone}：${snapshot?.settings?.timeZone ?? "—"}`;
     const selected = link.value;
@@ -573,6 +573,41 @@ export function createAssistantPanel(
           ),
         );
       if (item.code) card.append(el("small", t.errors[item.code] ?? item.code));
+      if (item.seenAt != null)
+        card.append(
+          el(
+            "small",
+            `${t.reminderSeen}：${new Date(item.seenAt).toLocaleString("zh-CN", { timeZone: snapshot?.settings?.timeZone ?? item.timeZone })}`,
+          ),
+        );
+      else if (["accepted", "failed"].includes(item.status))
+        card.append(
+          button(
+            t.reminderAck,
+            () =>
+              void perform(() =>
+                mutate({
+                  action: "reminder.ack",
+                  id: item.id,
+                  version: item.version,
+                }),
+              ),
+          ),
+        );
+      if (item.status === "failed")
+        card.append(
+          button(
+            t.reminderRetry,
+            () =>
+              void perform(() =>
+                mutate({
+                  action: "reminder.retry",
+                  id: item.id,
+                  version: item.version,
+                }),
+              ),
+          ),
+        );
       if (item.status === "pending")
         card.append(
           button(t.edit, () => {

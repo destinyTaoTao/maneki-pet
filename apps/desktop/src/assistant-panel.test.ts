@@ -48,6 +48,108 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
+it("打开提醒不自动确认，已查看和系统受理分开，确认/重试仅提交当前项版本", async () => {
+  const nodes: PanelNode[] = [],
+    doc = new EventTarget();
+  Object.assign(doc, {
+    createElement: () => {
+      const node = new PanelNode();
+      nodes.push(node);
+      return node;
+    },
+  });
+  vi.stubGlobal("document", doc);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("Option", PanelNode);
+  const reminder = {
+    id: "failed",
+    todoId: null,
+    message: "test",
+    remindAt: Date.now(),
+    timeZone: "Asia/Shanghai",
+    status: "failed",
+    attempts: 1,
+    code: null,
+    version: 3,
+    seenAt: null,
+  };
+  call.mockImplementation(async (_token, path) =>
+    path === "/snapshot"
+      ? {
+          epoch: 0,
+          revision: 0,
+          messages: [],
+          todos: [],
+          reminders: [
+            reminder,
+            {
+              ...reminder,
+              id: "accepted",
+              status: "accepted",
+              seenAt: Date.now(),
+            },
+            { ...reminder, id: "pending", status: "pending" },
+          ],
+          activeRequest: null,
+          settings: null,
+        }
+      : {},
+  );
+  const panel = createAssistantPanel(
+    new PanelNode() as unknown as HTMLElement,
+    () => undefined,
+    () => undefined,
+  );
+  const flush = async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  };
+  try {
+    await panel.open();
+    expect(
+      call.mock.calls.filter((args) => args[1] === "/mutations"),
+    ).toHaveLength(0);
+    expect(
+      nodes.some(
+        (n) => n.textContent === assistantText.notificationStatus.accepted,
+      ),
+    ).toBe(true);
+    expect(
+      nodes.some((n) => n.textContent.startsWith(assistantText.reminderSeen)),
+    ).toBe(true);
+    const ack = nodes.filter(
+        (n) => n.textContent === assistantText.reminderAck,
+      ),
+      retry = nodes.filter(
+        (n) => n.textContent === assistantText.reminderRetry,
+      );
+    expect(ack).toHaveLength(1);
+    expect(retry).toHaveLength(1);
+    ack[0]!.dispatchEvent(new Event("click"));
+    await flush();
+    retry[0]!.dispatchEvent(new Event("click"));
+    await flush();
+    const mutations = call.mock.calls
+      .filter((args) => args[1] === "/mutations")
+      .map((args) => args[2]);
+    expect(mutations).toEqual([
+      expect.objectContaining({
+        action: "reminder.ack",
+        id: "failed",
+        version: 3,
+      }),
+      expect.objectContaining({
+        action: "reminder.retry",
+        id: "failed",
+        version: 3,
+      }),
+    ]);
+    expect(mutations.every((body) => Object.keys(body).length === 4)).toBe(
+      true,
+    );
+  } finally {
+    panel.dispose();
+  }
+});
 it("设置分别保存本地/百炼服务和独立密钥，组件检测只查询配置", async () => {
   const nodes: PanelNode[] = [],
     doc = new EventTarget();

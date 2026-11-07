@@ -45,6 +45,8 @@ TTS 使用 Windows 本机已安装的 System.Speech 语音，通过系统 Window
 
 ## 更新与验证边界
 
+2026-11-08 提醒管理增量将当前数据库推进到 v6；v5 更新前自动生成 `runtime.db.bak-5`。语音设置与密钥引用保留，桌面与 Runtime 仍须一起更新，旧 Runtime 拒绝新库。
+
 SQLite v4 → v5 前生成 `runtime.db.bak-4`；更早版本按其源版本备份。回退时先停 Runtime，再显式恢复对应备份，不能把新库交给旧 Runtime。桌面与 Runtime 一起更新；旧客户端保存不含 voice 的设置时保留已有语音偏好。
 
 在线语音不再升级 SQLite 版本，但旧 Runtime 的严格设置解析不认识新增字段。启用本轮版本前请先停止后台并备份 `runtime.db`；回退到在线语音之前的 Runtime 需要恢复该备份。现有 v4 迁移备份不代表在线语音更新前的最新数据，恢复旧备份会丢失其后的变更；不要仅凭“都是 v5”混用新旧 Runtime。
