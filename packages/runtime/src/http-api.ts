@@ -148,7 +148,8 @@ export class LocalHttpApi {
         this.sendJson(res, 503, { error: "assistant_unavailable" });
         return;
       }
-      await handleAssistantHttp(req, res, client, this.deps.assistant, () => this.readJson(req, res));
+      await handleAssistantHttp(req, res, client, this.deps.assistant, () =>
+        this.readJson(req, res, url === "/v1/assistant/voice/transcribe" ? 1400000 : MAX_BODY_BYTES));
       return;
     }
 
@@ -414,12 +415,12 @@ export class LocalHttpApi {
     this.deps.store.audit("auth.denied", "http", { reason }, new Date().toISOString());
   }
 
-  private async readJson(req: IncomingMessage, res: ServerResponse): Promise<Record<string, unknown> | undefined> {
+  private async readJson(req: IncomingMessage, res: ServerResponse, maxBytes = MAX_BODY_BYTES): Promise<Record<string, unknown> | undefined> {
     const chunks: Buffer[] = [];
     let size = 0;
     for await (const chunk of req) {
       size += (chunk as Buffer).length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBytes) {
         this.sendJson(res, 413, { error: "request body too large" });
         return undefined;
       }

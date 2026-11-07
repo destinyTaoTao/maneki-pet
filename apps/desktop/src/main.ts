@@ -76,9 +76,8 @@ textForm.append(messageInput, draftNote);
 const voiceButton = document.createElement("button");
 voiceButton.className = "control-button voice-button";
 voiceButton.type = "button";
-voiceButton.setAttribute("aria-label", uiText.voiceUnavailable);
-voiceButton.setAttribute("aria-disabled", "true");
-voiceButton.title = uiText.voiceUnavailable;
+voiceButton.setAttribute("aria-label", assistantText.voiceOpen);
+voiceButton.title = assistantText.voiceOpen;
 voiceButton.append(controlIcon("M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5ZM5 11v1a7 7 0 0 0 14 0v-1M12 19v3M8 22h8"));
 const settingsButton = document.createElement("button");
 settingsButton.className = "control-button settings-button";
@@ -220,7 +219,7 @@ app.addEventListener("keydown", (event) => {
   }
 });
 textForm.addEventListener("submit", (event) => {event.preventDefault();void openAssistant(messageInput.value).then(()=>{messageInput.value="";}).catch(()=>showBubble(uiText.runtimeUnavailable));});
-voiceButton.addEventListener("click", () => showBubble(uiText.voiceUnavailable));
+voiceButton.addEventListener("click", () => {void openAssistant().then(()=>assistantPanel.focusVoice()).catch(()=>showBubble(uiText.runtimeUnavailable));});
 if (isTauriRuntime()) {
   let pageClosed = false;
   let stopInteraction: (() => void) | undefined;

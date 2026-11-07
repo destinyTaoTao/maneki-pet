@@ -9,9 +9,17 @@ import {
 import { assistantText as t } from "./assistant-text.js";
 import * as runtime from "./runtime-client.js";
 import "./assistant.css";
+import { defaultVoiceSettings } from "@maneki-pet/core";
+import { VoiceController } from "./voice-controller.js";
+import { BrowserVoiceCapture, BrowserVoicePlayer } from "./voice-media.js";
 
 type Tab = "chat" | "todos" | "reminders" | "settings";
-type RequestState = { requestId: string; status: string; code: string | null };
+type RequestState = {
+  requestId: string;
+  status: string;
+  code: string | null;
+  message?: AssistantMessage | null;
+};
 const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
   text?: string,
@@ -65,6 +73,7 @@ export function createAssistantPanel(
     renderedChatKey = "",
     settingsDirty = false,
     settingsVersion: number | undefined;
+  let heldPointer: number | undefined, heldKey: string | undefined;
   const header = el("header"),
     heading = el("strong", t.title),
     close = button(t.close, onClose);
@@ -123,6 +132,136 @@ export function createAssistantPanel(
     });
     await refresh();
   };
+  const voiceHint = el("p"),
+    voiceTranscript = el("p"),
+    hold = button(t.voiceHold, () => undefined),
+    readReply = button(t.voiceRead, () => {
+      const message = [...(snapshot?.messages ?? [])]
+        .reverse()
+        .find((m) => m.role === "assistant");
+      if (message) void voice.speak(message.seq);
+    });
+  voiceHint.setAttribute("role", "status");
+  voiceTranscript.className = "voice-transcript";
+  const voice = new VoiceController({
+    transport: {
+      call: (path, body, signal) =>
+        assistantCall(token!, path, body, body === undefined ? "GET" : "POST", {
+          ...(signal ? { signal } : {}),
+          timeoutMs:
+            path === "/voice/transcribe"
+              ? 50000
+              : path === "/voice/synthesize"
+                ? 20000
+                : 3000,
+        }),
+    },
+    capture: () => new BrowserVoiceCapture(),
+    player: new BrowserVoicePlayer(),
+    changed: (phase) => {
+      voiceHint.textContent = t.voicePhases[phase] ?? "";
+      hold.setAttribute(
+        "aria-pressed",
+        String(phase === "starting" || phase === "recording"),
+      );
+      if (typeof cancel !== "undefined")
+        cancel.disabled = phase === "idle" && !ownRequest;
+      if (["transcribing", "waiting", "speaking"].includes(phase)) {
+        heldPointer = undefined;
+        heldKey = undefined;
+      }
+      updateVoice();
+    },
+    error: (code) => {
+      notice.textContent = t.errors[code] ?? `${t.unknown}（${code}）`;
+    },
+    submitted: (result) => {
+      voiceTranscript.textContent = `${t.voiceRecognized}：${result.transcript ?? ""}`;
+      ownRequest = result.requestId;
+      void perform(refresh);
+    },
+    recognized: (text) => {
+      voiceTranscript.textContent = `${t.voiceRecognized}：${text}`;
+    },
+  });
+  hold.disabled = true;
+  readReply.disabled = true;
+  voiceHint.textContent = t.voicePhases.idle ?? "";
+  hold.addEventListener("pointerdown", (event) => {
+    if (
+      event.button !== 0 ||
+      hold.disabled ||
+      heldPointer !== undefined ||
+      heldKey !== undefined
+    )
+      return;
+    heldPointer = event.pointerId;
+    event.preventDefault();
+    hold.setPointerCapture(event.pointerId);
+    void voice.start();
+  });
+  hold.addEventListener("pointerup", (event) => {
+    if (heldPointer !== event.pointerId) return;
+    heldPointer = undefined;
+    event.preventDefault();
+    void voice.finish();
+  });
+  hold.addEventListener("pointercancel", () => {
+    heldPointer = undefined;
+    void voice.cancel(false);
+  });
+  hold.addEventListener("keydown", (event) => {
+    if (
+      (event.code === "Space" || event.code === "Enter") &&
+      !event.repeat &&
+      !hold.disabled &&
+      heldPointer === undefined &&
+      heldKey === undefined
+    ) {
+      heldKey = event.code;
+      event.preventDefault();
+      void voice.start();
+    }
+  });
+  hold.addEventListener("keyup", (event) => {
+    if (event.code === heldKey) {
+      heldKey = undefined;
+      event.preventDefault();
+      void voice.finish();
+    }
+  });
+  hold.addEventListener("blur", () => {
+    heldKey = undefined;
+    if (["starting", "recording"].includes(voice.state()))
+      void voice.cancel(false);
+  });
+  const onWindowBlur = () => {
+    heldPointer = undefined;
+    heldKey = undefined;
+    if (["starting", "recording", "transcribing"].includes(voice.state()))
+      void voice.cancel(false);
+  };
+  const onVisibility = () => {
+    if (document.hidden) void voice.cancel(false);
+  };
+  window.addEventListener("blur", onWindowBlur);
+  document.addEventListener("visibilitychange", onVisibility);
+  function updateVoice() {
+    const settings = snapshot?.settings?.voice ?? defaultVoiceSettings();
+    hold.disabled =
+      !token ||
+      !settings.microphoneEnabled ||
+      !settings.asr.enabled ||
+      ["transcribing", "waiting"].includes(voice.state());
+    readReply.disabled =
+      !settings.tts.enabled ||
+      ["starting", "recording", "transcribing"].includes(voice.state()) ||
+      !snapshot?.messages.some((m) => m.role === "assistant");
+    if (voice.state() === "idle")
+      voiceHint.textContent = hold.disabled
+        ? t.voiceSetupHint
+        : (t.voicePhases.idle ?? "");
+  }
   const clear = async (scope: "history" | "todos") =>
     perform(async () => {
       const preview = await assistantCall<{
@@ -138,6 +277,7 @@ export function createAssistantPanel(
           t.confirm,
           () =>
             void perform(async () => {
+              await voice.cancel(false);
               await assistantCall(token!, "/clear", {
                 confirmationId: preview.confirmationId,
               });
@@ -183,8 +323,11 @@ export function createAssistantPanel(
     t.cancel,
     () =>
       void perform(async () => {
-        if (ownRequest)
-          await assistantCall(token!, `/chat/${ownRequest}/cancel`, {});
+        const request = ownRequest;
+        ownRequest = undefined;
+        await voice.cancel(true);
+        if (request)
+          await assistantCall(token!, `/chat/${request}/cancel`, {});
         await refresh();
       }),
   );
@@ -195,7 +338,15 @@ export function createAssistantPanel(
   messages.className = "assistant-messages";
   messages.setAttribute("aria-live", "polite");
   send.type = "submit";
-  form.append(composer, send, cancel);
+  form.append(
+    composer,
+    send,
+    cancel,
+    hold,
+    readReply,
+    voiceHint,
+    voiceTranscript,
+  );
   chat.append(
     chatTools,
     messages,
@@ -215,6 +366,7 @@ export function createAssistantPanel(
     const request = pendingSubmit;
     send.disabled = true;
     try {
+      await voice.cancel(false);
       const state = await assistantCall<RequestState>(token, "/chat", request);
       ownRequest = state.requestId;
       pendingSubmit = undefined;
@@ -234,7 +386,8 @@ export function createAssistantPanel(
     const key = `${snapshot.epoch}:${[...combined.keys()].join(",")}`;
     requestStatus.textContent = snapshot.activeRequest ? t.requestPending : "";
     cancel.disabled =
-      !ownRequest || snapshot.activeRequest?.requestId !== ownRequest;
+      voice.state() === "idle" &&
+      (!ownRequest || snapshot.activeRequest?.requestId !== ownRequest);
     if (key === renderedChatKey) return;
     renderedChatKey = key;
     const oldHeight = messages.scrollHeight,
@@ -255,7 +408,8 @@ export function createAssistantPanel(
     }
     requestStatus.textContent = snapshot.activeRequest ? t.requestPending : "";
     cancel.disabled =
-      !ownRequest || snapshot.activeRequest?.requestId !== ownRequest;
+      voice.state() === "idle" &&
+      (!ownRequest || snapshot.activeRequest?.requestId !== ownRequest);
     messages.scrollTop = scroll
       ? atBottom
         ? messages.scrollHeight
@@ -473,6 +627,34 @@ export function createAssistantPanel(
       cloud = check(t.cloud, settings.cloudEnabled),
       locality = el("select"),
       localityLabel = el("label", t.locality);
+    const voiceSettings = settings.voice ?? defaultVoiceSettings(),
+      microphone = check(t.microphoneEnable, voiceSettings.microphoneEnabled),
+      asr = check(t.asrEnable, voiceSettings.asr.enabled),
+      tts = check(t.ttsEnable, voiceSettings.tts.enabled),
+      languageLabel = el("label", t.voiceLanguage),
+      language = el("select"),
+      voiceId = input(t.voiceId, "text", voiceSettings.tts.voiceId),
+      availability = el("p");
+    language.append(
+      new Option("中文", "zh"),
+      new Option("English", "en"),
+      new Option(t.voiceAuto, "auto"),
+    );
+    language.value = voiceSettings.asr.language;
+    languageLabel.append(language);
+    voiceId.input.maxLength = 150;
+    const detect = button(
+      t.voiceCheck,
+      () =>
+        void perform(async () => {
+          const status = await assistantCall<{
+            asrAvailable: boolean;
+            ttsAvailable: boolean;
+            voices: Array<{ id: string; culture: string }>;
+          }>(token!, "/voice/status");
+          availability.textContent = `ASR ${status.asrAvailable ? t.voiceReady : t.voiceMissing} · TTS ${status.ttsAvailable ? t.voiceReady : t.voiceMissing}\n${status.voices.map((v) => `${v.id} (${v.culture})`).join("\n")}`;
+        }),
+    );
     locality.append(
       new Option(t.local, "local"),
       new Option(t.remote, "cloud"),
@@ -516,6 +698,15 @@ export function createAssistantPanel(
       inputLimit.label,
       outputLimit.label,
       el("p", t.usage),
+      el("h3", t.voiceSettings),
+      microphone.label,
+      asr.label,
+      languageLabel,
+      tts.label,
+      voiceId.label,
+      el("p", t.voiceInstall),
+      detect,
+      availability,
       save,
       button(
         t.reload,
@@ -541,6 +732,11 @@ export function createAssistantPanel(
           timeZone: timeZone.input.value,
           persona: persona.input.value,
           cloudEnabled: cloud.input.checked,
+          voice: {
+            microphoneEnabled: microphone.input.checked,
+            asr: { enabled: asr.input.checked, language: language.value },
+            tts: { enabled: tts.input.checked, voiceId: voiceId.input.value },
+          },
           chat: {
             enabled: enabled.input.checked,
             locality: locality.value,
@@ -557,6 +753,7 @@ export function createAssistantPanel(
         };
         save.disabled = true;
         try {
+          await voice.cancel(false);
           await assistantCall<AssistantSettingsView>(
             token!,
             "/settings",
@@ -582,11 +779,18 @@ export function createAssistantPanel(
       const next = await assistantCall<AssistantSnapshot>(token!, "/snapshot");
       if (disposed) return;
       if (epoch !== undefined && epoch !== next.epoch) {
+        void voice.cancel(false);
         older = [];
         pendingSubmit = undefined;
       }
       epoch = next.epoch;
+      if (
+        snapshot?.settings?.version !== undefined &&
+        snapshot.settings.version !== next.settings?.version
+      )
+        void voice.cancel(false);
       snapshot = next;
+      updateVoice();
       renderChat();
       renderTodos();
       renderReminders();
@@ -599,7 +803,17 @@ export function createAssistantPanel(
         if (request.status !== "pending") {
           if (request.code)
             notice.textContent = t.errors[request.code] ?? request.code;
+          const requested = ownRequest;
           ownRequest = undefined;
+          if (
+            request.status === "completed" &&
+            request.message &&
+            snapshot.settings?.voice?.tts.enabled &&
+            !host.hidden &&
+            (voice.ownsRequest(requested) || voice.state() === "idle")
+          )
+            void voice.speak(request.message.seq);
+          else if (voice.ownsRequest(requested)) void voice.complete();
           cancel.disabled = true;
         }
       }
@@ -622,6 +836,8 @@ export function createAssistantPanel(
         stopEvents = await runtime.connectEvents(
           token,
           (event) => {
+            if (event.kind === "assistant.voice.stop")
+              voice.stopIfOwned(event.payload.leaseId);
             if (event.kind === "assistant.changed" && !host.hidden)
               void perform(refresh);
             if (
@@ -631,6 +847,7 @@ export function createAssistantPanel(
               onReminder(event.payload.body);
           },
           (connected) => {
+            if (!connected) void voice.cancel(false);
             if (connected && !host.hidden) void perform(refresh);
           },
         );
@@ -659,13 +876,25 @@ export function createAssistantPanel(
       }
     },
     close() {
+      void voice.cancel(false);
       host.hidden = true;
       clearTimeout(poll);
     },
     dispose() {
+      void voice.cancel(false);
+      window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("visibilitychange", onVisibility);
       disposed = true;
       clearTimeout(poll);
       stopEvents?.();
+    },
+    focusVoice() {
+      const settings = snapshot?.settings?.voice ?? defaultVoiceSettings();
+      if (!settings.microphoneEnabled || !settings.asr.enabled) {
+        tabButtons.get("settings")?.click();
+        notice.textContent = t.voiceSetupHint;
+      } else if (hold.disabled) cancel.focus();
+      else hold.focus();
     },
   };
 }

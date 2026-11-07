@@ -38,6 +38,15 @@ export async function handleAssistantHttp(
       send(200, service.settings());
       return;
     }
+    if (req.method === "GET" && path === "/voice/status") {
+      send(200, await service.voice.status());
+      return;
+    }
+    const voiceResult = /^\/voice\/result\/([A-Za-z0-9_-]{1,80})$/.exec(path);
+    if (req.method === "GET" && voiceResult) {
+      send(200, service.voice.result(client.clientId, voiceResult[1]!));
+      return;
+    }
     if (
       req.method === "PUT" &&
       path === "/settings" &&
@@ -56,6 +65,34 @@ export async function handleAssistantHttp(
     }
     const body = await readBody();
     if (!body) return;
+    if (req.method === "POST" && path.startsWith("/voice/")) {
+      const action = path.slice("/voice/".length),
+        voice = service.voice;
+      if (action === "acquire") {
+        send(200, voice.acquire(client.clientId, body));
+        return;
+      }
+      if (action === "renew") {
+        send(200, voice.renew(client.clientId, body));
+        return;
+      }
+      if (action === "release" || action === "cancel") {
+        send(200, voice.release(client.clientId, body, action === "cancel"));
+        return;
+      }
+      if (action === "transcribe") {
+        send(200, await voice.transcribe(client.clientId, body));
+        return;
+      }
+      if (action === "submit") {
+        send(200, voice.submit(client.clientId, body));
+        return;
+      }
+      if (action === "synthesize") {
+        send(200, await voice.synthesize(client.clientId, body));
+        return;
+      }
+    }
     if (req.method === "POST" && path === "/chat") {
       send(202, service.submit(client.clientId, body));
       return;

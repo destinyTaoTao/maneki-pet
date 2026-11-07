@@ -190,6 +190,9 @@ export class AssistantStore {
     this.changed();
   }
   recover(): void {
+    this.db.exec(
+      "UPDATE assistant_voice_requests SET status=CASE WHEN EXISTS(SELECT 1 FROM assistant_requests r WHERE r.client_id=assistant_voice_requests.client_id AND r.request_id=assistant_voice_requests.request_id) THEN 'submitted' ELSE 'failed' END,code=CASE WHEN EXISTS(SELECT 1 FROM assistant_requests r WHERE r.client_id=assistant_voice_requests.client_id AND r.request_id=assistant_voice_requests.request_id) THEN NULL ELSE 'runtime_restarted' END WHERE status IN ('pending','recognized')",
+    );
     this.db
       .prepare(
         "UPDATE assistant_reminders SET status='pending' WHERE status='sending'",
@@ -285,12 +288,45 @@ export class AssistantStore {
   clearHistory(): void {
     this.set("epoch", String(this.epoch() + 1));
     this.db.exec(
-      "DELETE FROM assistant_messages; UPDATE assistant_requests SET status='cleared',user_seq=NULL,reply_seq=NULL,code='history_cleared'; DELETE FROM runtime_kv WHERE key='assistant.summary';",
+      "DELETE FROM assistant_messages; UPDATE assistant_requests SET status='cleared',user_seq=NULL,reply_seq=NULL,code='history_cleared'; UPDATE assistant_voice_requests SET status='cleared',code='history_cleared'; DELETE FROM runtime_kv WHERE key='assistant.summary';",
     );
     this.changed();
   }
   clearTodos(): void {
     this.db.exec("DELETE FROM assistant_todos");
     this.changed();
+  }
+  voiceRequest(
+    client: string,
+    id: string,
+  ):
+    | { hash: string; epoch: number; status: string; code: string | null }
+    | undefined {
+    return this.db
+      .prepare(
+        "SELECT hash,epoch,status,code FROM assistant_voice_requests WHERE client_id=? AND request_id=?",
+      )
+      .get(client, id) as
+      | { hash: string; epoch: number; status: string; code: string | null }
+      | undefined;
+  }
+  createVoiceRequest(client: string, id: string, hash: string): void {
+    this.db
+      .prepare(
+        "INSERT INTO assistant_voice_requests VALUES(?,?,?,?,'pending',NULL)",
+      )
+      .run(client, id, hash, this.epoch());
+  }
+  settleVoiceRequest(
+    client: string,
+    id: string,
+    status: string,
+    code: string | null,
+  ): void {
+    this.db
+      .prepare(
+        "UPDATE assistant_voice_requests SET status=?,code=? WHERE client_id=? AND request_id=? AND status IN ('pending','recognized')",
+      )
+      .run(status, code, client, id);
   }
 }

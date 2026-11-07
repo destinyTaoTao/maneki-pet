@@ -22,11 +22,20 @@ afterEach(() => {
 });
 
 describe("RuntimeStore SQLite 单一拥有者", () => {
+  it("v4 到 v5 升级先备份，保留历史与设置，清空后语音请求也成为墓碑",()=>{
+    const dbPath=join(makeTempDir(),"runtime.db"),seed=new RuntimeStore(dbPath),personal=seed.assistantStore();
+    const seq=personal.append("user","保留历史");personal.createRequest("client","original","hash",seq);seed.kvSet("dnd","1");seed.close();
+    const old=new DatabaseSync(dbPath);old.exec("DROP TABLE assistant_voice_requests; DELETE FROM schema_migrations WHERE version=5");old.close();
+    const upgraded=new RuntimeStore(dbPath);try{
+      expect(existsSync(`${dbPath}.bak-4`)).toBe(true);expect(upgraded.kvGet("dnd")).toBe("1");const voice=upgraded.assistantStore();expect(voice.messages()[0]?.text).toBe("保留历史");
+      voice.createVoiceRequest("client","voice","audio-hash");voice.clearHistory();expect(voice.voiceRequest("client","voice")).toMatchObject({status:"cleared",code:"history_cleared"});
+    }finally{upgraded.close();}
+  });
   it("v3 到 v4 先备份并保留设置；恢复不重放模型并保留通知批次",()=>{
     const dbPath=join(makeTempDir(),"runtime.db");const seed=new RuntimeStore(dbPath);
     seed.kvSet("dnd","1");seed.close();
     const old=new DatabaseSync(dbPath);
-    old.exec("DROP TABLE assistant_mutations; DROP TABLE assistant_requests; DROP TABLE assistant_messages; DROP TABLE assistant_reminders; DROP TABLE assistant_todos; DELETE FROM schema_migrations WHERE version=4;");old.close();
+    old.exec("DROP TABLE assistant_voice_requests; DROP TABLE assistant_mutations; DROP TABLE assistant_requests; DROP TABLE assistant_messages; DROP TABLE assistant_reminders; DROP TABLE assistant_todos; DELETE FROM schema_migrations WHERE version>=4;");old.close();
     const upgraded=new RuntimeStore(dbPath);const personal=upgraded.assistantStore();
     try{
       expect(existsSync(`${dbPath}.bak-3`)).toBe(true);expect(upgraded.kvGet("dnd")).toBe("1");

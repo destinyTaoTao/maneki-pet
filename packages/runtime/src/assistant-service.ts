@@ -27,6 +27,7 @@ import { ReminderScheduler } from "./reminder-scheduler.js";
 import type { EventFeed } from "./events.js";
 import type { NotificationBudget } from "./quota.js";
 import { validateObject } from "./validate.js";
+import { VoiceService, type VoiceProviders } from "./voice-service.js";
 
 const fingerprint = (raw: Record<string, unknown>) =>
   createHash("sha256")
@@ -50,6 +51,7 @@ const text = (raw: unknown, max: number): string => {
 };
 
 export interface AssistantServiceOptions {
+  speech?: VoiceProviders;
   store: AssistantStore;
   configDir: string;
   feed: EventFeed;
@@ -63,6 +65,7 @@ export interface AssistantServiceOptions {
   expressionState?: () => string;
 }
 export class AssistantService {
+  readonly voice: VoiceService;
   private readonly store: AssistantStore;
   private readonly now: () => number;
   private activeChat:
@@ -90,6 +93,18 @@ export class AssistantService {
     this.store = deps.store;
     this.now = deps.now ?? Date.now;
     this.store.recover();
+    this.voice = new VoiceService({
+      configDir: deps.configDir,
+      store: this.store,
+      settings: () => readAssistantSettings(this.store),
+      feed: deps.feed,
+      active: deps.active,
+      chatBusy: () => Boolean(this.activeChat),
+      submit: (client, id, text) =>
+        this.submit(client, { requestId: id, text }),
+      cancelChat: (client, id) => this.cancel(client, id),
+      ...deps.speech,
+    });
     this.scheduler = new ReminderScheduler(
       this.store,
       deps.notifier,
@@ -119,6 +134,7 @@ export class AssistantService {
       this.deps.configDir,
       raw,
     );
+    this.voice.invalidate();
     this.cancelActive("provider_changed");
     this.changed();
     return settingsView(settings);
@@ -332,7 +348,10 @@ export class AssistantService {
       preview.epoch !== this.store.epoch()
     )
       throw new AssistantError(409, "preview_changed");
-    if (preview.scope === "history") this.cancelActive("history_cleared");
+    if (preview.scope === "history") {
+      this.voice.invalidate();
+      this.cancelActive("history_cleared");
+    }
     this.store.transaction(() =>
       preview.scope === "history"
         ? this.store.clearHistory()
@@ -358,6 +377,7 @@ export class AssistantService {
     return this.request(client, row.requestId);
   }
   cancelClient(client: string): void {
+    this.voice.invalidate(client);
     if (this.activeChat?.client === client) this.cancelActive("client_revoked");
   }
   private cancelActive(code: string): void {
@@ -674,6 +694,7 @@ export class AssistantService {
   }
   async stop(): Promise<void> {
     this.stopped = true;
+    await this.voice.stop();
     this.cancelActive("runtime_stopped");
     await this.scheduler.stop();
     await this.activeChat?.done;

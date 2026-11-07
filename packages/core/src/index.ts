@@ -129,3 +129,4 @@ export {
   type ValidationResult,
 } from "./validate-pet-pack.js";
 export * from "./personal-assistant.js";
+export * from "./speech-provider.js";

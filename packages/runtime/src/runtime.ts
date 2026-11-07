@@ -19,6 +19,7 @@ import { TaskService } from "./task-service.js";
 import { WsHub } from "./ws.js";
 
 export interface RuntimeOptions {
+  speech?: AssistantServiceOptions["speech"];
   notifier?: SystemNotifier;
   chatProvider?: AssistantServiceOptions["provider"];
   configDir: string;
@@ -108,6 +109,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       },
       expressionState: () => expressions.current(),
       ...(options.chatProvider ? { provider: options.chatProvider } : {}),
+      ...(options.speech ? { speech: options.speech } : {}),
     });
     openedAssistant = assistant;
     const stopAssistantEvents = feed.subscribe((event) => {

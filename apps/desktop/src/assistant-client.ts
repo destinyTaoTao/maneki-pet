@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { PersonalTodo, PersonalReminder } from "@maneki-pet/core";
+import type {
+  PersonalTodo,
+  PersonalReminder,
+  VoiceSettings,
+} from "@maneki-pet/core";
 import { readBounded } from "./bounded-fetch.js";
 
 export interface AssistantMessage {
@@ -14,6 +18,7 @@ export interface AssistantSettingsView {
   timeZone: string;
   persona: string;
   cloudEnabled: boolean;
+  voice?: VoiceSettings;
   chat: {
     enabled: boolean;
     locality: "local" | "cloud";
@@ -61,6 +66,7 @@ export async function assistantCall<T>(
   path: string,
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<T> {
   let response: Response;
   try {
@@ -72,7 +78,12 @@ export async function assistantCall<T>(
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       redirect: "error",
-      signal: AbortSignal.timeout(10000),
+      signal: options.signal
+        ? AbortSignal.any([
+            options.signal,
+            AbortSignal.timeout(options.timeoutMs ?? 10000),
+          ])
+        : AbortSignal.timeout(options.timeoutMs ?? 10000),
     });
   } catch {
     throw new AssistantClientError("runtime_unavailable");

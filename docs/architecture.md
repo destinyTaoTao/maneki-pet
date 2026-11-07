@@ -616,12 +616,14 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 - Windows 首个系统通知 Adapter 使用固定系统 PowerShell 入口调用 WinRT Toast API，用户文案经 stdin JSON 与 XML 文本节点传入，不拼接脚本/命令、不改安全策略；检查通知权限并记录系统受理/失败，需有效 Maneki AppUserModelID。无窗口情况下也可运行，其他平台明确 unsupported。相比新增可执行依赖/常驻桥，先复用 OS 接口；真实系统受理、打包身份与用户可见性分别验收。
 - Windows 非打包发行布局在首个通知前，幂等登记当前用户 `Software/Classes/AppUserModelId/com.manekipet.desktop` 的应用显示名；仅管理本应用身份元数据，不修改 OS 通知授权、免打扰或隐私设置，不借用其他应用身份。注册失败或权限不可读取时明确失败，不按 Enabled 猜测；v1 不提供通知点击激活。此路径参考 [WindowsNotifications 的桌面兼容实现](https://github.com/WindowsNotifications/desktop-toasts/blob/master/CPP-WINRT/DesktopToastsCppWinRtApp/DesktopNotificationManagerCompat.cpp)，安装器卸载清理与其他 Windows 版本另验。XML 先在托管 DOM 中通过 InnerText 写入，再交 WinRT LoadXml，避免 PowerShell 对可变 WinRT 节点的隐式枚举故障。
 
-### 6.4 按键语音 v1 契约（2026-11-07，待实现验收）
+### 6.4 按键语音 v1 契约（2026-11-07，代码与局部验收已落地）
+
+Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证；真实设备、权限、准确率、长时稳定性及其他平台仍待验收，见[记录](./audits/2026-11-07-push-to-talk-voice.md)。配置与安装步骤见[语音说明](./voice.md)。
 
 - 近期仍仅 dsh；`/maneki assistant` 进入同一桌面面板，面板提供按住按钮或在该按钮聚焦时按住空格/Enter。松开结束采集并转写、成功后提交同一 chat 入口；失焦、隐藏、取消、权限等待期间松开、设备拒绝或空音频均不提交。桌宠麦克风按钮只打开此入口，不隐式开始录音。不注册全局热键、常驻监听、唤醒或连续对话。
 - 设置增加独立 `voice`：`microphoneEnabled`、`asr.enabled` 与 `tts.enabled` 默认 false；ASR 语言仅 zh/en/auto，TTS 可选系统已安装的 voiceId。未包含 voice 的旧设置读取/保存保留已有值，schemaVersion 仍为 1，新增字段为兼容扩展；项目与 dsh 不能覆盖这些全局设置。ASR/TTS 本轮均无云端实现；对话模型的原有启用与云端授权不变。
 - Core 增加 `AudioData`、`SpeechRecognizer`、`SpeechSynthesizer` 端口及单 owner 语音租约规则。Runtime 通过 `POST /v1/assistant/voice/acquire|renew|release|cancel` 管理 capture/playback；租约绑定客户端、随机 ID、会话 epoch 与设置版本，8 秒到期、约 2 秒续租，客户端用单调时钟在本地截止时主动停止设备。其他 owner 未释放/过期前不抢占。Runtime 留存无音频的活跃标识，崩溃重启后保守隔离 8 秒，防止旧客户端仍在采集时授予新 owner。
-- `POST /voice/transcribe` 接收 leaseId、requestId 和 base64 WAV；仅此路由允许至 1.4 MiB JSON。音频须为规范单声道 16 kHz/16-bit PCM WAV、0.3–30 秒、最多 960044 字节，并经过基本能量筛选；这不是完整 VAD 或回声消除。接收完成后再次鉴权。转写后重新检查权限、租约、设置与 epoch，非空文本才进入现有 chat 事务，返回识别文本和 chat 请求状态；模型/播报/其他 profile 不可提供候选识别文本来冒充本次采集。
+- `POST /voice/transcribe` 接收 leaseId、requestId 和 base64 WAV；仅此路由允许至 1,400,000 字节 JSON。音频须为规范单声道 16 kHz/16-bit PCM WAV、0.3–30 秒、最多 960044 字节，并经过基本能量筛选；这不是完整 VAD 或回声消除。接收完成后再次鉴权。转写后重新检查权限、租约、设置与 epoch，返回非空候选文字，再由下述 submit 进入现有 chat 事务；模型/播报/其他 profile 不可提供候选识别文本来冒充本次采集。
 - 转写与提交分为两个自动步骤：transcribe 仅返回 `recognized`，候选文字暂存 Runtime 内存；当前按键轮次仍有效的 Shell 随后自动调用 `POST /voice/submit {leaseId,requestId}`，Runtime 再校验并提交现有 chat 事务，不增加人类二次确认。这样失联/取消后迟到的 ASR 本身不能创建事项。submit 不接受文字或音频替换，结果未知时只按同 ID 查询，不换 ID 重试；未提交候选在取消、租约失效、清空或重启时丢弃。
 - SQLite v4 备份迁移到 v5：新增无录音、无转写副本的语音请求表，只保存客户端/requestId、输入哈希、epoch、终态/错误；识别文本复用主会话消息。相同 ID/音频重发不重复转写或创建事项，不同输入拒绝；重启不重放未完成转写，清空会话也保留墓碑。取消/清空/设置变化/撤销阻止未提交的迟到结果；已经提交的待办/提醒不伪报撤销。
 - Windows ASR 首个实现为受信安装目录 `runtime/speech/whisper/whisper-cli.exe` 与 `model.bin`（相关 DLL 放相邻目录），固定 argv、stdin WAV、stdout 文字；不接收可执行路径、自由参数或模型路径的 HTTP 配置。由用户自行安装受信 whisper.cpp 引擎与模型，不自动下载。每次调用一个进程，超时/取消终止并回收，空闲不常驻模型；stderr 默认不保存，且不生成录音/转写文件。CLI 必须支持 stdin `-f -`，实际版本单列验收。

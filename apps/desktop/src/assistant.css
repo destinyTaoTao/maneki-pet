@@ -141,3 +141,6 @@
 .assistant-confirm p {
   margin: 0 0 6px;
 }
+.voice-transcript {font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:70px;overflow:auto;}
+.assistant-panel button[aria-pressed="true"] {background:#efbc91;}
+.assistant-panel label input[type="checkbox"] {width:16px;height:16px;vertical-align:middle;}

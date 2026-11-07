@@ -7,7 +7,11 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { validTimeZone } from "@maneki-pet/core";
+import {
+  validTimeZone,
+  defaultVoiceSettings,
+  type VoiceSettings,
+} from "@maneki-pet/core";
 import { validateObject } from "./validate.js";
 import type { AssistantStore } from "./assistant-store.js";
 
@@ -25,6 +29,7 @@ export interface AssistantSettings {
   timeZone: string;
   persona: string;
   cloudEnabled: boolean;
+  voice: VoiceSettings;
   chat: {
     enabled: boolean;
     locality: "local" | "cloud";
@@ -37,6 +42,7 @@ export interface AssistantSettings {
 }
 export function defaultAssistantSettings(): AssistantSettings {
   return {
+    voice: defaultVoiceSettings(),
     schemaVersion: 1,
     version: 0,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -79,6 +85,7 @@ export function readAssistantSettings(
         !/^assistant-key-[0-9a-f-]{36}$/.test(apiKeyRef))
     )
       throw new Error();
+    value.voice = checkedVoice(value.voice ?? defaultVoiceSettings());
     return value;
   } catch {
     throw new AssistantError(503, "settings_invalid");
@@ -155,7 +162,7 @@ export function saveAssistantSettings(
   dir: string,
   raw: Record<string, unknown>,
 ): AssistantSettings {
-  const { chat: rawChat, ...flat } = raw;
+  const { chat: rawChat, voice: rawVoice, ...flat } = raw;
   const checked = validateObject(flat, {
     version: { type: "number", required: true, min: 0 },
     timeZone: { type: "string", required: true, maxLength: 80 },
@@ -179,6 +186,7 @@ export function saveAssistantSettings(
   if (!Number.isSafeInteger(raw.version) || raw.version !== old.version)
     throw new AssistantError(409, "settings_conflict");
   const settings: AssistantSettings = {
+    voice: rawVoice === undefined ? old.voice : checkedVoice(rawVoice),
     schemaVersion: 1,
     version: old.version + 1,
     timeZone: raw.timeZone as string,
@@ -212,4 +220,33 @@ export function saveAssistantSettings(
   )
     rmSync(join(dir, old.chat.apiKeyRef), { force: true });
   return settings;
+}
+function checkedVoice(raw: unknown): VoiceSettings {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    throw new AssistantError(400, "voice_settings_invalid");
+  const value = raw as Record<string, unknown>,
+    { asr, tts, ...flat } = value;
+  const checked = validateObject(flat, {
+    microphoneEnabled: { type: "boolean", required: true },
+  });
+  const recognition = validateObject(asr, {
+    enabled: { type: "boolean", required: true },
+    language: {
+      type: "string",
+      required: true,
+      maxLength: 4,
+      enumValues: ["zh", "en", "auto"],
+    },
+  });
+  const synthesis = validateObject(tts, {
+    enabled: { type: "boolean", required: true },
+    voiceId: { type: "string", required: true, maxLength: 150 },
+  });
+  if (!checked.ok || !recognition.ok || !synthesis.ok)
+    throw new AssistantError(400, "voice_settings_invalid");
+  return {
+    microphoneEnabled: checked.value.microphoneEnabled as boolean,
+    asr: recognition.value as VoiceSettings["asr"],
+    tts: synthesis.value as VoiceSettings["tts"],
+  };
 }
