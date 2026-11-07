@@ -1,0 +1,143 @@
+.assistant-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  background: #fffaf0;
+  color: #342c23;
+  border: 1px solid #dfd2bd;
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+  box-shadow: 0 4px 20px #49361920;
+}
+.assistant-panel[hidden],
+.assistant-panel [hidden] {
+  display: none !important;
+}
+.assistant-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.assistant-panel header strong {
+  font-size: 19px;
+}
+.assistant-panel nav {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.assistant-panel nav button {
+  flex: 1;
+}
+.assistant-panel button,
+.assistant-panel input,
+.assistant-panel textarea,
+.assistant-panel select {
+  font: inherit;
+  border: 1px solid #cbbcaa;
+  border-radius: 7px;
+  box-sizing: border-box;
+}
+.assistant-panel button {
+  background: #fffdf8;
+  color: inherit;
+  padding: 5px 9px;
+  cursor: pointer;
+  margin: 3px;
+}
+.assistant-panel button[aria-pressed="true"],
+.assistant-panel button[type="submit"] {
+  background: #f1d2a0;
+  border-color: #c19152;
+}
+.assistant-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.assistant-panel :focus-visible {
+  outline: 2px solid #8e602a;
+  outline-offset: 2px;
+}
+.assistant-panel main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.assistant-panel label {
+  display: block;
+  margin: 8px 0;
+}
+.assistant-panel input:not([type="checkbox"]),
+.assistant-panel textarea,
+.assistant-panel select {
+  display: block;
+  width: 100%;
+  background: white;
+  padding: 7px;
+  color: inherit;
+}
+.assistant-panel input[type="checkbox"] {
+  margin: 0 8px;
+}
+.assistant-panel article {
+  padding: 10px;
+  background: #fffdf8;
+  border: 1px solid #eadfce;
+  border-radius: 9px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.assistant-panel article p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+.assistant-panel article small {
+  display: block;
+  color: #71604d;
+}
+.assistant-panel .user {
+  background: #f6e8d1;
+  margin-left: 28px;
+}
+.assistant-notice {
+  color: #754b20;
+  margin: 6px 0;
+  min-height: 1.5em;
+  overflow-wrap: anywhere;
+}
+.assistant-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.assistant-messages {
+  flex: 1;
+  min-height: 80px;
+  overflow: auto;
+}
+.assistant-panel small {
+  color: #71604d;
+}
+.assistant-chat > p {
+  margin: 4px 0;
+}
+.assistant-chat textarea {
+  resize: vertical;
+  max-height: 160px;
+}
+.assistant-confirm {
+  padding: 8px;
+  background: #f7e0bd;
+  border: 1px solid #bd8a45;
+  border-radius: 9px;
+}
+.assistant-confirm p {
+  margin: 0 0 6px;
+}

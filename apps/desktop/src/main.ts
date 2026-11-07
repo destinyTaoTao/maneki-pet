@@ -7,6 +7,9 @@ import {
 } from "@maneki-pet/core";
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { createAssistantPanel } from "./assistant-panel.js";
+import { assistantText } from "./assistant-text.js";
 import { PetPlayer } from "./player.js";
 import { BoundedReadError, MEDIA_READ_TIMEOUT_MS, readBounded, readMedia } from "./bounded-fetch.js";
 import { imageDimensions, MediaBudgetError, withinPixelBudget } from "./media-budget.js";
@@ -65,10 +68,10 @@ messageInput.maxLength = 2000;
 messageInput.autocomplete = "off";
 messageInput.placeholder = uiText.messagePlaceholder;
 messageInput.setAttribute("aria-label", uiText.messageInput);
-messageInput.title = uiText.textUnavailable;
+messageInput.title = assistantText.openAssistant;
 const draftNote = document.createElement("span");
 draftNote.className = "draft-note";
-draftNote.textContent = uiText.notEnabled;
+draftNote.textContent = assistantText.shortcut;
 textForm.append(messageInput, draftNote);
 const voiceButton = document.createElement("button");
 voiceButton.className = "control-button voice-button";
@@ -127,6 +130,31 @@ const runtimeDndLine = document.createElement("div");
 runtimeDndLine.className = "runtime-line";
 panel.append(packLabel, stateLabel, actionLabel, playActionButton, runtimeSectionLabel, runtimeStateLine, runtimeLimitsLine, runtimeDndLine);
 app.append(status, petButton, controls, panel);
+const assistantHost=document.createElement("section");
+assistantHost.className="assistant-panel";
+assistantHost.hidden=true;
+assistantHost.setAttribute("aria-label",assistantText.title);
+app.append(assistantHost);
+const assistantPanel=createAssistantPanel(assistantHost,()=>{
+  assistantPanel.close();
+  for(const node of [status,petButton,controls,panel])node.inert=false;
+  if(isTauriRuntime())void invoke("assistant_view",{open:false}).catch(()=>showBubble(uiText.interactionUnavailable));
+},showBubble);
+async function openAssistant(draft?:string):Promise<void>{
+  setPanelOpen(false);
+  if(isTauriRuntime()){
+    await invoke("assistant_view",{open:true});
+    if(!await runtimeClient.ensureRuntime())throw new Error(uiText.runtimeUnavailable);
+  }
+  await assistantPanel.open(draft);
+  for(const node of [status,petButton,controls,panel])node.inert=true;
+}
+panel.append(Object.assign(document.createElement("button"),{type:"button",textContent:assistantText.openAssistant,onclick:()=>void openAssistant().catch(()=>showBubble(uiText.runtimeUnavailable))}));
+window.addEventListener("pagehide",()=>assistantPanel.dispose(),{once:true});
+if(isTauriRuntime()){
+  void listen("maneki://assistant-open",()=>void openAssistant().catch(()=>showBubble(uiText.runtimeUnavailable)));
+  void invoke<boolean>("assistant_entry").then(open=>{if(open)void openAssistant().catch(()=>showBubble(uiText.runtimeUnavailable));});
+}
 
 const player = new PetPlayer(playerRoot, () => {
   delete status.dataset.playbackRestricted;
@@ -191,7 +219,7 @@ app.addEventListener("keydown", (event) => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
 });
-textForm.addEventListener("submit", (event) => { event.preventDefault(); showBubble(uiText.textUnavailable); });
+textForm.addEventListener("submit", (event) => {event.preventDefault();void openAssistant(messageInput.value).then(()=>{messageInput.value="";}).catch(()=>showBubble(uiText.runtimeUnavailable));});
 voiceButton.addEventListener("click", () => showBubble(uiText.voiceUnavailable));
 if (isTauriRuntime()) {
   let pageClosed = false;
@@ -203,7 +231,7 @@ if (isTauriRuntime()) {
     clearTimeout(showControlsTimer);
     dragHandle?.detach();
   }, { once: true });
-  void attachPetInteraction(petButton, () => app.dataset.controlsVisible === "true" ? [controls, ...(!panel.hidden ? [panel] : [])] : [],
+  void attachPetInteraction(petButton, () => !assistantHost.hidden ? [assistantHost] : app.dataset.controlsVisible === "true" ? [controls, ...(!panel.hidden ? [panel] : [])] : [],
     (hover) => {
       nativeHover = !hover.unavailable;
       const next = hover.overPet || hover.overControls;
@@ -446,6 +474,7 @@ async function connectRuntime(): Promise<void> {
     return;
   }
   runtimeStateLine.textContent = uiText.runtimeConnected;
+  void assistantPanel.reuse();
   try {
     const dnd = await runtimeClient.getDnd(token);
     await invoke("sync_tray_dnd", { enabled: dnd });

@@ -48,6 +48,15 @@ it("明确退出后不会自动重启 Runtime，卸载释放命令与事件订�
   expect(controlAssistant).toHaveBeenCalledTimes(2);
 });
 
+it("人类 assistant 命令仅唤起原生面板，不向 dsh 返回个人凭证",async()=>{
+  vi.mocked(controlAssistant).mockResolvedValue({state:"ready",token:"observer-client-token-that-is-long-enough"});
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(null,{status:202})));
+  await apply(context,{showOnConnect:false});await vi.waitFor(()=>expect(fetch).toHaveBeenCalled());
+  await new Promise<void>(resolve=>setImmediate(resolve));
+  const result=await command!.handler({rawInput:"assistant",signal:new AbortController().signal});
+  expect(controlAssistant).toHaveBeenLastCalledWith("assistant","web",expect.any(AbortSignal));expect(result.kind).toBe("success");expect(result.text).not.toContain("token");
+});
+
 it("非法命令、profile 与已取消请求不能到达管理入口", async () => {
   await expect(apply(context, { profileId: "../root" })).rejects.toThrow("profileId");
   vi.mocked(controlAssistant).mockResolvedValue({ state: "ready", token: "client-test-token-that-is-long-enough" });

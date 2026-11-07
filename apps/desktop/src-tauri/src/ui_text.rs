@@ -1,4 +1,5 @@
 pub const SHOW: &str = "显示小招";
+pub const ASSISTANT: &str = "文字助手与待办提醒";
 pub const DO_NOT_DISTURB: &str = "勿扰";
 pub const ALWAYS_ON_TOP: &str = "保持置顶";
 pub const CLICK_THROUGH: &str = "鼠标穿透（在此恢复）";

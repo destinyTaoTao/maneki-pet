@@ -600,7 +600,9 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 - 超时、限流、不可用、鉴权失败、配置错误、协议不匹配与结果未知分别呈现。只对明确可重试且幂等的操作作有界退避；不自动重试审批、付费或未知状态的任务提交。
 - 日志带 request/task/session/provider 等关联 ID，默认不写 prompt、记忆、录音、token、完整命令参数。诊断导出须脱敏、由用户主动触发；默认不发送遥测。
 
-### 6.3 文字个人助理 v1 契约（2026-11-07，待实现验收）
+### 6.3 文字个人助理 v1 契约（2026-11-07，代码与局部验收已落地）
+
+实现与设备验证范围见[本轮记录](./audits/2026-11-07-text-assistant-reminders.md)；本节不代表 M3/M4 整阶段完成，真实云模型、语音、完整休眠/时钟/安装器矩阵继续按 roadmap 验收。
 
 - 入口为同一桌面 WebView 内按需打开的助手面板，桌宠文字输入和 `/maneki assistant` 均进入此面板；关闭面板恢复桌宠尺寸，不另建常驻 WebView。dsh 插件只获得原有 express 凭证，不取得聊天历史、待办或模型密钥；嵌入 dsh 设置页面后续另验。
 - 新增 `assistant` scope，个人数据接口使用此权限（或受信 admin）；修改全局设置另需 settings。桌面通过独立 `assistant-client.json` 管理凭证，首次由用户打开助手时签发 `assistant,settings`，启动时只尝试复用已有凭证以订阅私有提醒。既有桌面/插件凭证不自动扩权，撤销或损坏不重新签发。WS 仅将 `assistant.*` 私有事件发给 assistant 客户端，express 观察端不能接收个人内容。

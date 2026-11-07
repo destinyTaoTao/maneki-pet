@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
-export type ControlAction = "connect" | "pair" | "status" | "show" | "quit";
+export type ControlAction = "connect" | "pair" | "status" | "show" | "assistant" | "quit";
 export interface ControlResult { state: "ready" | "stopped"; token?: string }
 
 export const controlText: Record<string, string> = {

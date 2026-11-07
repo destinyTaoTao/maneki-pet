@@ -146,7 +146,7 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
       pulse = "idle";
       return "助理后台已停止；外部 dsh 任务可能继续，未被取消。重新启用请执行 /maneki connect";
     }
-    return action === "show" ? "已请求显示小招" : result.state === "ready" ? "助理后台正在运行" : "助理后台已停止";
+    return action === "assistant" ? "已请求打开文字助手与待办提醒面板；dsh 插件仍只持有观察权限" : action === "show" ? "已请求显示小招" : result.state === "ready" ? "助理后台正在运行" : "助理后台已停止";
   };
   const runControl = async (action: ControlAction, signal: AbortSignal): Promise<string> => {
     if (controlPending) throw new Error("另一个助手管理操作正在进行，请稍后重试");
@@ -155,10 +155,10 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     try { await controlPending; return text; } finally { controlPending = undefined; }
   };
   const unregister = ctx.commands.register({
-    name: "maneki", description: "连接、配对、显示或退出小招助手", input: { hint: "status | connect | pair | show | quit" }, recordInput: false,
+    name: "maneki", description: "连接、配对、打开文字助手或退出小招", input: { hint: "status | connect | pair | show | assistant | quit" }, recordInput: false,
     handler: async ({ rawInput, signal }) => {
       const action = rawInput.trim() || "status";
-      if (!["status", "connect", "pair", "show", "quit"].includes(action)) return { kind: "error", text: "用法：/maneki status|connect|pair|show|quit" };
+      if (!["status", "connect", "pair", "show", "assistant", "quit"].includes(action)) return { kind: "error", text: "用法：/maneki status|connect|pair|show|assistant|quit" };
       try { return { kind: "success", text: await runControl(action as ControlAction, signal) }; }
       catch (error) { return { kind: "error", text: error instanceof Error ? error.message : "助手管理操作失败" }; }
     },

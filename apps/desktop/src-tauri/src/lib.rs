@@ -138,6 +138,28 @@ fn sync_tray_dnd(app: AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn assistant_view(app: AppHandle, open: bool) -> Result<(), String> {
+    with_settings(&app, |settings| settings.click_through = false);
+    if let Some(window) = app.get_webview_window("main") {
+        window
+            .set_ignore_cursor_events(false)
+            .map_err(|e| e.to_string())?;
+        window
+            .set_size(tauri::LogicalSize::new(
+                if open { 440.0 } else { 300.0 },
+                if open { 640.0 } else { 360.0 },
+            ))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn assistant_entry() -> bool {
+    std::env::args().any(|arg| arg == "--assistant-view")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if assistant_control::dispatch_cli() {
@@ -150,6 +172,9 @@ pub fn run() {
                 return;
             }
             with_settings(app, |settings| settings.click_through = false);
+            if args.iter().any(|arg| arg == "--assistant-view") {
+                let _ = app.emit("maneki://assistant-open", ());
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -171,6 +196,8 @@ pub fn run() {
             let _ = assistant_control::register_installation();
             let _ = spawn_runtime_child(app.handle());
             let show = MenuItem::with_id(app, "show", ui_text::SHOW, true, None::<&str>)?;
+            let assistant =
+                MenuItem::with_id(app, "assistant", ui_text::ASSISTANT, true, None::<&str>)?;
             let dnd = CheckMenuItem::with_id(
                 app,
                 "dnd",
@@ -199,7 +226,15 @@ pub fn run() {
             let close = MenuItem::with_id(app, "close", ui_text::CLOSE_VIEW, true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&show, &dnd, &always_on_top, &click_through, &close, &quit],
+                &[
+                    &show,
+                    &assistant,
+                    &dnd,
+                    &always_on_top,
+                    &click_through,
+                    &close,
+                    &quit,
+                ],
             )?;
             let dnd_for_event = dnd.clone();
             let always_on_top_for_event = always_on_top.clone();
@@ -214,6 +249,13 @@ pub fn run() {
                 .tooltip(ui_text::TOOLTIP)
                 .menu(&menu)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
+                    "assistant" => {
+                        let _ = app.emit("maneki://assistant-open", ());
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
                     "show" => {
                         with_settings(app, |settings| settings.click_through = false);
                         let _ = click_through_for_event.set_checked(false);
@@ -260,6 +302,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             runtime_info,
             desktop_credential::desktop_client_token,
+            desktop_credential::assistant_client_token,
+            assistant_view,
+            assistant_entry,
             spawn_runtime,
             sync_tray_dnd,
             interaction::update_hit_map

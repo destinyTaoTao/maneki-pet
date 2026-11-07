@@ -1,6 +1,6 @@
 # dsh 基础插件（Windows）
 
-`0.2.0` 在已有状态观察上增加共享助手的连接、原生配对、显示与退出入口。命令通过 dsh `0.2.1-rc.5` 的人类命令注册表处理，不发送给模型；插件只取得本 profile 的 `express` 客户端凭证，不读取 root。
+`0.3.0` 在连接、原生配对、显示与退出入口上增加文字助手入口。命令通过 dsh `0.2.1-rc.5` 的人类命令注册表处理，不发送给模型；插件只取得本 profile 的 `express` 客户端凭证，不读取 root 或个人助理凭证。
 
 ## 安装与配对
 
@@ -11,7 +11,7 @@
 ```powershell
 pnpm -r build
 pnpm --filter @maneki-pet/dsh-plugin pack --pack-destination C:/maneki-lab
-dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.2.0.tgz
+dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.3.0.tgz
 ```
 
 重启 `dsh web`，然后在 dsh 输入 `/maneki pair`，检查原生确认框中的 profile 与权限后手动同意。首次连接只会启动已安装 Runtime 并提示配对，不自动授权；已配对时后续启动可复用凭证。撤销或损坏凭证不会静默重配，须由受信管理入口核查并显式移除对应的 `runtime/dsh-client-<profileId>.json` 后再配对。
@@ -22,6 +22,7 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.2.0.tgz
 | `/maneki connect` | 启动或连接同一 Runtime，复用已授权凭证 |
 | `/maneki pair` | 原生确认后，为当前 profile 单独授予状态表达权限 |
 | `/maneki show` | 启动或显示同一只桌宠，不重复创建窗口 |
+| `/maneki assistant` | 打开同一桌面窗口中的文字对话、个人待办、提醒和全局设置面板；不把个人凭证交给 dsh |
 | `/maneki quit` | 原生确认后停止助理后台并关闭桌宠；不取消外部 dsh 任务 |
 
 本地 profile 的 `cordis.patch.yml` 可覆盖接入选项：
@@ -33,7 +34,7 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.2.0.tgz
     showOnConnect: true
 ```
 
-其他 profile 请配置不同的 `profileId`（1–64 位字母、数字、下划线或连字符，Windows 不区分大小写），以分别配对和撤销；助手 Runtime 与数据库仍共享。相同 ID 视为同一个接入客户端。`showOnConnect` 默认开启，只在连接成功后请求显示。不同项目不要覆盖个人助手的隐私、语音或勿扰偏好，本轮尚未提供助手全局设置面板。
+其他 profile 请配置不同的 `profileId`（1–64 位字母、数字、下划线或连字符，Windows 不区分大小写），以分别配对和撤销；助手 Runtime 与数据库仍共享。相同 ID 视为同一个接入客户端。`showOnConnect` 默认开启，只在连接成功后请求显示。不同项目不要覆盖个人助手的隐私、语音或勿扰偏好。当前全局设置通过 `/maneki assistant` 打开；尚未嵌入 dsh 设置页面。
 
 关闭 dsh、卸载插件或托盘“关闭桌宠（后台继续）”只断开视图，Runtime 保留；明确“退出助理”才停止后台。当前插件执行 quit 后不会自行再启动，需显式 connect/show；宿主重新启动/插件重新启用会按上述启动配置连接。缺安装、身份不符、配对失败等情况明确降级，dsh 继续运行。
 
@@ -43,7 +44,9 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.2.0.tgz
 
 在 dsh 原生界面创建任务，小招随真实宿主事件显示工作、思考、等待、完成或出错。多个会话同时工作时，一个会话完成不会覆盖其他工作；完成/出错动画在 3 秒后结束，插件退出或失联最迟 15 秒回到其他有效来源的状态或待机。
 
-业务能力仍只观察。任务派发、补充输入、取消和操作审批在 dsh 原生界面进行；反向派发保持关闭，聊天、语音和待办提醒尚未启用。没有 overlay 或完整结果恢复承诺。插件重载期间已有工作的状态要等下一条宿主事件才重新建立，不能把待机当作任务已结束。
+宿主工程能力仍只观察。任务派发、补充输入、取消和操作审批在 dsh 原生界面进行；反向派发保持关闭。文字聊天和个人待办提醒由独立 Runtime 提供，语音尚未启用；默认模型关闭，模型地址、密钥与自身云端授权需在助手设置中显式配置，不复用 dsh 密钥。没有 overlay 或完整工程结果恢复承诺。插件重载期间已有工作的状态要等下一条宿主事件才重新建立，不能把待机当作任务已结束。
+
+`0.3.0` 需同时更新桌面与 Runtime：个人数据接口新增独立 scope，数据库 v3 先备份再迁移至 v4，旧 Runtime 拒绝新库。撤销的 `assistant-client.json` 不自动重新签发。真实云模型、安装器与平台边界见[文字助理验收记录](../../docs/audits/2026-11-07-text-assistant-reminders.md)。
 
 已验证宿主：Windows、Node 24、dsh `0.2.1-rc.5`。其他版本与 macOS/Linux 未验证。无需语音、LLM Provider 或外部记忆配置；dsh 自身模型配置和数据去向独立于 Maneki。
 

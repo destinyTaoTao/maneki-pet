@@ -6,7 +6,7 @@ export const uiText = {
   closeSettings: "收起设置",
   petControls: "小招交互入口",
   messagePlaceholder: "和小招说句话…",
-  messageInput: "文字草稿（发送尚未启用）",
+  messageInput: "输入文字，回车打开助手",
   notEnabled: "未启用",
   textUnavailable: "文字对话尚未启用，草稿仅保留在当前窗口，不会发送",
   voiceUnavailable: "语音尚未启用，不会采集麦克风",

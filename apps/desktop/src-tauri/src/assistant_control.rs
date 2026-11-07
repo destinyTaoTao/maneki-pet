@@ -84,10 +84,10 @@ pub fn register_installation() -> Result<(), String> {
     result
 }
 
-fn launch_view(close: bool) -> Result<(), String> {
+fn launch_view(flag: &str) -> Result<(), String> {
     let mut command = Command::new(executable()?);
     command
-        .arg(if close { "--close-view" } else { "--show" })
+        .arg(flag)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -190,7 +190,7 @@ pub fn dispatch_cli() -> bool {
             register_installation()?;
             return Ok(serde_json::json!({"registered": true}));
         }
-        if !["connect", "pair", "status", "show", "quit"].contains(&action) {
+        if !["connect", "pair", "status", "show", "assistant", "quit"].contains(&action) {
             return Err("invalid_config".into());
         }
         let result = authorized_action(
@@ -200,10 +200,13 @@ pub fn dispatch_cli() -> bool {
             || helper(action, client),
         )?;
         if action == "show" {
-            launch_view(false)?;
+            launch_view("--show")?;
         }
         if action == "quit" {
-            launch_view(true)?;
+            launch_view("--close-view")?;
+        }
+        if action == "assistant" {
+            launch_view("--assistant-view")?;
         }
         Ok(result)
     })();
