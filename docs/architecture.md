@@ -642,6 +642,15 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 - ASR JSON 最多 256 KiB、TTS JSON 最多 64 KiB、WAV 最多 2 MiB，必须通过已有 PCM WAV 校验。错误只用固定分类，不回传服务商正文/密钥/URL。组件检查不发在线探测或计费请求，云端仅展示本地配置状态，不能冒充真实账号可用。
 - 验收先覆盖官方协议替身、云端关闭时零请求、独立密钥/兼容保存、取消超时、迟到结果、下载白名单/无凭证/大小与格式；真实账号计费、北京地域可用性、准确率、设备和延迟继续人工验收。未获真实服务凭证时不宣称云端实测通过。
 
+### 6.6 提醒查看确认与失败重试（2026-11-08，待实现验收）
+
+- 个人助理提醒保留原 status（pending/sending/accepted/failed/cancelled），增加 `seenAt: number | null`，表示用户在提醒清单明确点击“我已查看”的 UTC 时间，不因打开面板、OS 受理或通知点击推定。该操作不完成待办、不抹去通知失败事实；只允许 accepted / failed，重复请求按既有 client/requestId 去重。
+- 在既有 `POST /v1/assistant/mutations` 增加 `reminder.ack` / `reminder.retry`，只接受 requestId、action、id、version，沿用 assistant scope、版本检查、事务与私有变更事件。dsh express 凭证、MCP 输出和模型回复不能调用个人变更；不新增隐式语音/文本批量命令。
+- `reminder.retry` 仅允许 failed，关联待办仍须存在且未完成。用户明确点击后恢复 pending，清空 code / seenAt / 旧 deliveryId，保留原 remindAt、时区、文案和累计 attempts；新尝试生成新通知批次，仍受勿扰/预算限制。不会自动重投 failed / accepted，不能绕过勿扰，结果未知或 sending 时拒绝创建另一尝试。重试可能重复先前已被 OS 受理但未记账的通知，面板明确提示此边界。
+- SQLite v5 → v6：先生成 `runtime.db.bak-5`，事务增加 nullable seen_at 列；旧数据默认未确认，既有通知批次、历史、语音设置和密钥引用不变。旧 Runtime 拒绝 v6；桌面与 Runtime 同步更新，回退先停止后台并显式恢复对应备份。Core 类型新增可选 seenAt 以兼容旧调用者，正式 API 返回 null 或时间。
+- 调度错误不能形成到期项 1 ms 空转：存储/记账异常后至少等待 30 秒再自动扫描，保留 sending 与稳定批次供重启对账。未确认的外部投递结果不伪报失败或立即再投；正常到期仍按最近时间唤醒，恢复/时钟改变由既有最多 30 秒扫描补捞，真实休眠与系统时钟操作另验。
+- 验证涵盖 schema 备份/回滚、客户端幂等/版本竞争、禁止额外变更参数、失败重试与勿扰/待办完成、存储故障退避、原批次恢复、虚拟时钟前后跳与暂停后扫描；真实 OS 通知、设备、长期与 p95 证据分别记录，不把模拟时钟等同于真实休眠验收。
+
 ## 7. 安全与信任边界
 
 ### 7.1 本地服务与宿主
