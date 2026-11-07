@@ -621,7 +621,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证；真实设备、权限、准确率、长时稳定性及其他平台仍待验收，见[记录](./audits/2026-11-07-push-to-talk-voice.md)。配置与安装步骤见[语音说明](./voice.md)。
 
 - 近期仍仅 dsh；`/maneki assistant` 进入同一桌面面板，面板提供按住按钮或在该按钮聚焦时按住空格/Enter。松开结束采集并转写、成功后提交同一 chat 入口；失焦、隐藏、取消、权限等待期间松开、设备拒绝或空音频均不提交。桌宠麦克风按钮只打开此入口，不隐式开始录音。不注册全局热键、常驻监听、唤醒或连续对话。
-- 设置增加独立 `voice`：`microphoneEnabled`、`asr.enabled` 与 `tts.enabled` 默认 false；ASR 语言仅 zh/en/auto，TTS 可选系统已安装的 voiceId。未包含 voice 的旧设置读取/保存保留已有值，schemaVersion 仍为 1，新增字段为兼容扩展；项目与 dsh 不能覆盖这些全局设置。ASR/TTS 本轮均无云端实现；对话模型的原有启用与云端授权不变。
+- 设置增加独立 `voice`：`microphoneEnabled`、`asr.enabled` 与 `tts.enabled` 默认 false；ASR 语言仅 zh/en/auto，本地 TTS 可选系统已安装的 voiceId。未包含 voice 的旧设置读取/保存保留已有值，schemaVersion 仍为 1，新增字段为兼容扩展；项目与 dsh 不能覆盖这些全局设置。本节记录本地首版；后续可选百炼接入见 §6.5，对话模型的原有启用与云端授权不变。
 - Core 增加 `AudioData`、`SpeechRecognizer`、`SpeechSynthesizer` 端口及单 owner 语音租约规则。Runtime 通过 `POST /v1/assistant/voice/acquire|renew|release|cancel` 管理 capture/playback；租约绑定客户端、随机 ID、会话 epoch 与设置版本，8 秒到期、约 2 秒续租，客户端用单调时钟在本地截止时主动停止设备。其他 owner 未释放/过期前不抢占。Runtime 留存无音频的活跃标识，崩溃重启后保守隔离 8 秒，防止旧客户端仍在采集时授予新 owner。
 - `POST /voice/transcribe` 接收 leaseId、requestId 和 base64 WAV；仅此路由允许至 1,400,000 字节 JSON。音频须为规范单声道 16 kHz/16-bit PCM WAV、0.3–30 秒、最多 960044 字节，并经过基本能量筛选；这不是完整 VAD 或回声消除。接收完成后再次鉴权。转写后重新检查权限、租约、设置与 epoch，返回非空候选文字，再由下述 submit 进入现有 chat 事务；模型/播报/其他 profile 不可提供候选识别文本来冒充本次采集。
 - 转写与提交分为两个自动步骤：transcribe 仅返回 `recognized`，候选文字暂存 Runtime 内存；当前按键轮次仍有效的 Shell 随后自动调用 `POST /voice/submit {leaseId,requestId}`，Runtime 再校验并提交现有 chat 事务，不增加人类二次确认。这样失联/取消后迟到的 ASR 本身不能创建事项。submit 不接受文字或音频替换，结果未知时只按同 ID 查询，不换 ID 重试；未提交候选在取消、租约失效、清空或重启时丢弃。
@@ -632,10 +632,10 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 - 半双工：按键开始前停止已有播放；麦克风关闭后才允许合成/播放，客户端 lease 过期、WS 断线、设置关闭、页面隐藏、清空、取消时立即停止采集/播放并释放。TTS 仅朗读本客户端主动请求的结果或明确点击的已有回复，不自动播报全部历史/其他 profile 结果/主动提醒；输出关闭绝不播放，勿扰不拦用户主动按键。浏览器播放被拒绝时保留文字且不自动重试。
 - Shell 通过 AudioWorklet 在内存采集、结束后重采样/编码 WAV，结束即释放 MediaStream、AudioContext 与对象 URL；Runtime 不持久化原始音频。有限租约约束失联客户端，不能承诺阻止不受信程序直接使用设备。接口新增须同步桌面与 Runtime；旧观察插件仍仅 express，语音不开放工程派发或代批。
 
-### 6.5 可选百炼在线语音 v1（2026-11-07，#60；待实现验收）
+### 6.5 可选百炼在线语音 v1（2026-11-07，#60；代码与协议替身验收）
 
 - 继续仅适配 dsh，沿用 §6.4 的按键、租约、两步提交和业务入口。ASR/TTS 各增加 `provider: local | bailian`，默认 local；`voice.bailian` 保存 workspaceId（可空）、asrModel（默认 qwen3-asr-flash）、ttsModel（默认 qwen3-tts-flash）、voiceId（默认 Cherry）。首轮只支持百炼北京地域，不增加任意服务 URL、跨地域或全双工。
-- `PUT /settings` 增加可选 `speechApiKey`，未提供保留、空字符串删除。独立密钥文件仅 Runtime 读取，不复用对话模型/dsh 密钥；设置响应只返回 `voice.apiKeyConfigured`，不返回密钥或文件引用。旧配置/旧客户端缺新增语音字段时默认或保留原值，schemaVersion 1 / SQLite v5 不变；桌面与 Runtime 同步更新。
+- `PUT /settings` 增加可选 `speechApiKey`，未提供保留、空字符串删除。独立密钥文件仅 Runtime 读取，不复用对话模型/dsh 密钥；设置响应只返回 `voice.apiKeyConfigured`，不返回密钥或文件引用。旧配置/旧客户端缺新增语音字段时默认或保留原值，schemaVersion 1 / SQLite v5 不变；桌面与 Runtime 同步更新。此兼容不包括旧 Runtime 读取新增字段；更新前停止后台并备份数据库，回退旧 Runtime 时恢复更新前备份。
 - 选择云端、启用对应 ASR/TTS、全局 cloudEnabled 和独立语音密钥均满足后才可调用；输入还需 microphoneEnabled。每次调用检查，关闭/更换设置立即取消在途、隔离迟到结果；不自动尝试本地或其他服务商。设置明确说明 ASR 上传本段录音、TTS 上传本段回复文字和可能计费，不上传会话历史、项目上下文或待办列表。最多 30 秒 / 150 字，不作真实金额封顶承诺，不开放主动收费播报。
 - 百炼协议依据官方 [Qwen-ASR](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference) 与 [Qwen-TTS](https://help.aliyun.com/zh/model-studio/qwen-tts-api)（2026-11-07 核验）：ASR 调用 `/compatible-mode/v1/chat/completions`，仅一条 input_audio 的 WAV Data URI、非流式、按语言设置 asr_options，完整 stop 才接收文本；TTS 调用 `/api/v1/services/aigc/multimodal-generation/generation`，仅本次 text、音色与 Auto 语言，不附历史。
 - 两个 API 固定为 `https://dashscope.aliyuncs.com`，或显式 workspaceId 的 `https://<id>.cn-beijing.maas.aliyuncs.com`。TTS 返回 WAV 下载仅接受 `dashscope-result-bj.oss-cn-beijing.aliyuncs.com` 的默认端口、无用户信息链接，官方示例的 HTTP URL 在本地先升级 HTTPS，绝不发明文请求；不接受任意 URL。API 密钥绝不随下载请求传出；签名 URL 不回显、不日志记录。全部请求禁止重定向、无自动重试，取消/超时覆盖 API、响应体与下载全过程。

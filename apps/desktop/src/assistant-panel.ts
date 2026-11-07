@@ -9,7 +9,7 @@ import {
 import { assistantText as t } from "./assistant-text.js";
 import * as runtime from "./runtime-client.js";
 import "./assistant.css";
-import { defaultVoiceSettings } from "@maneki-pet/core";
+import { defaultVoiceSettings, defaultBailianSettings } from "@maneki-pet/core";
 import { VoiceController } from "./voice-controller.js";
 import { BrowserVoiceCapture, BrowserVoicePlayer } from "./voice-media.js";
 
@@ -326,8 +326,7 @@ export function createAssistantPanel(
         const request = ownRequest;
         ownRequest = undefined;
         await voice.cancel(true);
-        if (request)
-          await assistantCall(token!, `/chat/${request}/cancel`, {});
+        if (request) await assistantCall(token!, `/chat/${request}/cancel`, {});
         await refresh();
       }),
   );
@@ -635,6 +634,32 @@ export function createAssistantPanel(
       language = el("select"),
       voiceId = input(t.voiceId, "text", voiceSettings.tts.voiceId),
       availability = el("p");
+    const online = voiceSettings.bailian ?? defaultBailianSettings();
+    const asrProvider = el("select"),
+      ttsProvider = el("select"),
+      asrProviderLabel = el("label", t.asrProvider),
+      ttsProviderLabel = el("label", t.ttsProvider);
+    for (const select of [asrProvider, ttsProvider])
+      select.append(
+        new Option(t.voiceLocal, "local"),
+        new Option(t.voiceBailian, "bailian"),
+      );
+    asrProvider.value = voiceSettings.asr.provider ?? "local";
+    ttsProvider.value = voiceSettings.tts.provider ?? "local";
+    asrProviderLabel.append(asrProvider);
+    ttsProviderLabel.append(ttsProvider);
+    const workspace = input(t.voiceWorkspace, "text", online.workspaceId),
+      asrModel = input(t.voiceAsrModel, "text", online.asrModel),
+      ttsModel = input(t.voiceTtsModel, "text", online.ttsModel),
+      onlineVoice = input(t.voiceOnlineVoice, "text", online.voiceId),
+      speechKey = input(t.voiceApiKey, "password"),
+      removeSpeechKey = check(t.voiceRemoveKey, false);
+    workspace.input.maxLength = 64;
+    asrModel.input.maxLength = 120;
+    ttsModel.input.maxLength = 120;
+    onlineVoice.input.maxLength = 80;
+    speechKey.input.maxLength = 1000;
+    speechKey.input.autocomplete = "new-password";
     language.append(
       new Option("中文", "zh"),
       new Option("English", "en"),
@@ -651,8 +676,9 @@ export function createAssistantPanel(
             asrAvailable: boolean;
             ttsAvailable: boolean;
             voices: Array<{ id: string; culture: string }>;
+            configurationOnly?: boolean;
           }>(token!, "/voice/status");
-          availability.textContent = `ASR ${status.asrAvailable ? t.voiceReady : t.voiceMissing} · TTS ${status.ttsAvailable ? t.voiceReady : t.voiceMissing}\n${status.voices.map((v) => `${v.id} (${v.culture})`).join("\n")}`;
+          availability.textContent = `ASR ${status.asrAvailable ? (status.configurationOnly ? t.voiceConfigured : t.voiceReady) : t.voiceMissing} · TTS ${status.ttsAvailable ? (status.configurationOnly ? t.voiceConfigured : t.voiceReady) : t.voiceMissing}\n${status.voices.map((v) => `${v.id} (${v.culture})`).join("\n")}${status.configurationOnly ? `\n${t.voiceNoProbe}` : ""}`;
         }),
     );
     locality.append(
@@ -701,10 +727,21 @@ export function createAssistantPanel(
       el("h3", t.voiceSettings),
       microphone.label,
       asr.label,
+      asrProviderLabel,
       languageLabel,
       tts.label,
+      ttsProviderLabel,
       voiceId.label,
       el("p", t.voiceInstall),
+      el("h3", t.voiceBailian),
+      el("p", t.voiceCloudDisclosure),
+      workspace.label,
+      asrModel.label,
+      ttsModel.label,
+      onlineVoice.label,
+      speechKey.label,
+      el("small", settings.voice?.apiKeyConfigured ? t.keySaved : t.keyEmpty),
+      removeSpeechKey.label,
       detect,
       availability,
       save,
@@ -734,8 +771,22 @@ export function createAssistantPanel(
           cloudEnabled: cloud.input.checked,
           voice: {
             microphoneEnabled: microphone.input.checked,
-            asr: { enabled: asr.input.checked, language: language.value },
-            tts: { enabled: tts.input.checked, voiceId: voiceId.input.value },
+            asr: {
+              enabled: asr.input.checked,
+              language: language.value,
+              provider: asrProvider.value,
+            },
+            tts: {
+              enabled: tts.input.checked,
+              voiceId: voiceId.input.value,
+              provider: ttsProvider.value,
+            },
+            bailian: {
+              workspaceId: workspace.input.value,
+              asrModel: asrModel.input.value,
+              ttsModel: ttsModel.input.value,
+              voiceId: onlineVoice.input.value,
+            },
           },
           chat: {
             enabled: enabled.input.checked,
@@ -750,6 +801,11 @@ export function createAssistantPanel(
             : key.input.value
               ? { apiKey: key.input.value }
               : {}),
+          ...(removeSpeechKey.input.checked
+            ? { speechApiKey: "" }
+            : speechKey.input.value
+              ? { speechApiKey: speechKey.input.value }
+              : {}),
         };
         save.disabled = true;
         try {
@@ -761,6 +817,7 @@ export function createAssistantPanel(
             "PUT",
           );
           key.input.value = "";
+          speechKey.input.value = "";
           settingsDirty = false;
           await refresh();
           renderSettings();

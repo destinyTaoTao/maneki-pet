@@ -5,12 +5,14 @@ import {
   VOICE_LEASE_MS,
   validCaptureWave,
   pcmWaveInfo,
+  defaultBailianSettings,
   type SpeechRecognizer,
   type SpeechSynthesizer,
   type VoiceOwner,
 } from "@maneki-pet/core";
 import {
   AssistantError,
+  readSpeechKey,
   type AssistantSettings,
 } from "./assistant-settings.js";
 import type { AssistantStore } from "./assistant-store.js";
@@ -18,6 +20,7 @@ import type { EventFeed } from "./events.js";
 import { WhisperRecognizer } from "./whisper-recognizer.js";
 import { WindowsSynthesizer } from "./windows-synthesizer.js";
 import { validateObject } from "./validate.js";
+import { BailianRecognizer, BailianSynthesizer } from "./bailian-speech.js";
 export interface VoiceProviders {
   recognizer?: (language: "zh" | "en" | "auto") => SpeechRecognizer;
   synthesizer?: SpeechSynthesizer;
@@ -63,6 +66,13 @@ export class VoiceService {
         : 0;
   }
   private recognizer() {
+    const settings = this.deps.settings();
+    if (!this.deps.recognizer && settings.voice.asr.provider === "bailian")
+      return new BailianRecognizer(
+        settings.voice.bailian ?? defaultBailianSettings(),
+        this.cloudKey(),
+        settings.voice.asr.language,
+      );
     return (
       this.deps.recognizer?.(this.deps.settings().voice.asr.language) ??
       new WhisperRecognizer(
@@ -72,14 +82,32 @@ export class VoiceService {
     );
   }
   private synthesizer() {
+    const settings = this.deps.settings();
+    if (!this.deps.synthesizer && settings.voice.tts.provider === "bailian")
+      return new BailianSynthesizer(
+        settings.voice.bailian ?? defaultBailianSettings(),
+        this.cloudKey(),
+      );
     return this.deps.synthesizer ?? new WindowsSynthesizer();
   }
+  private cloudKey() {
+    if (!this.deps.settings().cloudEnabled)
+      throw new AssistantError(403, "cloud_disabled");
+    const key = readSpeechKey(this.deps.configDir, this.deps.settings());
+    if (!key) throw new AssistantError(503, "speech_key_missing");
+    return key;
+  }
   async status() {
-    const recognizer = this.recognizer();
+    let asrAvailable = false;
+    try {
+      const recognizer = this.recognizer();
+      asrAvailable =
+        !(recognizer instanceof WhisperRecognizer) || recognizer.ready();
+    } catch {}
     let voices: Array<{ id: string; culture: string }> = [],
       ttsAvailable = false;
-    const synth = this.synthesizer();
     try {
+      const synth = this.synthesizer();
       voices =
         synth instanceof WindowsSynthesizer
           ? await synth.voices({
@@ -91,11 +119,12 @@ export class VoiceService {
       ttsAvailable = true;
     } catch {}
     return {
-      asrAvailable: this.deps.recognizer
-        ? true
-        : recognizer instanceof WhisperRecognizer && recognizer.ready(),
+      asrAvailable,
       ttsAvailable,
       voices,
+      configurationOnly:
+        this.deps.settings().voice.asr.provider === "bailian" ||
+        this.deps.settings().voice.tts.provider === "bailian",
     };
   }
   private enabled(kind: VoiceOwner["kind"]) {
@@ -104,6 +133,11 @@ export class VoiceService {
       throw new AssistantError(403, "microphone_disabled");
     if (kind === "playback" && !voice.tts.enabled)
       throw new AssistantError(403, "speech_output_disabled");
+    if (
+      (kind === "capture" ? voice.asr.provider : voice.tts.provider) ===
+      "bailian"
+    )
+      this.cloudKey();
   }
   private arm() {
     clearTimeout(this.timer);
@@ -455,17 +489,19 @@ export class VoiceService {
         done: Promise.resolve(),
       };
     this.job = job;
-    job.done = this.synthesizer()
-      .synthesize(
-        {
-          text: message.text.slice(0, 150),
-          voiceId: this.deps.settings().voice.tts.voiceId,
-        },
-        {
-          requestId: `speech-${message.seq}`,
-          signal: controller.signal,
-          deadlineAtMs: Date.now() + 15000,
-        },
+    job.done = Promise.resolve()
+      .then(() =>
+        this.synthesizer().synthesize(
+          {
+            text: message.text.slice(0, 150),
+            voiceId: this.deps.settings().voice.tts.voiceId,
+          },
+          {
+            requestId: `speech-${message.seq}`,
+            signal: controller.signal,
+            deadlineAtMs: Date.now() + 15000,
+          },
+        ),
       )
       .finally(() => {
         if (this.job === job) this.job = undefined;

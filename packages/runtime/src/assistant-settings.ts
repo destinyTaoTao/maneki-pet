@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   validTimeZone,
   defaultVoiceSettings,
+  defaultBailianSettings,
   type VoiceSettings,
 } from "@maneki-pet/core";
 import { validateObject } from "./validate.js";
@@ -30,6 +31,7 @@ export interface AssistantSettings {
   persona: string;
   cloudEnabled: boolean;
   voice: VoiceSettings;
+  speechApiKeyRef?: string;
   chat: {
     enabled: boolean;
     locality: "local" | "cloud";
@@ -86,6 +88,11 @@ export function readAssistantSettings(
     )
       throw new Error();
     value.voice = checkedVoice(value.voice ?? defaultVoiceSettings());
+    if (
+      value.speechApiKeyRef !== undefined &&
+      !/^assistant-speech-key-[0-9a-f-]{36}$/.test(value.speechApiKeyRef)
+    )
+      throw new Error();
     return value;
   } catch {
     throw new AssistantError(503, "settings_invalid");
@@ -93,7 +100,29 @@ export function readAssistantSettings(
 }
 export function settingsView(settings: AssistantSettings) {
   const { apiKeyRef: _secret, ...chat } = settings.chat;
-  return { ...settings, chat: { ...chat, apiKeyConfigured: Boolean(_secret) } };
+  const { speechApiKeyRef, ...visible } = settings;
+  return {
+    ...visible,
+    voice: { ...settings.voice, apiKeyConfigured: Boolean(speechApiKeyRef) },
+    chat: { ...chat, apiKeyConfigured: Boolean(_secret) },
+  };
+}
+export function readSpeechKey(
+  dir: string,
+  settings: AssistantSettings,
+): string | undefined {
+  const ref = settings.speechApiKeyRef;
+  if (!ref) return undefined;
+  if (!/^assistant-speech-key-[0-9a-f-]{36}$/.test(ref))
+    throw new AssistantError(503, "key_unavailable");
+  try {
+    if (statSync(join(dir, ref)).size > 1000) throw new Error();
+    const key = readFileSync(join(dir, ref), "utf8");
+    if (!key.trim() || /[\r\n]/.test(key)) throw new Error();
+    return key;
+  } catch {
+    throw new AssistantError(503, "key_unavailable");
+  }
 }
 export function readChatKey(
   dir: string,
@@ -169,11 +198,14 @@ export function saveAssistantSettings(
     persona: { type: "string", required: true, maxLength: 500 },
     cloudEnabled: { type: "boolean", required: true },
     apiKey: { type: "string", required: false, maxLength: 1000 },
+    speechApiKey: { type: "string", required: false, maxLength: 1000 },
   });
   if (
     !checked.ok ||
     !validTimeZone(String(raw.timeZone)) ||
-    (typeof raw.apiKey === "string" && /[\r\n]/.test(raw.apiKey))
+    [raw.apiKey, raw.speechApiKey].some(
+      (key) => typeof key === "string" && /[\r\n]/.test(key),
+    )
   )
     throw new AssistantError(400, "settings_invalid");
   const selected = checkedChat(rawChat);
@@ -186,7 +218,8 @@ export function saveAssistantSettings(
   if (!Number.isSafeInteger(raw.version) || raw.version !== old.version)
     throw new AssistantError(409, "settings_conflict");
   const settings: AssistantSettings = {
-    voice: rawVoice === undefined ? old.voice : checkedVoice(rawVoice),
+    voice:
+      rawVoice === undefined ? old.voice : checkedVoice(rawVoice, old.voice),
     schemaVersion: 1,
     version: old.version + 1,
     timeZone: raw.timeZone as string,
@@ -194,22 +227,35 @@ export function saveAssistantSettings(
     cloudEnabled: raw.cloudEnabled as boolean,
     chat: { ...selected },
   };
-  let created: string | undefined;
-  if (raw.apiKey !== undefined) {
-    const key = String(raw.apiKey).trim();
-    if (key) {
-      created = `assistant-key-${randomUUID()}`;
-      writeFileSync(join(dir, created), key, { mode: 0o600, flag: "wx" });
-      settings.chat.apiKeyRef = created;
-    }
-  } else if (old.chat.apiKeyRef) settings.chat.apiKeyRef = old.chat.apiKeyRef;
+  let created: string | undefined, speechCreated: string | undefined;
   try {
+    if (raw.apiKey !== undefined) {
+      const key = String(raw.apiKey).trim();
+      if (key) {
+        created = `assistant-key-${randomUUID()}`;
+        writeFileSync(join(dir, created), key, { mode: 0o600, flag: "wx" });
+        settings.chat.apiKeyRef = created;
+      }
+    } else if (old.chat.apiKeyRef) settings.chat.apiKeyRef = old.chat.apiKeyRef;
+    if (raw.speechApiKey !== undefined) {
+      const key = String(raw.speechApiKey).trim();
+      if (key) {
+        speechCreated = `assistant-speech-key-${randomUUID()}`;
+        writeFileSync(join(dir, speechCreated), key, {
+          mode: 0o600,
+          flag: "wx",
+        });
+        settings.speechApiKeyRef = speechCreated;
+      }
+    } else if (old.speechApiKeyRef)
+      settings.speechApiKeyRef = old.speechApiKeyRef;
     store.transaction(() => {
       store.set("settings", JSON.stringify(settings));
       store.changed();
     });
   } catch (error) {
     if (created) rmSync(join(dir, created), { force: true });
+    if (speechCreated) rmSync(join(dir, speechCreated), { force: true });
     throw error;
   }
   if (
@@ -219,17 +265,34 @@ export function saveAssistantSettings(
     existsSync(join(dir, old.chat.apiKeyRef))
   )
     rmSync(join(dir, old.chat.apiKeyRef), { force: true });
+  if (
+    old.speechApiKeyRef &&
+    old.speechApiKeyRef !== settings.speechApiKeyRef &&
+    /^assistant-speech-key-[0-9a-f-]{36}$/.test(old.speechApiKeyRef)
+  )
+    rmSync(join(dir, old.speechApiKeyRef), { force: true });
   return settings;
 }
-function checkedVoice(raw: unknown): VoiceSettings {
+function checkedVoice(
+  raw: unknown,
+  old = defaultVoiceSettings(),
+): VoiceSettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
     throw new AssistantError(400, "voice_settings_invalid");
   const value = raw as Record<string, unknown>,
-    { asr, tts, ...flat } = value;
+    { asr, tts, bailian, apiKeyConfigured, ...flat } = value;
+  if (apiKeyConfigured !== undefined && typeof apiKeyConfigured !== "boolean")
+    throw new AssistantError(400, "voice_settings_invalid");
   const checked = validateObject(flat, {
     microphoneEnabled: { type: "boolean", required: true },
   });
   const recognition = validateObject(asr, {
+    provider: {
+      type: "string",
+      required: false,
+      maxLength: 7,
+      enumValues: ["local", "bailian"],
+    },
     enabled: { type: "boolean", required: true },
     language: {
       type: "string",
@@ -239,14 +302,49 @@ function checkedVoice(raw: unknown): VoiceSettings {
     },
   });
   const synthesis = validateObject(tts, {
+    provider: {
+      type: "string",
+      required: false,
+      maxLength: 7,
+      enumValues: ["local", "bailian"],
+    },
     enabled: { type: "boolean", required: true },
     voiceId: { type: "string", required: true, maxLength: 150 },
   });
   if (!checked.ok || !recognition.ok || !synthesis.ok)
     throw new AssistantError(400, "voice_settings_invalid");
+  let config = old.bailian;
+  if (bailian !== undefined) {
+    const online = validateObject(bailian, {
+      workspaceId: { type: "string", required: true, maxLength: 64 },
+      asrModel: { type: "string", required: true, maxLength: 120 },
+      ttsModel: { type: "string", required: true, maxLength: 120 },
+      voiceId: { type: "string", required: true, maxLength: 80 },
+    });
+    if (!online.ok) throw new AssistantError(400, "voice_settings_invalid");
+    config = online.value as NonNullable<VoiceSettings["bailian"]>;
+    if (
+      !/^[A-Za-z0-9-]*$/.test(config.workspaceId) ||
+      ![config.asrModel, config.ttsModel, config.voiceId].every((v) =>
+        /^[A-Za-z0-9._-]+$/.test(v),
+      )
+    )
+      throw new AssistantError(400, "voice_settings_invalid");
+  }
+  const asrProvider = recognition.value.provider ?? old.asr.provider;
+  const ttsProvider = synthesis.value.provider ?? old.tts.provider;
   return {
     microphoneEnabled: checked.value.microphoneEnabled as boolean,
-    asr: recognition.value as VoiceSettings["asr"],
-    tts: synthesis.value as VoiceSettings["tts"],
+    asr: {
+      ...recognition.value,
+      ...(asrProvider ? { provider: asrProvider } : {}),
+    } as VoiceSettings["asr"],
+    tts: {
+      ...synthesis.value,
+      ...(ttsProvider ? { provider: ttsProvider } : {}),
+    } as VoiceSettings["tts"],
+    ...(config || asrProvider === "bailian" || ttsProvider === "bailian"
+      ? { bailian: config ?? defaultBailianSettings() }
+      : {}),
   };
 }

@@ -1,8 +1,28 @@
 import type { CallContext, ProviderInfo } from "./chat-provider.js";
 export interface VoiceSettings {
   microphoneEnabled: boolean;
-  asr: { enabled: boolean; language: "zh" | "en" | "auto" };
-  tts: { enabled: boolean; voiceId: string };
+  asr: {
+    enabled: boolean;
+    language: "zh" | "en" | "auto";
+    provider?: "local" | "bailian";
+  };
+  tts: { enabled: boolean; voiceId: string; provider?: "local" | "bailian" };
+  bailian?: {
+    workspaceId: string;
+    asrModel: string;
+    ttsModel: string;
+    voiceId: string;
+  };
+}
+export function defaultBailianSettings(): NonNullable<
+  VoiceSettings["bailian"]
+> {
+  return {
+    workspaceId: "",
+    asrModel: "qwen3-asr-flash",
+    ttsModel: "qwen3-tts-flash",
+    voiceId: "Cherry",
+  };
 }
 export function defaultVoiceSettings(): VoiceSettings {
   return {

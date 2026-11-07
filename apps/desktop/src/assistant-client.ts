@@ -18,7 +18,7 @@ export interface AssistantSettingsView {
   timeZone: string;
   persona: string;
   cloudEnabled: boolean;
-  voice?: VoiceSettings;
+  voice?: VoiceSettings & { apiKeyConfigured?: boolean };
   chat: {
     enabled: boolean;
     locality: "local" | "cloud";
