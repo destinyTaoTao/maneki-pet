@@ -2,7 +2,13 @@ pub const SHOW: &str = "显示小招";
 pub const DO_NOT_DISTURB: &str = "勿扰";
 pub const ALWAYS_ON_TOP: &str = "保持置顶";
 pub const CLICK_THROUGH: &str = "鼠标穿透（在此恢复）";
-pub const QUIT: &str = "退出小招";
+pub const CLOSE_VIEW: &str = "关闭桌宠（后台继续）";
+pub const QUIT: &str = "退出助理";
+pub const QUIT_CONFIRM: &str =
+    "退出助理将停止后台服务及任务跟踪。外部 dsh 任务可能继续运行，不会被自动取消。\n确定退出吗？";
+pub fn pair_confirm(client: &str) -> String {
+    format!("允许 dsh 配置 {} 连接小招并驱动宠物状态吗？\n仅授予状态表达权限，不包含工程派发、设置或退出权限。", client)
+}
 pub const TOOLTIP: &str = "小招 · Maneki";
 
 pub fn runtime_error(code: &str) -> &'static str {

@@ -1,0 +1,6 @@
+- insert:
+    - id: maneki-observer
+      name: '@maneki-pet/dsh-plugin'
+      config:
+        profileId: web
+        showOnConnect: true

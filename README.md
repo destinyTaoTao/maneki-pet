@@ -22,6 +22,8 @@
 >
 > **2026-11-03 可用增量：** [dsh 状态联动 MVP](./apps/dsh-plugin/README.md) 已通过 Windows 真实 dsh 文字任务验证。任务在 dsh 原生界面操作，小招显示工作、思考、等待和完成等状态；本增量不含反向派发、overlay 或完整交付恢复。需要使用本轮构建的桌面与 Runtime，不能沿用旧安装版。
 
+> **2026-11-07 基础插件增量：** 新增 `/maneki status|connect|pair|show|quit`，通过已登记原生入口连接/启动共享 Runtime、显式配对、显示同一桌宠和退出后台；插件仅持有状态表达凭证。真实 dsh 本地包安装与注册、Windows 发行布局通过验证；原生授权按钮、托盘退出及安装器流程仍待人工验收。需一起更新桌面与 Runtime，未自动替换当前安装版，详见[使用说明](./apps/dsh-plugin/README.md)与[验证边界](./docs/audits/2026-11-07-dsh-plugin-management.md)。
+
 2026-11-04 安全迁移：桌面与 Runtime 须一同更新并重启后台。桌面改由 native 配对，WebView 不再获取 root；修改勿扰需单独 `settings` 权限，旧 `express` 凭证不会自动提权。桌面凭证被撤销后须由受信管理入口重新配对；旧无归属任务不向新客户端开放，先到原 harness 核查。实现与安装验收边界见[记录](./docs/audits/2026-11-04-mvp-reliability-implementation.md)。
 >
 > 抖音发布资格可通过构建后的 `node packages/cli/dist/main.js platform douyin-check` 查看离线诊断；它不核验真实账号、不接受凭证，也不启用发布。
@@ -63,7 +65,7 @@ flowchart TB
   Local --> Core
 ```
 
-实线表示依赖，虚线表示跨进程调用；Shell 不导入 Node 服务实现，Core 不依赖具体 IO。目标是安装一次共享本地 Runtime，桌面与 dsh 插件连接或受控启动它，不要求先打开桌宠 App；基础插件的启动、配对和配置体验仍待补齐。dsh 设置面板与桌宠编辑同一份 Runtime 全局设置，不同 profile 默认共享个人助手，项目配置不能覆盖麦克风、云端授权和勿扰。完整设计见 [docs/architecture.md](./docs/architecture.md)。
+实线表示依赖，虚线表示跨进程调用；Shell 不导入 Node 服务实现，Core 不依赖具体 IO。共享 Runtime 的基础启动/配对/唤起管理已实现，不要求先打开桌宠 App；完整安装与人工确认边界见上方记录。后续 dsh 设置面板与桌宠将编辑同一份 Runtime 全局设置，不同 profile 默认共享个人助手，项目配置不能覆盖麦克风、云端授权和勿扰；本轮未增加该设置面板。完整设计见 [docs/architecture.md](./docs/architecture.md)。
 
 ## 🔌 接入方式（三种运行形态）
 

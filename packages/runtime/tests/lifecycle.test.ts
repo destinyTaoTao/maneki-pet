@@ -21,6 +21,13 @@ afterEach(() => {
 });
 
 describe("InstanceLock 单实例锁", () => {
+  it("刚创建或损坏的锁不能在未核实持有者时被另一个入口删除", () => {
+    const path = join(makeTempDir(), "runtime.lock");
+    writeFileSync(path, "");
+    expect(() => new InstanceLock(path).acquire()).toThrow("unverified owner");
+    writeFileSync(path, JSON.stringify({ pid: "invalid", heldSince: "now" }));
+    expect(() => new InstanceLock(path).acquire()).toThrow("unverified owner");
+  });
   it("首次获取成功，重复获取被拒绝并报告存活持有者", () => {
     const lockPath = join(makeTempDir(), "runtime.lock");
     const first = new InstanceLock(lockPath);

@@ -1,3 +1,4 @@
+mod assistant_control;
 mod desktop_credential;
 mod interaction;
 mod ui_text;
@@ -25,8 +26,7 @@ struct NativeSettings {
 }
 
 struct SharedSettings(Mutex<NativeSettings>);
-/// 持有 sidecar 子进程：stdin 管道保持打开（MCP 桥等待客户端），
-/// Shell 退出时不杀 Runtime（关闭窗口只断开客户端，后台继续跟踪）。
+/// 保留启动进程句柄；后台模式不依赖 stdin，关闭桌宠不终止 Runtime。
 struct RuntimeChild(Mutex<Option<Child>>);
 struct TrayDndItem(Mutex<Option<CheckMenuItem<tauri::Wry>>>);
 
@@ -38,6 +38,12 @@ fn with_settings<R>(app: &AppHandle, apply: impl FnOnce(&mut NativeSettings) -> 
 }
 
 fn runtime_config_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    let dir = {
+        let _ = app;
+        assistant_control::config_dir()?
+    };
+    #[cfg(not(windows))]
     let dir = app
         .path()
         .app_data_dir()
@@ -72,17 +78,23 @@ fn spawn_runtime_child(app: &AppHandle) -> Result<(), String> {
         .arg(RUNTIME_PORT.to_string())
         .arg("--origin-allowlist")
         .arg("http://tauri.localhost")
+        .arg("--background")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .stdin(Stdio::piped());
+        .stdin(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let child = cmd.spawn().map_err(|e| format!("spawn runtime failed: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("spawn runtime failed: {e}"))?;
     let runtime_state = app.state::<RuntimeChild>();
-    let mut state = runtime_state.0.lock().expect("runtime child mutex poisoned");
+    let mut state = runtime_state
+        .0
+        .lock()
+        .expect("runtime child mutex poisoned");
     if let Some(existing) = state.as_mut() {
         // 理论上不发生（锁保证单实例）；释放旧 stdin 管道防句柄泄漏。
         let _ = existing.stdin.take();
@@ -128,7 +140,22 @@ fn sync_tray_dnd(app: AppHandle, enabled: bool) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if assistant_control::dispatch_cli() {
+        return;
+    }
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if args.iter().any(|arg| arg == "--close-view") {
+                app.exit(0);
+                return;
+            }
+            with_settings(app, |settings| settings.click_through = false);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = window.emit("maneki://show-controls", ());
+            }
+        }))
         .manage(SharedSettings(Mutex::new(NativeSettings {
             always_on_top: true,
             ..NativeSettings::default()
@@ -137,6 +164,11 @@ pub fn run() {
         .manage(TrayDndItem(Mutex::new(None)))
         .manage(interaction::InteractionState::default())
         .setup(|app| {
+            if std::env::args().any(|arg| arg == "--close-view") {
+                app.handle().exit(0);
+                return Ok(());
+            }
+            let _ = assistant_control::register_installation();
             let _ = spawn_runtime_child(app.handle());
             let show = MenuItem::with_id(app, "show", ui_text::SHOW, true, None::<&str>)?;
             let dnd = CheckMenuItem::with_id(
@@ -164,8 +196,11 @@ pub fn run() {
                 None::<&str>,
             )?;
             let quit = MenuItem::with_id(app, "quit", ui_text::QUIT, true, None::<&str>)?;
-            let menu =
-                Menu::with_items(app, &[&show, &dnd, &always_on_top, &click_through, &quit])?;
+            let close = MenuItem::with_id(app, "close", ui_text::CLOSE_VIEW, true, None::<&str>)?;
+            let menu = Menu::with_items(
+                app,
+                &[&show, &dnd, &always_on_top, &click_through, &close, &quit],
+            )?;
             let dnd_for_event = dnd.clone();
             let always_on_top_for_event = always_on_top.clone();
             let click_through_for_event = click_through.clone();
@@ -214,7 +249,8 @@ pub fn run() {
                         });
                         let _ = click_through_for_event.set_checked(enabled);
                     }
-                    "quit" => app.exit(0),
+                    "close" => app.exit(0),
+                    "quit" => assistant_control::quit_from_tray(app.clone()),
                     _ => {}
                 })
                 .build(app)?;

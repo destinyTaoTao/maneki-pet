@@ -52,6 +52,8 @@ export class InstanceLock {
   acquire(): void {
     if (existsSync(this.lockPath)) {
       const holder = this.readHolder();
+      // 另一个进程可能刚以 wx 创建、尚未写完；不能把空/损坏锁当死进程删除。
+      if (!holder) throw new Error("instance lock metadata unavailable; refusing to replace an unverified owner");
       if (holder && isPidAlive(holder.pid)) {
         throw new LockBusyError(holder);
       }
@@ -66,6 +68,7 @@ export class InstanceLock {
     } catch (error) {
       if (isEexist(error)) {
         const holder = this.readHolder();
+        if (!holder) throw new Error("instance lock metadata unavailable; refusing to replace an unverified owner");
         if (holder && isPidAlive(holder.pid)) {
           throw new LockBusyError(holder);
         }
@@ -84,7 +87,8 @@ export class InstanceLock {
 
   private readHolder(): LockHolder | null {
     try {
-      return JSON.parse(readFileSync(this.lockPath, "utf8")) as LockHolder;
+      const holder = JSON.parse(readFileSync(this.lockPath, "utf8")) as Partial<LockHolder> | null;
+      return holder && typeof holder.pid === "number" && Number.isSafeInteger(holder.pid) && holder.pid > 0 && typeof holder.heldSince === "string" ? holder as LockHolder : null;
     } catch {
       return null;
     }

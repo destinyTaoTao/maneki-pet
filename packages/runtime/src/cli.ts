@@ -17,7 +17,19 @@ if (!configDir) {
 
 const portArg = argValue("--port");
 const originArg = argValue("--origin-allowlist");
-if (process.argv.includes("--desktop-credential")) {
+const management = argValue("--assistant-manager");
+if (management) {
+  try {
+    const { manageAssistant, assistantActions } = await import("./assistant-manager.js");
+    const action = assistantActions.find((item) => item === management);
+    if (!action) throw new Error("invalid action");
+    process.stdout.write(JSON.stringify(await manageAssistant(configDir, Number(portArg), process.argv[1]!, action, argValue("--client") ?? "web")));
+  } catch (error) {
+    const { DesktopCredentialError } = await import("./admin-session.js");
+    process.stdout.write(JSON.stringify({ error: error instanceof DesktopCredentialError ? error.code : "invalid_config" }));
+    process.exitCode = 1;
+  }
+} else if (process.argv.includes("--desktop-credential")) {
   try {
     const { desktopCredential } = await import("./desktop-credential.js");
     process.stdout.write(JSON.stringify(await desktopCredential(configDir, Number(portArg))));
@@ -39,7 +51,7 @@ if (process.argv.includes("--desktop-credential")) {
     log,
   });
 
-  await runtime.startMcpStdioBridge();
+  if (!process.argv.includes("--background")) await runtime.startMcpStdioBridge();
 
   let stopping = false;
   const shutdown = (signal: string): void => {
