@@ -13,9 +13,22 @@ const tempDirs: string[] = [];
 async function makeRuntime(originAllowlist: string[] = []): Promise<{ runtime: StartedRuntime; base: string }> {
   const dir = mkdtempSync(join(tmpdir(), "maneki-rt-http-"));
   tempDirs.push(dir);
-  const runtime = await startRuntime({ configDir: dir, originAllowlist, log: () => undefined });
-  runtimes.push(runtime);
-  return { runtime, base: `http://127.0.0.1:${runtime.port}` };
+  // OS 随机分配的端口可能被 WHATWG fetch 禁止；仅对 bad port 重选，
+  // 不重试服务失败或业务断言，也不改变正式应用的固定端口。
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const runtime = await startRuntime({ configDir: dir, originAllowlist, log: () => undefined });
+    runtimes.push(runtime);
+    const base = `http://127.0.0.1:${runtime.port}`;
+    try {
+      const probe = await fetch(`${base}/v1/health`);
+      await probe.body?.cancel();
+      return { runtime, base };
+    } catch (error) {
+      if (!(error instanceof Error) || !(error.cause instanceof Error) || error.cause.message !== "bad port") throw error;
+      await runtime.stop();
+    }
+  }
+  throw new Error("Cannot allocate a fetch-compatible test port");
 }
 
 async function jsonFetch(
