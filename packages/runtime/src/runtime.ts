@@ -16,6 +16,7 @@ import { McpMemoryClient } from "./mcp-memory-client.js";
 import { loadRuntimeConfig, NotificationBudget } from "./quota.js";
 import { RuntimeStore } from "./store.js";
 import { TaskService } from "./task-service.js";
+import { RELEASE_VERSION } from "./release-version.js";
 import { WsHub } from "./ws.js";
 
 export interface RuntimeOptions {
@@ -161,7 +162,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       tickets,
       originAllowlist: options.originAllowlist ?? [],
       instanceId,
-      version: options.version ?? "0.1.0",
+      version: options.version ?? RELEASE_VERSION,
       rootToken: root.token,
       config,
       quotaPolicy,

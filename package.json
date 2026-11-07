@@ -1,6 +1,10 @@
 {
   "name": "maneki-pet",
   "private": true,
+  "scripts": {
+    "release:windows": "node scripts/release-windows.mjs",
+    "acceptance:windows": "node scripts/acceptance-windows.mjs"
+  },
   "packageManager": "pnpm@12.16.1",
   "engines": {
     "node": ">=22"

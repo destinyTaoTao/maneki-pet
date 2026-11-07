@@ -6,22 +6,44 @@
  * 均为可重建产物，不入库（.gitignore）。
  */
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 const runtimeRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const desktopTauri = join(runtimeRoot, "..", "..", "apps", "desktop", "src-tauri");
+const desktopTauri = join(
+  runtimeRoot,
+  "..",
+  "..",
+  "apps",
+  "desktop",
+  "src-tauri",
+);
 
-const triple = `${process.arch === "x64" ? "x86_64" : process.arch}-pc-windows-msvc`;
+if (
+  process.platform !== "win32" ||
+  process.arch !== "x64" ||
+  process.version !== "v24.12.0"
+)
+  throw new Error(
+    "Windows preview packaging requires Node 24.12.0 x64; TypeScript-only builds are unaffected.",
+  );
+const triple = "x86_64-pc-windows-msvc";
 const resourcesDir = join(desktopTauri, "resources");
 const binariesDir = join(desktopTauri, "binaries");
 
 mkdirSync(resourcesDir, { recursive: true });
 mkdirSync(binariesDir, { recursive: true });
 
-await build({
+const result = await build({
   entryPoints: [join(runtimeRoot, "src", "cli.ts")],
   bundle: true,
   platform: "node",
@@ -31,7 +53,46 @@ await build({
   external: ["node:*"],
   legalComments: "none",
   logLevel: "info",
+  metafile: true,
 });
 
-copyFileSync(process.execPath, join(binariesDir, `maneki-runtime-${triple}.exe`));
-console.log(`runtime bundle ready: resources/maneki-runtime-bundle.js + binaries/maneki-runtime-${triple}.exe (node ${process.version})`);
+const licenses = join(resourcesDir, "licenses");
+mkdirSync(licenses, { recursive: true });
+copyFileSync(
+  join(runtimeRoot, "notices/Node-v24.12.0-LICENSE"),
+  join(licenses, "Node-LICENSE.txt"),
+);
+const roots = new Set();
+for (const input of Object.keys(result.metafile.inputs)) {
+  let candidate = dirname(resolve(input));
+  if (!candidate.includes("node_modules")) continue;
+  while (dirname(candidate) !== candidate) {
+    const metadata = join(candidate, "package.json");
+    if (
+      existsSync(metadata) &&
+      JSON.parse(readFileSync(metadata, "utf8")).name
+    ) {
+      roots.add(candidate);
+      break;
+    }
+    candidate = dirname(candidate);
+  }
+}
+const notices = [...roots].sort().map((root) => {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const files = readdirSync(root).filter((name) =>
+    /^(LICENSE|LICENCE|COPYING|NOTICE)([.\-_]|$)/i.test(name),
+  );
+  if (!files.length)
+    throw new Error(`Missing redistribution notice for ${pkg.name}`);
+  return `\n===== ${pkg.name}@${pkg.version} (${pkg.license ?? "see notice"}) =====\n${files.map((name) => readFileSync(join(root, name), "utf8")).join("\n")}`;
+});
+writeFileSync(join(licenses, "Runtime-THIRD-PARTY.txt"), notices.join("\n"));
+
+copyFileSync(
+  process.execPath,
+  join(binariesDir, `maneki-runtime-${triple}.exe`),
+);
+console.log(
+  `runtime bundle ready: resources/maneki-runtime-bundle.js + binaries/maneki-runtime-${triple}.exe (node ${process.version})`,
+);

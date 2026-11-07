@@ -4,6 +4,8 @@
 
 ## 安装与配对
 
+Windows x64 `0.2.0-alpha.1` 预览安装器内置 Runtime 和 Node，并在安装完成登记入口；无需从源码构建。使用随包 `0.3.0` tgz 接入 dsh，完整步骤见[安装说明](../../docs/install-windows.md)。下方源码构建方式仍可用于开发。
+
 桌面与 Runtime 须使用本轮一起构建的版本。安装布局包含相邻的 `maneki-desktop.exe`、`maneki-runtime.exe` 与 `resources/maneki-runtime-bundle.js`；只替换壳或使用旧安装版不支持管理协议。先运行更新后的桌面一次，或执行已安装的 `maneki-desktop.exe --assistant register`，将固定入口登记到 `%APPDATA%/com.manekipet.desktop/installation.json`。插件不会下载、安装或运行项目配置给出的命令。
 
 从本仓库构建并打包（产物不发布到 npm）：
@@ -38,7 +40,7 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.3.0.tgz
 
 关闭 dsh、卸载插件或托盘“关闭桌宠（后台继续）”只断开视图，Runtime 保留；明确“退出助理”才停止后台。当前插件执行 quit 后不会自行再启动，需显式 connect/show；宿主重新启动/插件重新启用会按上述启动配置连接。缺安装、身份不符、配对失败等情况明确降级，dsh 继续运行。
 
-本轮自动化、Windows 发行布局及真实 dsh 插件加载的验证边界见[验收记录](../../docs/audits/2026-11-07-dsh-plugin-management.md)。原生确认框已观察，人工同意/拒绝及托盘退出点击待用户验收；不以底层管理 API 的通过替代该项。安装器升级/卸载、macOS/Linux 未验证。
+基础入口验证见[记录](../../docs/audits/2026-11-07-dsh-plugin-management.md)；2026-11-08 已补同模板独立身份的真实 NSIS 安装、覆盖升级、卸载保留数据及实际 dsh 加载，见[交付记录](../../docs/audits/2026-11-08-windows-preview-delivery.md)。原生同意/拒绝及托盘退出点击仍待用户验收；不以底层管理 API 的通过替代。生产身份的既有用户迁移与 macOS/Linux 未验收。
 
 ## 状态观察与兼容入口
 
@@ -46,7 +48,7 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.3.0.tgz
 
 宿主工程能力仍只观察。任务派发、补充输入、取消和操作审批在 dsh 原生界面进行；反向派发保持关闭。对话、个人待办提醒与可选按键语音由独立 Runtime 提供；默认模型和语音均关闭，模型地址、密钥与自身云端授权需在助手设置中显式配置，不复用 dsh 密钥。语音仍从同一 `/maneki assistant` 入口进入，插件本身不录音、不保存语音/模型配置，也不需要新增权限；需更新桌面与 Runtime，安装步骤和人工验收边界见[语音说明](../../docs/voice.md)。没有 overlay 或完整工程结果恢复承诺。插件重载期间已有工作的状态要等下一条宿主事件才重新建立，不能把待机当作任务已结束。
 
-`0.3.0` 需同时更新桌面与 Runtime：个人数据接口新增独立 scope，数据库 v3 先备份再迁移至 v4，旧 Runtime 拒绝新库。撤销的 `assistant-client.json` 不自动重新签发。真实云模型、安装器与平台边界见[文字助理验收记录](../../docs/audits/2026-11-07-text-assistant-reminders.md)。
+插件仍为 `0.3.0`，桌面与 Runtime 须一起更新到 `0.2.0-alpha.1`；管理入口先核验身份与精确发行版本，不复用旧后台。当前数据库为 v6，升级前按源版本备份 `runtime.db.bak-<版本>`，旧 Runtime 拒绝新库；回退须停止后台并恢复对应备份。既有表达凭证不扩权，撤销的 `assistant-client.json` 不自动重新签发。
 
 已验证宿主：Windows、Node 24、dsh `0.2.1-rc.5`。其他版本与 macOS/Linux 未验证。无需语音、LLM Provider 或外部记忆配置；dsh 自身模型配置和数据去向独立于 Maneki。
 

@@ -17,7 +17,9 @@ pub fn runtime_error(code: &str) -> &'static str {
         "not_installed" => "Runtime 安装文件缺失，请重新安装小招",
         "timeout" => "Runtime 连接超时，请检查后台进程",
         "runtime_unavailable" => "Runtime 未就绪，请从受信入口启动后重试",
-        "protocol_mismatch" => "Runtime 协议版本不兼容，请更新安装",
+        "protocol_mismatch" => {
+            "Runtime 协议或发行版本不兼容；请先通过旧版退出助理后台，再同步更新桌面与 Runtime"
+        }
         "identity_mismatch" => "端口上的服务身份不符，已停止配对，请检查端口占用",
         "credential_rejected" => "桌面凭证已失效或撤销，请从受信管理入口重新配对",
         "pairing_busy" => "另一配对操作正在进行，请稍后重试",

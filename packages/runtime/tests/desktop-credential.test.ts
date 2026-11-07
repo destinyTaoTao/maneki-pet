@@ -13,6 +13,14 @@ const dirs: string[] = [];
 const runtimes: StartedRuntime[] = [];
 const cli = join(import.meta.dirname, "../dist/cli.js");
 const exec = promisify(execFile);
+it("身份正确但发行版本过旧时拒绝复用，不发送配对凭证或另起后台", async () => {
+  const dir=mkdtempSync(join(tmpdir(),"maneki-old-release-"));dirs.push(dir);
+  const runtime=await startRuntime({configDir:dir,version:"0.1.0"});runtimes.push(runtime);
+  const before=runtime.store.listClients().length;
+  await expect(exec(process.execPath,[cli,"--config-dir",dir,"--port",String(runtime.port),"--assistant-credential"],{timeout:5000})).rejects.toMatchObject({stdout:JSON.stringify({error:"protocol_mismatch"})});
+  expect(runtime.store.listClients()).toHaveLength(before);
+  expect(runtime.state()).toBe("ready");
+});
 it("个人数据凭证首次不静默创建，显式打开后单独配对且旧表达凭证不扩权",async()=>{
   const dir=mkdtempSync(join(tmpdir(),"maneki-personal-credential-"));dirs.push(dir);
   const runtime=await startRuntime({configDir:dir});runtimes.push(runtime);

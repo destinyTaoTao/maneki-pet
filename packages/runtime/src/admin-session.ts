@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { generateToken, runtimeIdentityProof } from "./auth.js";
+import { RELEASE_VERSION } from "./release-version.js";
 
 export class DesktopCredentialError extends Error {
   constructor(readonly code: "invalid_config" | "timeout" | "runtime_unavailable" | "protocol_mismatch" | "identity_mismatch" | "credential_rejected" | "pairing_failed" | "pairing_busy" | "pairing_required") { super(code); }
@@ -50,5 +51,6 @@ export async function openAdminSession(configDir: string, port: number) {
   const proof = health.body.identityProof;
   const expected = runtimeIdentityProof(root, challenge, 1, health.body.instanceId, port);
   if (typeof proof !== "string" || !/^[0-9a-f]{64}$/.test(proof) || !timingSafeEqual(Buffer.from(proof, "hex"), Buffer.from(expected, "hex"))) throw new DesktopCredentialError("identity_mismatch");
+  if (health.body.version !== RELEASE_VERSION) throw new DesktopCredentialError("protocol_mismatch");
   return { instanceId: health.body.instanceId, request: (path: string, body?: unknown, token = root) => json(path, body, token) };
 }

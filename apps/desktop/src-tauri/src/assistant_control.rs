@@ -84,6 +84,34 @@ pub fn register_installation() -> Result<(), String> {
     result
 }
 
+fn unregister_at(path: &std::path::Path, exe: &std::path::Path) -> Result<bool, String> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let raw = std::fs::read(path).map_err(|_| "invalid_config")?;
+    let value: serde_json::Value = serde_json::from_slice(&raw).map_err(|_| "invalid_config")?;
+    let registered = value
+        .get("executable")
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from);
+    if registered.as_deref() != Some(exe) {
+        return Ok(false);
+    }
+    std::fs::remove_file(path).map_err(|_| "invalid_config")?;
+    Ok(true)
+}
+
+fn unregister_installation() -> Result<bool, String> {
+    let config = config_dir()?;
+    unregister_at(
+        &config
+            .parent()
+            .ok_or("invalid_config")?
+            .join("installation.json"),
+        &executable()?,
+    )
+}
+
 fn launch_view(flag: &str) -> Result<(), String> {
     let mut command = Command::new(executable()?);
     command
@@ -190,6 +218,9 @@ pub fn dispatch_cli() -> bool {
             register_installation()?;
             return Ok(serde_json::json!({"registered": true}));
         }
+        if action == "unregister" {
+            return Ok(serde_json::json!({"unregistered": unregister_installation()?}));
+        }
         if !["connect", "pair", "status", "show", "assistant", "quit"].contains(&action) {
             return Err("invalid_config".into());
         }
@@ -221,6 +252,19 @@ pub fn dispatch_cli() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unregister_only_removes_its_own_installation() {
+        let dir = std::env::temp_dir().join(format!("maneki-unregister-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("installation.json");
+        let owner = dir.join("owner.exe");
+        std::fs::write(&path, serde_json::json!({"executable": owner}).to_string()).unwrap();
+        assert!(!unregister_at(&path, &dir.join("other.exe")).unwrap());
+        assert!(path.exists());
+        assert!(unregister_at(&path, &owner).unwrap());
+        assert!(!unregister_at(&path, &owner).unwrap());
+        std::fs::remove_dir(&dir).unwrap();
+    }
 
     #[test]
     fn rejecting_pair_or_quit_never_reaches_privileged_helper() {

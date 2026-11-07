@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Maneki",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.1",
   "identifier": "com.manekipet.desktop",
   "build": {
     "beforeDevCommand": "corepack pnpm --filter @maneki-pet/desktop generate:icons && corepack pnpm --filter @maneki-pet/core build && corepack pnpm --filter @maneki-pet/desktop dev",
@@ -33,7 +33,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "template": "installer/tauri-2.12.4.nsi",
+        "installerHooks": "installer/hooks.nsh"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -44,7 +52,9 @@
       "binaries/maneki-runtime"
     ],
     "resources": [
-      "resources/maneki-runtime-bundle.js"
+      "resources/maneki-runtime-bundle.js",
+      "resources/licenses/Node-LICENSE.txt",
+      "resources/licenses/Runtime-THIRD-PARTY.txt"
     ]
   }
 }
