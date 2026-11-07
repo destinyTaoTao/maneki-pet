@@ -612,6 +612,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 - SQLite 从 v3 备份迁移至 v4，由原 Runtime 连接单独拥有个人助理表；旧程序遇到 v4 拒绝写入，回退须显式恢复备份，不能将新库交回旧程序。迁移与助手 mutation 同事务；旧 config.json/HTTP/Adapter 与原观察客户端保持兼容，新客户端显式取得新 scope。
 - 提醒由 Runtime 调度并持久化待投递状态，不依赖桌宠在线。正常到点经通知端口调用系统，桌宠有私有订阅时同步展示；勿扰/通知预算阻塞时保留待投递，启动/休眠/时钟变化补扫并合并逾期项。并发完成/删除与认领原子判定；在途通知不承诺撤回。恢复未完成的投递允许重试，使用稳定 occurrence/channel ID 去重，不宣称 OS 严格一次或用户已看到。
 - Windows 首个系统通知 Adapter 使用固定系统 PowerShell 入口调用 WinRT Toast API，用户文案经 stdin JSON 与 XML 文本节点传入，不拼接脚本/命令、不改安全策略；检查通知权限并记录系统受理/失败，需有效 Maneki AppUserModelID。无窗口情况下也可运行，其他平台明确 unsupported。相比新增可执行依赖/常驻桥，先复用 OS 接口；真实系统受理、打包身份与用户可见性分别验收。
+- Windows 非打包发行布局在首个通知前，幂等登记当前用户 `Software/Classes/AppUserModelId/com.manekipet.desktop` 的应用显示名；仅管理本应用身份元数据，不修改 OS 通知授权、免打扰或隐私设置，不借用其他应用身份。注册失败或权限不可读取时明确失败，不按 Enabled 猜测；v1 不提供通知点击激活。此路径参考 [WindowsNotifications 的桌面兼容实现](https://github.com/WindowsNotifications/desktop-toasts/blob/master/CPP-WINRT/DesktopToastsCppWinRtApp/DesktopNotificationManagerCompat.cpp)，安装器卸载清理与其他 Windows 版本另验。XML 先在托管 DOM 中通过 InnerText 写入，再交 WinRT LoadXml，避免 PowerShell 对可变 WinRT 节点的隐式枚举故障。
 
 ## 7. 安全与信任边界
 
