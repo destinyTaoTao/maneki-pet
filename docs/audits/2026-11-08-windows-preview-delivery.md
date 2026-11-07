@@ -30,6 +30,12 @@
 
 发行命令复跑捕获 HTTP 健康测试一次 `fetch failed / bad port`，流程立即停止、未交付失败产物。最小复现中同一个 127.0.0.1:6000 服务原生 Node HTTP 返回 200，而 fetch 在连接前返回 bad port；HTTP 测试使用 OS 分配的随机端口，与正式固定 18100 不同。测试夹具现仅在该明确错误时停止该实例并有界重选端口，其他启动、网络错误及业务断言继续失败；不增加测试重试、不修改正式端口或安全策略。
 
+## 本机交付封存
+
+`pnpm release:windows` 最终完整通过，重新执行全仓构建、352 项测试（2 项设备跳过）、类型检查、正式生产身份 Windows NSIS 构建及 dsh tgz 打包。交付目录为 `dist/releases/maneki-0.2.0-alpha.1-windows-x64`，`release.json` 记录源码 `701eea94e88fc65f024e8713cb83c631845b3027`、dirty=false、Node v24.12.0。此后仅追加本段审计证据，不反写已封存产物。
+
+生产安装器 `Maneki_0.2.0-alpha.1_x64-setup.exe` 为 56,574,107 字节（约 53.95 MiB），PE ProductName / ProductVersion 为 Maneki / 0.2.0-alpha.1，SHA-256 为 `5027266caef9f9c806493ec6b06ffab78feb1fa00cd6c4f216ec1c3cb68c6204`。独立复核 10 个交付文件的大小/哈希及包含清单自身的 11 条 SHA256SUMS 均通过；随包本地 Markdown 链接和 tgz 内容检查通过。安装产物保留本机，不入 Git、不自动上传公开 Release；用户原生产安装未替换。
+
 ## 人工与平台边界
 
 以下仍保留，不以隔离脚本或底层 API 代替：
