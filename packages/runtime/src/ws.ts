@@ -164,7 +164,7 @@ export class WsHub {
       return { ok: false, reason: "auth message must be {type:\"auth\", ticket}" };
     }
     const identity = this.tickets.redeem(ticket, origin);
-    if (!identity || !identity.scopes.includes(EXPRESS_SCOPE) || !this.clientScopes(identity.clientId)?.includes(EXPRESS_SCOPE)) {
+    if (!identity || ![EXPRESS_SCOPE,"assistant"].some(scope=>identity.scopes.includes(scope)&&this.clientScopes(identity.clientId)?.includes(scope))) {
       return { ok: false, reason: "ticket invalid, expired or already redeemed" };
     }
     return { ok: true, clientId: identity.clientId };
@@ -193,6 +193,10 @@ export class WsHub {
   private broadcast(message: Record<string, unknown>): void {
     const text = JSON.stringify(message);
     for (const connection of this.ready) {
+      const scopes=this.clientScopes(connection.clientId);
+      const event=message.event as RuntimeEvent|undefined;
+      if(event?.kind.startsWith("assistant.")&&!scopes?.includes("assistant"))continue;
+      if(!event?.kind.startsWith("assistant.")&&!scopes?.includes(EXPRESS_SCOPE))continue;
       this.send(connection.socket, text);
     }
   }

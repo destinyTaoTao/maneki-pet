@@ -24,7 +24,8 @@ export async function clientCredential(configDir: string, port: number, fileId: 
       if (typeof saved !== "object" || saved === null || !("instanceId" in saved) || saved.instanceId !== session.instanceId || !("token" in saved) || typeof saved.token !== "string") {
         throw new DesktopCredentialError("invalid_config");
       }
-      const probe = await session.request("/v1/limits", undefined, saved.token);
+      // 复用校验只能调用该凭证本来拥有的接口；个人助理没有 express 权限。
+      const probe = await session.request(scopes.split(",").includes("assistant") ? "/v1/assistant/settings" : "/v1/limits", undefined, saved.token);
       if (probe.status !== 200) throw new DesktopCredentialError("credential_rejected");
       return { token: saved.token };
     }

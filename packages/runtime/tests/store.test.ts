@@ -22,6 +22,20 @@ afterEach(() => {
 });
 
 describe("RuntimeStore SQLite 单一拥有者", () => {
+  it("v3 到 v4 先备份并保留设置；恢复不重放模型并保留通知批次",()=>{
+    const dbPath=join(makeTempDir(),"runtime.db");const seed=new RuntimeStore(dbPath);
+    seed.kvSet("dnd","1");seed.close();
+    const old=new DatabaseSync(dbPath);
+    old.exec("DROP TABLE assistant_mutations; DROP TABLE assistant_requests; DROP TABLE assistant_messages; DROP TABLE assistant_reminders; DROP TABLE assistant_todos; DELETE FROM schema_migrations WHERE version=4;");old.close();
+    const upgraded=new RuntimeStore(dbPath);const personal=upgraded.assistantStore();
+    try{
+      expect(existsSync(`${dbPath}.bak-3`)).toBe(true);expect(upgraded.kvGet("dnd")).toBe("1");
+      personal.saveReminder({id:"reminder",todoId:null,message:"recover",remindAt:100,timeZone:"UTC",status:"pending",attempts:0,code:null,version:1});
+      personal.claim("reminder","stable-batch");const seq=personal.append("user","pending input");personal.createRequest("client","request","hash",seq);
+      personal.recover();expect(personal.reminder("reminder")).toMatchObject({status:"pending",attempts:1});expect(personal.deliveryId("reminder")).toBe("stable-batch");
+      expect(personal.request("client","request")).toMatchObject({status:"failed",code:"runtime_restarted"});expect(personal.messages()).toHaveLength(1);
+    }finally{upgraded.close();}
+  });
   it("v2 任务备份迁移后保留未终止记录，不猜测旧客户端归属", () => {
     const dbPath = join(makeTempDir(), "runtime.db");
     const seed = new DatabaseSync(dbPath);

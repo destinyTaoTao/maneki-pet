@@ -30,6 +30,7 @@ export interface ChatReplyInput {
 
 export interface ChatReply {
   text: string;
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 export interface ChatProvider {

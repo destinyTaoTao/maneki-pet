@@ -29,10 +29,11 @@ if (management) {
     process.stdout.write(JSON.stringify({ error: error instanceof DesktopCredentialError ? error.code : "invalid_config" }));
     process.exitCode = 1;
   }
-} else if (process.argv.includes("--desktop-credential")) {
+} else if (process.argv.includes("--desktop-credential") || process.argv.includes("--assistant-credential") || process.argv.includes("--assistant-credential-existing")) {
   try {
-    const { desktopCredential } = await import("./desktop-credential.js");
-    process.stdout.write(JSON.stringify(await desktopCredential(configDir, Number(portArg))));
+    const { desktopCredential, clientCredential } = await import("./desktop-credential.js");
+    const credential=process.argv.includes("--desktop-credential")?await desktopCredential(configDir,Number(portArg)):await clientCredential(configDir,Number(portArg),"assistant-client","desktop-assistant","assistant,settings",process.argv.includes("--assistant-credential"));
+    process.stdout.write(JSON.stringify(credential));
   } catch (error) {
     // 管理凭证、响应正文与文件内容不能出现在错误日志中。
     const { DesktopCredentialError } = await import("./desktop-credential.js");

@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
 
-import { DailyQuotaPolicy, MemoryContextService, TaskBroker, type PetState } from "@maneki-pet/core";
+import { DailyQuotaPolicy, MemoryContextService, TaskBroker, type PetState, type SystemNotifier } from "@maneki-pet/core";
+import { AssistantService, type AssistantServiceOptions } from "./assistant-service.js";
+import { WindowsSystemNotifier } from "./system-notifier.js";
 
 import { generateToken, hashToken, TicketIssuer } from "./auth.js";
 import { EventFeed } from "./events.js";
@@ -17,6 +19,8 @@ import { TaskService } from "./task-service.js";
 import { WsHub } from "./ws.js";
 
 export interface RuntimeOptions {
+  notifier?: SystemNotifier;
+  chatProvider?: AssistantServiceOptions["provider"];
   configDir: string;
   /** 0（默认）= 由操作系统分配临时端口；正式部署用固定配置端口。 */
   port?: number;
@@ -28,6 +32,7 @@ export interface RuntimeOptions {
 }
 
 export interface StartedRuntime {
+  assistant: AssistantService;
   port: number;
   instanceId: string;
   rootToken: string;
@@ -56,6 +61,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
   lock.acquire();
 
   let openedStore: RuntimeStore | undefined;
+  let openedAssistant: AssistantService | undefined;
   try {
     const store = new RuntimeStore(join(options.configDir, "runtime.db"));
     openedStore = store;
@@ -92,6 +98,21 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       store.asQuotaLedger(),
       () => new Date(),
     );
+    const assistant = new AssistantService({
+      store: store.assistantStore(), configDir: options.configDir, feed, quota: quotaPolicy,
+      notifications, notifier: options.notifier ?? new WindowsSystemNotifier(),
+      dnd: () => dnd.get(),
+      active: (client) => {
+        const row = store.findClient(client);
+        return Boolean(row && !row.revokedAt);
+      },
+      expressionState: () => expressions.current(),
+      ...(options.chatProvider ? { provider: options.chatProvider } : {}),
+    });
+    openedAssistant = assistant;
+    const stopAssistantEvents = feed.subscribe((event) => {
+      if (event.kind === "dnd.changed") assistant.wake();
+    });
 
     // HTTP 签发与 WS 兑换必须共享同一票据发行器，票据才有效。
     const tickets = new TicketIssuer();
@@ -146,8 +167,10 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       feed,
       expressions,
       dnd,
+      assistant,
       ...(tasks ? { tasks } : {}),
       onClientRevoked: (clientId) => {
+        assistant.cancelClient(clientId);
         hub.revokeClient(clientId);
         expressions.current();
       },
@@ -198,6 +221,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
 
     let mcpStarted = false;
     started = {
+      assistant,
       port,
       instanceId,
       rootToken: root.token,
@@ -220,6 +244,8 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
           return;
         }
         lifecycle.transition("stopping");
+        stopAssistantEvents();
+        await assistant.stop();
         expressions.close();
         hub.detach();
         await api.stop();
@@ -240,6 +266,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
     };
     return started;
   } catch (error) {
+    await openedAssistant?.stop();
     openedStore?.close();
     lock.release();
     throw error;

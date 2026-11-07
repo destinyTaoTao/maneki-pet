@@ -20,10 +20,13 @@ import { expressionStates, type ExpressionStateFeed } from "./expression-state.j
 import type { LimitsView, NotificationBudget, RuntimeLimitsConfig } from "./quota.js";
 import type { RuntimeStore } from "./store.js";
 import { validateObject } from "./validate.js";
+import type { AssistantService } from "./assistant-service.js";
+import { handleAssistantHttp } from "./assistant-http.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
 export interface LocalHttpApiDeps {
+  assistant?: AssistantService;
   host: string;
   port: number;
   store: RuntimeStore;
@@ -117,7 +120,7 @@ export class LocalHttpApi {
 
     if (method === "OPTIONS") {
       res.writeHead(204, {
-        "access-control-allow-methods": "GET,POST,OPTIONS",
+        "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
         "access-control-allow-headers": "authorization,content-type",
         "access-control-max-age": "600",
       });
@@ -140,6 +143,14 @@ export class LocalHttpApi {
       return;
     }
     const client = auth.client;
+    if (url.startsWith("/v1/assistant/")) {
+      if (!this.deps.assistant) {
+        this.sendJson(res, 503, { error: "assistant_unavailable" });
+        return;
+      }
+      await handleAssistantHttp(req, res, client, this.deps.assistant, () => this.readJson(req, res));
+      return;
+    }
 
     if ((method === "GET" || method === "POST") && url === "/v1/expressions/state") {
       if (!hasScope(client, EXPRESS_SCOPE)) {
@@ -184,7 +195,7 @@ export class LocalHttpApi {
         return;
       }
       const requested = (checked.value.scopes as string).split(",").map((scope) => scope.trim());
-      const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE].includes(scope));
+      const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE, "assistant"].includes(scope));
       if (invalid !== undefined) {
         this.sendJson(res, 400, { error: `unknown scope "${invalid}"` });
         return;
@@ -232,8 +243,8 @@ export class LocalHttpApi {
     }
 
     if (method === "POST" && url === "/v1/ws-ticket") {
-      if (!hasScope(client, EXPRESS_SCOPE)) {
-        this.forbidden(res, "ws tickets require express scope");
+      if (!hasScope(client, EXPRESS_SCOPE) && !hasScope(client, "assistant")) {
+        this.forbidden(res, "ws tickets require express or assistant scope");
         return;
       }
       const issued = this.deps.tickets.issue({ clientId: client.clientId, origin: req.headers.origin, scopes: client.scopes });

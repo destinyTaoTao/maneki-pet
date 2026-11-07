@@ -13,6 +13,22 @@ const dirs: string[] = [];
 const runtimes: StartedRuntime[] = [];
 const cli = join(import.meta.dirname, "../dist/cli.js");
 const exec = promisify(execFile);
+it("个人数据凭证首次不静默创建，显式打开后单独配对且旧表达凭证不扩权",async()=>{
+  const dir=mkdtempSync(join(tmpdir(),"maneki-personal-credential-"));dirs.push(dir);
+  const runtime=await startRuntime({configDir:dir});runtimes.push(runtime);
+  const args=[cli,"--config-dir",dir,"--port",String(runtime.port)];
+  await expect(exec(process.execPath,[...args,"--assistant-credential-existing"],{timeout:5000})).rejects.toMatchObject({stdout:JSON.stringify({error:"pairing_required"})});
+  const old=JSON.parse((await exec(process.execPath,[...args,"--desktop-credential"])).stdout) as {token:string};
+  const personal=JSON.parse((await exec(process.execPath,[...args,"--assistant-credential"])).stdout) as {token:string};
+  expect(personal.token).not.toBe(old.token);const base=`http://127.0.0.1:${runtime.port}`;
+  expect((await fetch(`${base}/v1/assistant/snapshot`,{headers:{authorization:`Bearer ${old.token}`}})).status).toBe(403);
+  expect((await fetch(`${base}/v1/assistant/snapshot`,{headers:{authorization:`Bearer ${personal.token}`}})).status).toBe(200);
+  await runtime.stop();const restarted=await startRuntime({configDir:dir,port:runtime.port});runtimes.push(restarted);
+  const reused=JSON.parse((await exec(process.execPath,[...args,"--assistant-credential-existing"]).catch(error=>{throw new Error(`helper error: ${JSON.parse(error.stdout as string).error as string}`);})).stdout) as {token:string};expect(reused).toEqual(personal);
+  const identity=JSON.parse(readFileSync(join(dir,"assistant-client.json"),"utf8")) as {clientId:string};
+  await fetch(`${base}/v1/clients/${identity.clientId}/revoke`,{method:"POST",headers:{authorization:`Bearer ${runtime.rootToken}`}});
+  await expect(exec(process.execPath,[...args,"--assistant-credential"])).rejects.toMatchObject({stdout:JSON.stringify({error:"credential_rejected"})});
+});
 
 afterEach(async () => {
   for (const runtime of runtimes.splice(0)) await runtime.stop();

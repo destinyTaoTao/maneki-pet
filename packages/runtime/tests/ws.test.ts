@@ -77,6 +77,19 @@ afterEach(async () => {
 });
 
 describe("WS 一次性票据鉴权", () => {
+  it("个人提醒仅发给 assistant 权限，表达事件也不会混入个人专用通道",async()=>{
+    const {runtime,clientToken}=await makeRuntime();const base=`http://127.0.0.1:${runtime.port}`;
+    const pair=await fetch(`${base}/v1/pair`,{method:"POST",headers:{authorization:`Bearer ${runtime.rootToken}`,"content-type":"application/json"},body:JSON.stringify({name:"personal",scopes:"assistant"})});
+    const personalToken=(await pair.json() as {token:string}).token;
+    const observer=connect(`${base.replace("http","ws")}/v1/events`,JSON.stringify({type:"auth",ticket:await issueTicket(base,clientToken)}));
+    const personal=connect(`${base.replace("http","ws")}/v1/events`,JSON.stringify({type:"auth",ticket:await issueTicket(base,personalToken)}));
+    await expect.poll(()=>[observer,personal].every(client=>client.messages.some(m=>m.type==="ready"))).toBe(true);
+    runtime.feed.publish("assistant.reminder",{body:"private reminder"});runtime.feed.publish("expression.say",{text:"public expression"});
+    await expect.poll(()=>personal.messages.some(m=>(m.event as {kind?:string})?.kind==="assistant.reminder")).toBe(true);
+    await expect.poll(()=>observer.messages.some(m=>(m.event as {kind?:string})?.kind==="expression.say")).toBe(true);
+    expect(JSON.stringify(observer.messages)).not.toContain("private reminder");expect(JSON.stringify(personal.messages)).not.toContain("public expression");
+    socketOf(observer).close();socketOf(personal).close();
+  });
   it("票据精确绑定签发 Origin，即使两个来源都在白名单也不能互换", async () => {
     const origin = "http://tauri.localhost";
     const otherOrigin = "http://localhost:5173";

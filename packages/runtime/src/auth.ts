@@ -4,7 +4,8 @@ export const ADMIN_SCOPE = "admin";
 export const EXPRESS_SCOPE = "express";
 export const NOTIFY_SCOPE = "notify";
 export const SETTINGS_SCOPE = "settings";
-export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE, "tasks", SETTINGS_SCOPE] as const;
+export const ASSISTANT_SCOPE = "assistant";
+export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE, "tasks", SETTINGS_SCOPE, ASSISTANT_SCOPE] as const;
 
 /** 安装期随机令牌：32 字节 base64url；存储只保留 SHA-256。 */
 export function generateToken(): string {

@@ -6,7 +6,7 @@ import { DesktopCredentialError, openAdminSession } from "./admin-session.js";
 import { clientCredential } from "./desktop-credential.js";
 import { InstanceLock, LockBusyError } from "./lifecycle.js";
 
-export const assistantActions = ["connect", "pair", "status", "show", "quit"] as const;
+export const assistantActions = ["connect", "pair", "status", "show", "assistant", "quit"] as const;
 export type AssistantAction = typeof assistantActions[number];
 
 /** 此模式由本安装原生入口调用；不打开数据库，不把 root 返回调用端。 */
@@ -57,7 +57,7 @@ export async function manageAssistant(configDir: string, port: number, cli: stri
       }
       return { state: "stopped" };
     }
-    if (action === "status" || action === "show") return { state: "ready" };
+    if (action === "status" || action === "show" || action === "assistant") return { state: "ready" };
     const credential = await clientCredential(configDir, port, `dsh-client-${client}`, `dsh-${client}`, "express", action === "pair");
     return { state: "ready", token: credential.token };
   } finally { lock.release(); }

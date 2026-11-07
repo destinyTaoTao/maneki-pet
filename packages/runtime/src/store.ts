@@ -1,5 +1,6 @@
 import { copyFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { AssistantStore, ASSISTANT_SCHEMA } from "./assistant-store.js";
 
 import type { BrokerTask, QuotaLedger, TaskBrokerStore } from "@maneki-pet/core";
 
@@ -21,7 +22,7 @@ export class MigrationError extends Error {
   }
 }
 
-const KNOWN_SCHEMA_VERSION = 3;
+const KNOWN_SCHEMA_VERSION = 4;
 
 /**
  * Runtime 单一 SQLite 拥有者（architecture §6.2）：迁移先备份，
@@ -32,6 +33,7 @@ export class RuntimeStore {
 
   constructor(readonly dbPath: string) {
     this.db = new DatabaseSync(dbPath);
+    this.db.exec("PRAGMA foreign_keys=ON");
     try {
       this.migrate();
     } catch (error) {
@@ -112,6 +114,14 @@ export class RuntimeStore {
           throw error;
         }
       }
+      if (current < 4) {
+        this.db.exec("BEGIN IMMEDIATE");
+        try {
+          this.db.exec(ASSISTANT_SCHEMA);
+          this.db.prepare("INSERT INTO schema_migrations(version,applied_at) VALUES(4,?)").run(new Date().toISOString());
+          this.db.exec("COMMIT");
+        } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+      }
     } catch (error) {
       if (error instanceof MigrationError) {
         throw error;
@@ -121,6 +131,7 @@ export class RuntimeStore {
   }
 
   // ---- runtime_kv ----
+  assistantStore(): AssistantStore { return new AssistantStore(this.db); }
 
   kvGet(key: string): string | null {
     const row = this.db.prepare("SELECT value FROM runtime_kv WHERE key = ?").get(key) as { value: string } | undefined;
