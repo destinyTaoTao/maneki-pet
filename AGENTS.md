@@ -9,7 +9,7 @@
 
 一句话架构：Shell / Core / Gateway / Local Services 分工，Runtime 统一装配；Core 定义端口且不依赖具体 IO。三种运行形态（① Tauri 独立 App / ② harness overlay 插件 / ③ core npm 库）；双向通道按能力接入，MCP 表达工具不等于任务派发。
 
-**当前状态：M1/M2 整体出口未完成（2026-11-01）；Windows 原生桌面、Runtime 与 dsh 派发已有实现和局部验证，任务授权/状态回收/恢复仍有发布阻断缺口，见 [本轮审计](./docs/audits/2026-11-01-product-architecture-review.md)。** 首个可用版本优先可换装桌宠 + dsh 文字任务与插件入口，pi 第二；语音/提醒独立增量。Windows 阶段出口与 macOS/Linux 支持矩阵分开。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 和 [docs/architecture.md](./docs/architecture.md) 相关章节；文档定案不等于运行验收。
+**当前状态：M1/M2 整体出口未完成，桌宠、Runtime 与 dsh 状态观察已有实现和局部验证，工程派发仍受审批/恢复 gate 限制，见 [审计](./docs/audits/2026-11-01-product-architecture-review.md)。** 2026-11-07 确认近期仅适配 dsh：基础插件连接/配对/唤起/退出 → 文字主会话、个人待办与单次可靠提醒 → 按键语音 → 后续独立验收工程派发，其他宿主暂缓，见 [ADR-0005](./docs/adr/0005-dsh-first-personal-assistant.md)。动手前必读 [docs/roadmap.md](./docs/roadmap.md) 和 [docs/architecture.md](./docs/architecture.md) 相关章节；文档定案不等于运行验收，Windows 与 macOS/Linux 分别验收。
 
 ## 文档体系与同步规则
 
@@ -39,7 +39,7 @@
 ```
 apps/
   desktop/        # 形态①：Tauri v2 独立桌宠（M1 起）
-  dsh-plugin/     # 形态②：dsh overlay 插件（M2b 首版，不依赖语音/提醒）
+  dsh-plugin/     # 形态②：dsh 基础入口/设置/唤起（M2）；工程派发后续独立验收（M2b）
 packages/
   core/           # 纯 TS 规则与端口（M1 PetState 先行；任务策略 M2b，对话/记忆 M3/M4）
   runtime/        # M2：装配、生命周期、鉴权、SQLite、本地服务和 Provider 实现
