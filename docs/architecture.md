@@ -578,6 +578,15 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 - 控制请求 Schema 限制未知字段、长度、枚举、消息/音频大小与并发；所有入口共享 Core 校验，不能只在 UI 禁用按钮。
 - 连接发现元数据只含端口、协议版本、实例 ID，不含令牌；启动描述由安装器写入受控位置，固定到已安装 Runtime 的真实路径、版本与来源校验信息，插件不能任意替换。长效根令牌保存在 OS 凭证存储或用户私有权限文件中；配对由独立于桌宠窗口的本机受信管理入口发放可撤销、最小 scope 凭证，overlay 不持有根令牌。
 
+#### Windows dsh 基础插件管理入口（2026-11-07，待实现验收）
+
+- 原生桌面启动或显式 `maneki-desktop.exe --assistant register` 将 `schemaVersion: 1`、`protocolVersion: 1` 和自身绝对 `executable` 路径登记到 `%APPDATA%/com.manekipet.desktop/installation.json`。仅登记同目录具备固定 sidecar 与 bundle 的安装；描述文件不含密钥。插件只读此固定用户目录，不接受项目/模型提供的可执行路径；缺登记时提示先运行更新后的已安装桌面，不下载或静默安装。
+- 原生管理命令为 `--assistant connect|pair|status|show|quit --client <profileId>`；`profileId` 为 1–64 位字母、数字、下划线或连字符，默认 web，其他 profile 须显式配置不同值以分别配对/撤销。Runtime/数据库仍共享。该管理命令在创建 WebView 前执行，调用本安装的固定 sidecar 管理模式；stdout 为有界 JSON，仅返回客户端 token 或无敏感信息的状态/错误码，root 不返回插件。
+- `connect` 按需启动/连接固定端口 18100 的共享 Runtime，首次缺该 profile 凭证时返回 `pairing_required`。只有用户执行 `/maneki pair` 并在原生确认框同意后才签发独立 `express` 凭证，保存在 Runtime 配置目录的对应客户端文件中；已撤销/损坏的凭证明确失败，不自动重配。桌面现有凭证与 `--desktop-credential` 管理模式保持兼容。所有管理模式在发送任何凭证前核验既有随机 challenge/HMAC 身份证明。
+- dsh `0.2.1-rc.5` 人类命令注册表提供 `/maneki status|connect|pair|show|quit`，命令不发给模型；注册/卸载随插件生命周期。`show` 受控启动或显示同一桌宠窗口，使用 Tauri 官方 single-instance 插件合并重复启动，避免自建窗口 IPC。新增依赖仅承担桌面单实例；Runtime 仍由自身实例锁约束。
+- 插件启动尝试 `connect`，失败降级且不阻止 dsh；卸载只释放观察订阅/租约，不停后台。`quit` 原生确认退出后，通过管理 root 调用既有 `/v1/shutdown` 并等待停止，再关闭桌宠；托盘分别提供关闭桌宠与退出助理。退出失败必须呈现且不能假称成功，不能杀 dsh 或外部任务。明确退出后插件仅重连观察，不自动再启动 Runtime；用户显式 connect/show 才重新启动。
+- 兼容迁移：旧 `baseUrl/tokenFile` 观察配置继续可用，保持原观察权限，不隐式转换为管理凭证；移除手工凭证配置并登记新安装后可切换到上述原生配对。新增的启动描述与管理 CLI 为 v1，本轮不变更 HTTP、Adapter 或数据库格式。macOS/Linux 管理入口尚未实现/验证，不承诺跨平台可用。
+
 ### 6.2 持久化、配置与故障
 
 - Runtime 单独管理 SQLite 事务与版本迁移；M2 建状态跟踪/审计所需最小表，M2b 加派发授权与审批记录，M3 增加主会话所需最小历史存储，M4 增加个人待办与提醒，记事/记忆和 M6 安装记录按后续能力实际落地创建。M3/M4 复用仓储边界、按启用能力最小创建；M4 不以 M3 对话/模型已实现或启用为前提。不为尚未用到的功能预建表。
