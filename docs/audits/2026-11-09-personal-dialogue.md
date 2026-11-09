@@ -24,6 +24,14 @@
 
 2026-11-09 收尾运行 `pnpm acceptance:windows finish` 通过：先核对独立安装路径、再关闭该视图并停止测试后台，实际卸载主程序、sidecar 和本安装登记，前后数据库 SHA-256 一致。仅保留隔离测试数据和证据，未删除生产数据或替换用户安装。正式发行目录由干净源码提交另行生成、校验。
 
+## 正式交付封存
+
+收尾运行 `pnpm release:windows` 完整通过，再次执行全仓构建、370 项测试（2 项设备跳过）、类型检查、生产身份 NSIS 构建和插件打包。交付目录 `dist/releases/maneki-0.2.0-alpha.2-windows-x64` 的 release.json 记录源码 `f3e8a2d76310f3da3b53dd9aebbe240c8f90d6d9`、dirty=false、Node v24.12.0；后续仅追加本段审计，不反写已封存包。
+
+安装器 `Maneki_0.2.0-alpha.2_x64-setup.exe` 为 56,578,116 字节（约 53.96 MiB），PE ProductName / ProductVersion 为 Maneki / 0.2.0-alpha.2，SHA-256 为 `aa66b96c31b016b703e1e26e3d177e5ffaa6afcffa38a76d1a97e0a6c2dd1f1f`。独立复核 11 个交付文件的大小/哈希、包含清单自身的 12 条 SHA256SUMS、文件总数、本地 Markdown 链接及插件 tgz 内容通过。0.2.0-alpha.1 安装器哈希仍与原封存记录一致；产物只保留本机，不入 Git或自动上传公开 Release。
+
+隔离测试卸载注册项已移除、测试进程不再运行。卸载器自身的残留文件和空安装目录已通过核实后的固定路径清除，保留测试数据库与证据。原生输入提交、候选选择/焦点，以及前序授权、真实设备/账号等人工项继续保留；未操作用户原生产安装。
+
 ## 迁移与资源
 
 桌面和 Runtime 统一递增为 `0.2.0-alpha.2`，插件仍 `0.3.0`；不增加生产依赖、不改 HTTP protocolVersion=1 / actions / scopes，也不升级 SQLite v6。安装前用旧版退出后台，再一起更新，管理入口仍拒绝混用发行版本。上一版 0.2.0-alpha.1 封存目录保持原样。
