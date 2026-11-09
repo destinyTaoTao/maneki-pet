@@ -16,7 +16,7 @@
 >
 > Maneki 的目标是陪你聊天、管理个人待办并到点提醒，后续把授权的工程任务交给 dsh，跟踪并带回结果。近期只适配 dsh，其他 harness 后置。
 
-> **当前状态：Windows x64 个人助理预览；更新于 2026-11-08。** `0.2.0-alpha.1` 提供当前用户 NSIS 安装器，内置 Runtime / Node 与正式橘猫娘形象，并附 dsh `0.3.0` 离线插件和校验清单。文字主会话、待办、单次提醒及可选按键语音由独立后台提供。先看[安装与使用](./docs/install-windows.md)及[交付验证](./docs/audits/2026-11-08-windows-preview-delivery.md)。M1/M2/M2b 整体出口尚未通过，工程派发继续关闭；原生授权、真实设备/账号和既有用户安装迁移保留人工验收。
+> **当前状态：Windows x64 个人助理预览；更新于 2026-11-09。** `0.2.0-alpha.2` 在可安装预览上增加对话查询、修改和取消未来事项，以及同名选择/缺时间澄清；不依赖对话模型。安装器内置 Runtime / Node 与正式橘猫娘形象，dsh 离线插件仍为 `0.3.0`。先看[安装与使用](./docs/install-windows.md)、[对话增量验证](./docs/audits/2026-11-09-personal-dialogue.md)及[首版交付验证](./docs/audits/2026-11-08-windows-preview-delivery.md)。M1/M2/M2b 整体出口尚未通过，工程派发继续关闭；原生授权、真实设备/账号和既有用户安装迁移保留人工验收。
 >
 > **当前执行限制：** dsh 原生审批和完整恢复尚未通过验收，新任务派发及未经核实的取消均已关闭；已有本地任务记录可查询，重启后的真实外部状态请到 harness 核查。
 >
@@ -38,7 +38,7 @@
 
 ## ✨ 目标能力
 
-Windows 开发机可运行 `pnpm release:windows`，在 `dist/releases/maneki-0.2.0-alpha.1-windows-x64` 生成完整交付目录。构建要求 Node 24.12.0 x64 与已批准本地素材，缺失时拒绝发行；产物不入 Git，尚无公开 Release 下载地址。`pnpm acceptance:windows` 使用独立安装身份与临时数据实际验证安装/升级、Runtime 和 dsh；检查原生视图后运行 `pnpm acceptance:windows finish` 卸载测试身份并保留测试数据。该流程不替换用户安装、不代点授权。
+Windows 开发机可运行 `pnpm release:windows`，在 `dist/releases/maneki-0.2.0-alpha.2-windows-x64` 生成完整交付目录，上一版封存包保留。构建要求 Node 24.12.0 x64 与已批准本地素材，缺失时拒绝发行；产物不入 Git，尚无公开 Release 下载地址。`pnpm acceptance:windows` 使用独立安装身份与临时数据实际验证安装/升级、Runtime 和 dsh；检查原生视图后运行 `pnpm acceptance:windows finish` 卸载测试身份并保留测试数据。该流程不替换用户安装、不代点授权。
 
 2026-11-08 提醒增量：提醒清单的“我已查看”只记录用户确认时间，保留原系统受理/失败状态，不完成待办；失败项可点“重试系统通知”，仍受勿扰和通知限额限制，不自动重试。发送后记账前崩溃可能重投；存储异常后退避，未知结果不伪报失败或新建投递。实现、迁移及人工边界见[记录](./docs/audits/2026-11-08-reminder-management.md)。
 

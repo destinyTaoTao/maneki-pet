@@ -4,7 +4,7 @@
 
 ## 安装与配对
 
-Windows x64 `0.2.0-alpha.1` 预览安装器内置 Runtime 和 Node，并在安装完成登记入口；无需从源码构建。使用随包 `0.3.0` tgz 接入 dsh，完整步骤见[安装说明](../../docs/install-windows.md)。下方源码构建方式仍可用于开发。
+Windows x64 `0.2.0-alpha.2` 预览安装器内置 Runtime 和 Node，并在安装完成登记入口；无需从源码构建。使用随包 `0.3.0` tgz 接入 dsh，完整步骤见[安装说明](../../docs/install-windows.md)。下方源码构建方式仍可用于开发。
 
 桌面与 Runtime 须使用本轮一起构建的版本。安装布局包含相邻的 `maneki-desktop.exe`、`maneki-runtime.exe` 与 `resources/maneki-runtime-bundle.js`；只替换壳或使用旧安装版不支持管理协议。先运行更新后的桌面一次，或执行已安装的 `maneki-desktop.exe --assistant register`，将固定入口登记到 `%APPDATA%/com.manekipet.desktop/installation.json`。插件不会下载、安装或运行项目配置给出的命令。
 
@@ -48,7 +48,7 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.3.0.tgz
 
 宿主工程能力仍只观察。任务派发、补充输入、取消和操作审批在 dsh 原生界面进行；反向派发保持关闭。对话、个人待办提醒与可选按键语音由独立 Runtime 提供；默认模型和语音均关闭，模型地址、密钥与自身云端授权需在助手设置中显式配置，不复用 dsh 密钥。语音仍从同一 `/maneki assistant` 入口进入，插件本身不录音、不保存语音/模型配置，也不需要新增权限；需更新桌面与 Runtime，安装步骤和人工验收边界见[语音说明](../../docs/voice.md)。没有 overlay 或完整工程结果恢复承诺。插件重载期间已有工作的状态要等下一条宿主事件才重新建立，不能把待机当作任务已结束。
 
-插件仍为 `0.3.0`，桌面与 Runtime 须一起更新到 `0.2.0-alpha.1`；管理入口先核验身份与精确发行版本，不复用旧后台。当前数据库为 v6，升级前按源版本备份 `runtime.db.bak-<版本>`，旧 Runtime 拒绝新库；回退须停止后台并恢复对应备份。既有表达凭证不扩权，撤销的 `assistant-client.json` 不自动重新签发。
+插件仍为 `0.3.0`，桌面与 Runtime 须一起更新到 `0.2.0-alpha.2`；管理入口先核验身份与精确发行版本，不复用旧后台。当前数据库为 v6，升级前按源版本备份 `runtime.db.bak-<版本>`，旧 Runtime 拒绝新库；回退须停止后台并恢复对应备份。既有表达凭证不扩权，撤销的 `assistant-client.json` 不自动重新签发。对话管理增量不增加插件权限，查询/修改/澄清仍在 `/maneki assistant` 的独立个人入口办理。
 
 已验证宿主：Windows、Node 24、dsh `0.2.1-rc.5`。其他版本与 macOS/Linux 未验证。无需语音、LLM Provider 或外部记忆配置；dsh 自身模型配置和数据去向独立于 Maneki。
 

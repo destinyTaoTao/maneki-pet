@@ -3,7 +3,6 @@ import {
   ChatCallBudget,
   ConversationContextAssembler,
   localTimeToUtc,
-  parsePersonalIntent,
   todoText,
   validDateOnly,
   type ChatMessage,
@@ -28,6 +27,7 @@ import type { EventFeed } from "./events.js";
 import type { NotificationBudget } from "./quota.js";
 import { validateObject } from "./validate.js";
 import { VoiceService, type VoiceProviders } from "./voice-service.js";
+import { PersonalDialogue } from "./personal-dialogue.js";
 
 const fingerprint = (raw: Record<string, unknown>) =>
   createHash("sha256")
@@ -68,6 +68,7 @@ export class AssistantService {
   readonly voice: VoiceService;
   private readonly store: AssistantStore;
   private readonly now: () => number;
+  private readonly dialogue: PersonalDialogue;
   private activeChat:
     | {
         client: string;
@@ -92,6 +93,11 @@ export class AssistantService {
   constructor(private readonly deps: AssistantServiceOptions) {
     this.store = deps.store;
     this.now = deps.now ?? Date.now;
+    this.dialogue = new PersonalDialogue({
+      store: this.store,
+      now: this.now,
+      mutate: (client, raw) => this.mutation(client, raw),
+    });
     this.store.recover();
     this.voice = new VoiceService({
       configDir: deps.configDir,
@@ -135,6 +141,7 @@ export class AssistantService {
       raw,
     );
     this.voice.invalidate();
+    this.dialogue.invalidate();
     this.cancelActive("provider_changed");
     this.changed();
     return settingsView(settings);
@@ -375,6 +382,7 @@ export class AssistantService {
       throw new AssistantError(409, "preview_changed");
     if (preview.scope === "history") {
       this.voice.invalidate();
+      this.dialogue.invalidate();
       this.cancelActive("history_cleared");
     }
     this.store.transaction(() =>
@@ -403,6 +411,7 @@ export class AssistantService {
   }
   cancelClient(client: string): void {
     this.voice.invalidate(client);
+    this.dialogue.invalidate(client);
     if (this.activeChat?.client === client) this.cancelActive("client_revoked");
   }
   private cancelActive(code: string): void {
@@ -471,62 +480,12 @@ export class AssistantService {
   ): Promise<void> {
     try {
       const settings = readAssistantSettings(this.store);
-      const intent = parsePersonalIntent(input, this.now(), settings.timeZone);
-      if (intent.kind === "clarify") {
-        this.settle(active, intent.text);
-        return;
-      }
-      if (intent.kind === "todo") {
-        this.mutation(active.client, {
-          requestId: `chat-${createHash("sha256").update(active.id).digest("hex")}`,
-          action: "todo.create",
-          title: intent.title,
-          ...(intent.dueDate ? { dueDate: intent.dueDate } : {}),
-        });
-        this.settle(
-          active,
-          `已加入待办：${intent.title}${intent.dueDate ? `，截止日期 ${intent.dueDate}` : ""}。未自动设置提醒。`,
-        );
-        return;
-      }
-      if (intent.kind === "reminder") {
-        this.mutation(active.client, {
-          requestId: `chat-${createHash("sha256").update(active.id).digest("hex")}`,
-          action: "reminder.create",
-          message: intent.message,
-          remindAt: intent.remindAt,
-        });
-        this.settle(
-          active,
-          `已设置提醒：${intent.message}，${new Date(intent.remindAt).toLocaleString("zh-CN", { timeZone: settings.timeZone })}（${settings.timeZone}）。`,
-        );
-        return;
-      }
-      if (intent.kind === "complete" || intent.kind === "delete") {
-        const matches = this.store
-          .todos()
-          .filter((t) => t.title === intent.title);
-        if (matches.length !== 1) {
-          this.settle(
-            active,
-            matches.length
-              ? "找到多个同名待办，请在待办清单中选择具体一项。"
-              : "没有找到这个待办，请核对名称或打开待办清单。",
-          );
-          return;
-        }
-        const todo = matches[0]!;
-        this.mutation(active.client, {
-          requestId: `chat-${createHash("sha256").update(active.id).digest("hex")}`,
-          action: intent.kind === "complete" ? "todo.update" : "todo.delete",
-          id: todo.id,
-          version: todo.version,
-          ...(intent.kind === "complete" ? { completed: true } : {}),
-        });
-        this.settle(
-          active,
-          `已${intent.kind === "complete" ? "完成" : "删除"}待办：${todo.title}。`,
-        );
+      const personalReply = this.dialogue.reply(
+        { client: active.client, requestId: active.id, epoch: active.epoch, zone: settings.timeZone },
+        input,
+      );
+      if (personalReply !== null) {
+        this.settle(active, personalReply);
         return;
       }
       if (!settings.chat.enabled) {
@@ -719,6 +678,7 @@ export class AssistantService {
   }
   async stop(): Promise<void> {
     this.stopped = true;
+    this.dialogue.invalidate();
     await this.voice.stop();
     this.cancelActive("runtime_stopped");
     await this.scheduler.stop();

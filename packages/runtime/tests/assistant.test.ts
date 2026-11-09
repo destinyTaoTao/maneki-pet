@@ -49,6 +49,50 @@ async function setup(
   return { dir, runtime, call, token: paired.body.token as string, notifier };
 }
 const prefix = "/v1/assistant";
+it("正式 HTTP 对话可查询、改单和续接提醒时间，观察凭证不能接续个人操作", async () => {
+  const { call, token } = await setup();
+  const observer = (await call("/v1/pair", { name: "dsh", scopes: "express" }))
+    .body.token as string;
+  const chat = async (id: string, text: string) => {
+    expect(
+      (await call(prefix + "/chat", { requestId: id, text }, token)).status,
+    ).toBe(202);
+    await vi.waitFor(async () =>
+      expect(
+        (await call(prefix + `/chat/${id}`, undefined, token)).body.status,
+      ).toBe("completed"),
+    );
+    return (await call(prefix + `/chat/${id}`, undefined, token)).body;
+  };
+  await chat("new-todo", "待办：买牛奶");
+  await chat("rename", "把待办买牛奶改名为买豆浆");
+  expect((await chat("list", "查看未完成的待办")).message.text).toContain(
+    "买豆浆",
+  );
+  await chat("need-time", "提醒我开会");
+  expect(
+    (
+      await call(
+        prefix + "/chat",
+        { requestId: "foreign-time", text: "半小时后" },
+        observer,
+      )
+    ).status,
+  ).toBe(403);
+  await chat("supply-time", "半小时后");
+  const before = (await call(prefix + "/snapshot", undefined, token)).body;
+  expect(before.reminders).toHaveLength(1);
+  await chat("move", "把开会的提醒改到明天下午三点");
+  expect(
+    (await call(prefix + "/snapshot", undefined, token)).body.reminders[0]
+      .version,
+  ).toBe(2);
+  await chat("cancel-reminder", "取消开会的提醒");
+  await chat("cancel-reminder", "取消开会的提醒");
+  expect(
+    (await call(prefix + "/snapshot", undefined, token)).body.reminders,
+  ).toEqual([]);
+});
 it("配置的本机兼容端点贯通真实 HTTP Provider，模型文本不能创建待办", async () => {
   const model = createServer((_req, res) =>
     res.end(

@@ -166,6 +166,56 @@ it("默认不开麦，旧设置保存保留语音偏好，观察端无语音权�
       .body.released,
   ).toBe(true);
 });
+it("语音转写通过同一对话续接缺失时间和改期，重复提交不重复修改", async () => {
+  const transcribe = vi
+    .fn<SpeechRecognizer["transcribe"]>()
+    .mockResolvedValueOnce({ text: "提醒我休息" })
+    .mockResolvedValueOnce({ text: "半小时后" })
+    .mockResolvedValueOnce({ text: "把休息的提醒改到明天下午三点" });
+  const { call, first, enable } = await setup(transcribe);
+  await enable();
+  for (let i = 0; i < 3; i++) {
+    const requestId = `dialogue-${i}`;
+    const lease = (
+      await call(
+        "/assistant/voice/acquire",
+        { requestId, kind: "capture" },
+        first,
+      )
+    ).body;
+    const input = { requestId, leaseId: lease.leaseId };
+    expect(
+      (
+        await call(
+          "/assistant/voice/transcribe",
+          { ...input, audio: audio() },
+          first,
+        )
+      ).body.status,
+    ).toBe("recognized");
+    expect(
+      (await call("/assistant/voice/submit", input, first)).body.status,
+    ).toBe("submitted");
+    expect(
+      (await call("/assistant/voice/submit", input, first)).body.status,
+    ).toBe("submitted");
+    await vi.waitFor(async () =>
+      expect(
+        (await call("/assistant/snapshot", undefined, first)).body
+          .activeRequest,
+      ).toBeNull(),
+    );
+    const snapshot = (await call("/assistant/snapshot", undefined, first)).body;
+    expect(snapshot.reminders).toHaveLength(i === 0 ? 0 : 1);
+    if (i === 2)
+      expect(snapshot.reminders[0]).toMatchObject({
+        message: "休息",
+        version: 2,
+      });
+    await call("/assistant/voice/release", { leaseId: lease.leaseId }, first);
+  }
+  expect(transcribe).toHaveBeenCalledTimes(3);
+});
 it("转写成功只提交一次，重复音频返回原请求，完成后复用同一租约播报，音频不落盘", async () => {
   const { call, first, enable, transcribe, synthesize, dir } = await setup();
   await enable();

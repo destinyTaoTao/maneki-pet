@@ -59,7 +59,7 @@ export const assistantText = {
   offline: "助手暂不可用，请检查后台或重新打开。",
   send: "发送",
   cancel: "取消本轮",
-  placeholder: "和小招说句话，或输入“待办：买牛奶”“半小时后提醒我休息”",
+  placeholder: "试试“查看待办”“待办：买牛奶”或“半小时后提醒我休息”",
   history: "更早的对话",
   clearChat: "清空聊天",
   clearTodos: "清空待办",

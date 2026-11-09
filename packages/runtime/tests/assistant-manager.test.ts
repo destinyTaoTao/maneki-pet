@@ -13,7 +13,16 @@ const dirs: string[] = [];
 const runtimes: StartedRuntime[] = [];
 function directory() { const dir = mkdtempSync(join(tmpdir(), "maneki-manager-")); dirs.push(dir); return dir; }
 function manage(dir: string, port: number, action: string, client = "web") {
-  return exec(process.execPath, [cli, "--config-dir", dir, "--port", String(port), "--assistant-manager", action, "--client", client], { timeout: 25_000 });
+  return exec(process.execPath, [cli, "--config-dir", dir, "--port", String(port), "--assistant-manager", action, "--client", client], { timeout: 25_000 }).catch((error: Error & { stdout?: string }) => {
+    // 子进程默认错误只展示 stderr；补充安全错误码，不输出可能含凭证的 stdout。
+    let code = "unknown";
+    try {
+      const value = JSON.parse(error.stdout ?? "") as { error?: unknown };
+      if (typeof value.error === "string" && /^[a-z_]+$/.test(value.error)) code = value.error;
+    } catch {}
+    error.message += `\nManagement failure code: ${code}`;
+    throw error;
+  });
 }
 afterEach(async () => {
   for (const runtime of runtimes.splice(0)) await runtime.stop();

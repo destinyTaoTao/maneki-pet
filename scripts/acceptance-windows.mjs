@@ -143,6 +143,12 @@ async function main() {
     "Leave the user's running Runtime untouched; free port 18100 before this isolated test",
   );
   const prior = mode === "repeat" ? validatedMetadata() : undefined;
+  if (prior)
+    assert.equal(
+      prior.evidence.release,
+      release,
+      "Run prepare to build acceptance installers for this release",
+    );
   const id = prior
       ? prior.binary.slice("maneki-acceptance-".length, -4)
       : randomUUID().slice(0, 8),
@@ -294,13 +300,40 @@ async function main() {
     async () => (await api("/assistant/snapshot")).todos.length === 1,
     "text todo persistence",
   );
+  const chat = async (id, text) => {
+    await api("/assistant/chat", { requestId: id, text });
+    await waitFor(
+      async () => (await api(`/assistant/chat/${id}`)).status === "completed",
+      `dialogue ${id}`,
+    );
+    return (await api(`/assistant/chat/${id}`)).message.text;
+  };
+  await chat(
+    "acceptance-rename",
+    "把待办安装验收保留事项改名为安装验收已修改事项",
+  );
+  assert.match(
+    await chat("acceptance-list", "查看未完成的待办"),
+    /安装验收已修改事项/,
+  );
+  await chat("acceptance-time-prompt", "提醒我安装验收取消事项");
+  await chat("acceptance-time-answer", "一天后");
+  await chat("acceptance-cancel", "取消安装验收取消事项的提醒");
+  assert.equal((await api("/assistant/snapshot")).reminders.length, 0);
   await api("/assistant/mutations", {
     requestId: "acceptance-reminder",
     action: "reminder.create",
     message: "安装验收提醒（不实际到期）",
     remindAt: Date.now() + 86400000,
   });
+  await chat(
+    "acceptance-reschedule",
+    "把安装验收提醒（不实际到期）的提醒改到明天下午三点",
+  );
   const snapshot = await api("/assistant/snapshot");
+  assert.equal(snapshot.todos[0].title, "安装验收已修改事项");
+  assert.equal(snapshot.reminders[0].version, 2);
+  evidence.personalDialogueManagement = true;
   console.log("PASS formal text assistant / todo / reminder");
   const before = digest(sidecar);
   await installer(current, install, env, 32);

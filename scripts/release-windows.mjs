@@ -149,6 +149,7 @@ async function main() {
     "2026-11-07-cloud-voice.md",
     "2026-11-07-push-to-talk-voice.md",
     "2026-11-08-windows-preview-delivery.md",
+    "2026-11-09-personal-dialogue.md",
   ]) {
     copyFileSync(
       join(root, "docs/audits", name),
