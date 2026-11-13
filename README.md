@@ -2,9 +2,9 @@
 
 # 🐱 Maneki · 小招
 
-**一只主动招手的桌宠，也是你和 AI Agent 之间的贴心中间人**
+**小招，陪你工作和生活的桌面管家**
 
-*A beckoning-cat desktop pet that brokers tasks between you and your AI coding agents.*
+*A desktop companion that keeps you company and follows your dsh sessions.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-incubating-orange.svg)](./docs/roadmap.md)
@@ -14,7 +14,7 @@
 
 > 招财猫（招き猫 / Maneki-neko）的天性就是：**主动招手迎接你，把好运带回来**。
 >
-> Maneki 的目标是陪你聊天、管理个人待办并到点提醒，后续把授权的工程任务交给 dsh，跟踪并带回结果。近期只适配 dsh，其他 harness 后置。
+> 小招住在你的桌面上。平时陪你聊两句，工作时替你留意 dsh 会话，有事情需要你决定时来叫你。你从 dsh 插件打开它，换项目仍能接着聊。首版规划中，长期偏好经你同意存入 EverNook，工程操作与审批由你回到 dsh 处理。
 
 > **当前状态：Windows x64 个人助理预览；更新于 2026-11-09。** `0.2.0-alpha.2` 在可安装预览上增加对话查询、修改和取消未来事项，以及同名选择/缺时间澄清；不依赖对话模型。安装器内置 Runtime / Node 与正式橘猫娘形象，dsh 离线插件仍为 `0.3.0`。先看[安装与使用](./docs/install-windows.md)、[对话增量验证](./docs/audits/2026-11-09-personal-dialogue.md)及[首版交付验证](./docs/audits/2026-11-08-windows-preview-delivery.md)。M1/M2/M2b 整体出口尚未通过，工程派发继续关闭；原生授权、真实设备/账号和既有用户安装迁移保留人工验收。
 >
@@ -42,20 +42,12 @@ Windows 开发机可运行 `pnpm release:windows`，在 `dist/releases/maneki-0.
 
 2026-11-08 提醒增量：提醒清单的“我已查看”只记录用户确认时间，保留原系统受理/失败状态，不完成待办；失败项可点“重试系统通知”，仍受勿扰和通知限额限制，不自动重试。发送后记账前崩溃可能重投；存储异常后退避，未知结果不伪报失败或新建投递。实现、迁移及人工边界见[记录](./docs/audits/2026-11-08-reminder-management.md)。
 
-| 能力 | 说明 |
-|---|---|
-| 🎨 自定义形象 | 纯数据动作包驱动，透明视频 / 精灵图按平台选择；先支持本地换装，再建设社区生态 |
-| 🎭 预设可爱动作 | 待机呼吸、漫游、玩耍、庆祝、睡觉……按宠物状态与权重无缝衔接，交互带物理反馈（点击、拖拽、甩抛） |
-| 💬 主动交流 | 主动性引擎：到点提醒、任务完成、久等输入、节日问候；带防打扰预算（勿扰时段 + 频率上限） |
-| 🗨️ 独立主会话 | 日常/技术问答，管理待办提醒、解释 dsh 状态；模型由 Runtime 独立配置，历史本地保留至主动清除，不直接操作项目文件或命令 |
-| 🎙️ 可选语音 | ASR、TTS 独立启用；本地优先、云端显式配置；按住录音、松开成功转写后自动发送，失败不提交，半双工且可打断播报；唤醒/连续对话后置 |
-| 📝 个人待办与提醒 | 平铺待办与单次提醒分开，截止时间不自动建立提醒；本地 SQLite 持久化，到点系统通知、桌宠在线同步展示，语音播报单独开启 |
-| 🧠 外挂记忆 | 可选接入用户自建的 MCP 记忆服务作为背景知识；写回粒度可配置，与内置提醒/记事互不依赖 |
-| 🤝 Agent 中间人 | 接收你的语音/文字指令 → 派发给 harness → 盯进度切动画 → 完成后通知你并交付产物 |
-| 🔌 dsh 优先接入 | 近期只适配 dsh；插件提供入口与设置，Runtime 保存助手全局配置，其他 harness 的 Adapter 扩展后置；MCP 表达不等于工程派发 |
-| 🗂️ 会话总览与介入 | 查看最近 harness 会话（默认 10 个、范围可配），等待输入时按来源授权在助理内回答；完全接管与宠物审批桥后续另验 |
-| 🧩 扩展 | 形象包、语音/模型 Provider、harness Adapter 分开；第三方可执行技能须通过隔离验收后开放 |
-| 🎬 平台运营 | 当前仅备料与人工发布回执；未来在官方权限获批后，预览并逐次确认作品/账号再发布和核验回执，不承诺个人账号一定获批 |
+| 首版体验 | 预览已有基础 | 接下来要验收 |
+|---|---|---|
+| 同一个桌面管家 | dsh 插件唤起独立窗口，共享主会话、待办与单次提醒 | 两个项目打开同一段历史，关闭 dsh 后提醒仍到点 |
+| 看懂会话进度 | 真实宿主事件可驱动工作、思考和完成等表情 | 两个会话并行时，面板或文字提问能指认哪个在等你，失联时显示进度不可用 |
+| 开口和它说话 | 按住说话、可选朗读，角色包已有 17 段动画 | 说话时小招专心听，后台继续收进度，松开后能回答同一个问题 |
+| 跨天记住偏好 | 已有 EverNook 适配器，个人主会话已有本地历史 | 明确要求保存并取得回执，次日换项目仍能召回，来源可核对 |
 
 ## 🎯 设计原则
 
@@ -84,7 +76,7 @@ flowchart TB
 | 形态 | 适用场景 |
 |---|---|
 | ① 独立桌宠界面 | Tauri 透明窗连接共享 Runtime，按已验证的 API / MCP / hooks 能力接入 harness |
-| ② harness 内嵌 overlay 插件 | 首个目标 dsh；连接/受控启动同一个已安装 Runtime，无须先打开桌宠窗口 |
+| ② dsh 插件入口 | 首版连接或唤起共享 Runtime 和独立桌面窗口。内嵌 overlay 后置 |
 | ③ core 库模式（后置） | 保留第三方嵌入 `@maneki-pet/core` 的设计边界，近期不作为交付目标 |
 
 **双向通道是不同能力**：harness → 宠物为状态/表达/通知；宠物 → harness 的派发、补充输入、查询与取消由 Adapter 提供。具体宿主、版本和平台通过验收后才列为已支持。
@@ -123,19 +115,14 @@ pnpm --filter @maneki-pet/desktop prepare:packs
 
 ## 🗺️ Roadmap（摘要）
 
-| 里程碑 | 内容 |
-|---|---|
-| M0 ✅ | 仓库 + 设计文档 |
-| M1 | 最小桌宠：透明窗 + 动画链 + 托盘 + 拖拽点击 |
-| M2 | 共享 Runtime + dsh 基础插件连接/配对/唤起/设置与助理退出 |
-| M3 + M4 近期 | 先文字主会话、个人待办与单次可靠提醒，再接按键语音 |
-| M2b 后续 | dsh 工程文字任务 → 原生审批 → 完整恢复与结果交付，独立验收 |
-| M5 暂缓 | 其他宿主/库模式、会话介入与外挂记忆，按后续需求另验 |
-| M6 | 隔离验收后的第三方技能 + 社区动作包工具 + 多宠 |
+首版按四个 Windows 实机场景交付，目前均待验收。
 
-详见 [docs/roadmap.md](./docs/roadmap.md)。
+1. 从两个 dsh 项目打开同一个小招。[#64](https://github.com/destinyTaoTao/maneki-pet/issues/64)
+2. 在面板或主会话中找到等待回应的 dsh 会话。[#65](https://github.com/destinyTaoTao/maneki-pet/issues/65)
+3. 按住说话查询进度，让语音和动作共用同一段交互。[#66](https://github.com/destinyTaoTao/maneki-pet/issues/66)
+4. 将明确指定的偏好存入 EverNook，次日换项目后召回。[#67](https://github.com/destinyTaoTao/maneki-pet/issues/67)
 
-领域词义见 [GLOSSARY.md](./GLOSSARY.md)；共享运行时取舍见 [ADR](./docs/adr/0001-shared-local-runtime.md)，独立主会话见 [ADR-0003](./docs/adr/0003-independent-assistant-session.md)，本次 dsh 优先个人助理范围见 [ADR-0005](./docs/adr/0005-dsh-first-personal-assistant.md)。历史架构审计见[报告](./docs/audits/2026-11-01-product-architecture-review.md)。
+第二个宿主、内嵌浮层、常开麦克风、自动画像和动作市场后置。工程派发、审批桥、跨宿主编排与平台发布另行立项。分阶段依赖、实机步骤和历史里程碑见[路线图](./docs/roadmap.md)，职责与数据归属见[架构设计](./docs/architecture.md)。
 
 ## 💡 灵感与致谢
 
