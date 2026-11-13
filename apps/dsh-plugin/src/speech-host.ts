@@ -36,6 +36,7 @@ export function startSpeechHost(base: URL, token: string, clientId: string, sour
       const snapshot = speech.snapshot(), provider = snapshot.providers.find((p) => p.id === snapshot.selection.providerId);
       if (!provider || provider.location !== "host-local" || provider.id !== job.providerId) {
         await request("complete", { sourceId, sourceSecret, jobId: job.jobId, failed: true }, signal()).catch(() => undefined);
+        await request("ack", { sourceId, sourceSecret, jobId: job.jobId }, AbortSignal.timeout(2500)).catch(() => undefined);
         return;
       }
       const controller = new AbortController();
@@ -55,7 +56,8 @@ export function startSpeechHost(base: URL, token: string, clientId: string, sour
         if (!controller.signal.aborted) await request("complete", { sourceId, sourceSecret, jobId: job.jobId, failed: true }, signal()).catch(() => undefined);
       } finally {
         clearInterval(poll); life.signal.removeEventListener("abort", stop);
-        if (controller.signal.aborted) await request("ack", { sourceId, sourceSecret, jobId: job.jobId }, AbortSignal.timeout(2500)).catch(() => undefined);
+        // 识别已实际结束；即使取消与结果交错，也须确认停止，不能依赖轮询已观察到取消。
+        await request("ack", { sourceId, sourceSecret, jobId: job.jobId }, AbortSignal.timeout(2500)).catch(() => undefined);
       }
     } finally { busy = false; }
   };
