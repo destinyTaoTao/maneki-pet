@@ -5,6 +5,8 @@ import {
   localTimeToUtc,
   todoText,
   validDateOnly,
+  sessionProgressReply,
+  type SessionObservationSource,
   type ChatMessage,
   type ChatProvider,
   type DailyQuotaPolicy,
@@ -63,6 +65,7 @@ export interface AssistantServiceOptions {
   now?: () => number;
   provider?: (settings: AssistantSettings, key?: string) => ChatProvider;
   expressionState?: () => string;
+  observations?: () => SessionObservationSource[];
 }
 export class AssistantService {
   readonly voice: VoiceService;
@@ -159,6 +162,7 @@ export class AssistantService {
       reminders: this.store.reminders(),
       settings,
       expressionState: this.deps.expressionState?.() ?? "idle",
+      observations: this.deps.observations?.() ?? [],
       activeRequest: this.activeChat ? { requestId: this.activeChat.id } : null,
     };
   }
@@ -480,6 +484,12 @@ export class AssistantService {
   ): Promise<void> {
     try {
       const settings = readAssistantSettings(this.store);
+      const progressReply = sessionProgressReply(input, this.deps.observations?.() ?? []);
+      if (progressReply !== null) {
+        this.dialogue.invalidate(active.client);
+        this.settle(active, progressReply);
+        return;
+      }
       const personalReply = this.dialogue.reply(
         { client: active.client, requestId: active.id, epoch: active.epoch, zone: settings.timeZone },
         input,

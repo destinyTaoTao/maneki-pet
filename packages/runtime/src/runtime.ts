@@ -9,6 +9,7 @@ import { WindowsSystemNotifier } from "./system-notifier.js";
 import { generateToken, hashToken, TicketIssuer } from "./auth.js";
 import { EventFeed } from "./events.js";
 import { ExpressionStateFeed } from "./expression-state.js";
+import { SessionObservations } from "./session-observations.js";
 import { LocalHttpApi } from "./http-api.js";
 import { InstanceLock, RuntimeLifecycle, type RuntimeState } from "./lifecycle.js";
 import { McpExpressionBridge, type ExpressionSinks } from "./mcp-bridge.js";
@@ -91,6 +92,13 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
         store.kvSet("dnd", value ? "1" : "0");
       },
     };
+    const observations = new SessionObservations({
+      active: (clientId) => {
+        const client = store.findClient(clientId);
+        return Boolean(client && !client.revokedAt);
+      },
+      publish: () => feed.publish("assistant.observations_changed"),
+    });
     const notifications = new NotificationBudget(config.limits.maxNotificationsPerHour);
     const quotaPolicy = new DailyQuotaPolicy(
       {
@@ -109,6 +117,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
         return Boolean(row && !row.revokedAt);
       },
       expressionState: () => expressions.current(),
+      observations: () => observations.snapshot(),
       ...(options.chatProvider ? { provider: options.chatProvider } : {}),
       ...(options.speech ? { speech: options.speech } : {}),
     });
@@ -169,6 +178,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       notifications,
       feed,
       expressions,
+      observations,
       dnd,
       assistant,
       ...(tasks ? { tasks } : {}),
@@ -250,6 +260,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
         stopAssistantEvents();
         await assistant.stop();
         expressions.close();
+        observations.close();
         hub.detach();
         await api.stop();
         await bridge.close();

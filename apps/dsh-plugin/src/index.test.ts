@@ -1,17 +1,20 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { apply, type DshPluginContext } from "./index.js";
 import { controlAssistant } from "./assistant-control.js";
+import type { DshSessionEvent } from "@maneki-pet/adapter-dsh";
 vi.mock("./assistant-control.js", () => ({ controlAssistant: vi.fn() }));
 
 type Command = Parameters<DshPluginContext["commands"]["register"]>[0];
 let dispose: (() => Promise<void>) | undefined;
 let command: Command | undefined;
+let sessionListener: ((session: { id: string; header?: { cwd?: string } }, event: DshSessionEvent["event"]) => void) | undefined;
 const unregister = vi.fn();
 const removeEvents = vi.fn();
 const context: DshPluginContext = {
   commands: { register: (definition) => { command = definition; return unregister; } },
   on: (event, listener) => {
     if (event === "dispose") dispose = listener as () => Promise<void>;
+    else sessionListener = listener as NonNullable<typeof sessionListener>;
     return removeEvents;
   },
 };
@@ -30,6 +33,66 @@ it("首连失败不影响 dsh；只有人类配对命令启用观察，不把 to
   expect(controlAssistant).toHaveBeenCalledWith("pair", "work", expect.any(AbortSignal));
   await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
   expect(JSON.stringify(vi.mocked(fetch).mock.calls)).not.toContain("root-token");
+});
+
+it("上报保留 A 等待与 B 终态，定位只包含目录名，卸载标记来源失联", async () => {
+  const reports: Array<{ connected: boolean; sessions: Array<{ sessionId: string; phase: string; projectName: string }> }> = [];
+  vi.mocked(controlAssistant).mockResolvedValue({ state: "ready", token: "client-test-token-that-is-long-enough" });
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url, options) => {
+    if (String(url).endsWith("/observations/sessions")) reports.push(JSON.parse(options.body));
+    return new Response(null, { status: 202 });
+  }));
+  await apply(context, { showOnConnect: false });
+  await vi.waitFor(() => expect(reports.length).toBeGreaterThan(0));
+  const emit = (id: string, seq: number, type: string, data: Record<string, unknown>) =>
+    sessionListener!({ id, header: { cwd: `C:\\private-parent\\project-${id}` } }, { seq, type, data });
+  emit("A", 0, "turn/start", { turn: 1 });
+  emit("A", 1, "tool/call", { turn: 1, name: "ask_user_question" });
+  emit("B", 0, "turn/start", { turn: 1 });
+  emit("B", 1, "turn/end", { turn: 1, reason: { kind: "completed" } });
+  await vi.waitFor(() => expect(reports.at(-1)?.sessions.map((row) => row.phase)).toEqual(["waiting_input", "completed"]));
+  expect(reports.at(-1)?.sessions[0]?.projectName).toBe("project-A");
+  expect(JSON.stringify(reports)).not.toContain("private-parent");
+  emit("B", 1, "step/start", { turn: 1 });
+  await dispose!(); dispose = undefined;
+  expect(reports.at(-1)?.connected).toBe(false);
+  expect(reports.at(-1)?.sessions.map((row) => row.phase)).toEqual(["waiting_input", "completed"]);
+});
+
+it("容量满时淘汰最早完成的 B，保留先启动但最近才完成的 A", async () => {
+  const snapshots: Array<{ sessions: Array<{ sessionId: string; phase: string }> }> = [];
+  vi.mocked(controlAssistant).mockResolvedValue({ state: "ready", token: "client-test-token-that-is-long-enough" });
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url, options) => {
+    if (String(url).endsWith("/observations/sessions")) snapshots.push(JSON.parse(options.body));
+    return new Response(null, { status: 202 });
+  }));
+  await apply(context, { showOnConnect: false });
+  await vi.waitFor(() => expect(snapshots.length).toBeGreaterThan(0));
+  const emit = (id: string, seq: number, type: string, data: Record<string, unknown>) => sessionListener!({ id }, { seq, type, data });
+  emit("A", 0, "turn/start", { turn: 1 });
+  emit("B", 0, "turn/start", { turn: 1 });
+  emit("B", 1, "turn/end", { turn: 1, reason: { kind: "completed" } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  emit("A", 1, "turn/end", { turn: 1, reason: { kind: "completed" } });
+  for (let index = 0; index < 63; index++) emit(`new-${index}`, 0, "turn/start", { turn: 1 });
+  await vi.waitFor(() => {
+    expect(snapshots.at(-1)?.sessions).toHaveLength(64);
+    expect(snapshots.at(-1)?.sessions.some((row) => row.sessionId === "A")).toBe(true);
+    expect(snapshots.at(-1)?.sessions.some((row) => row.sessionId === "B")).toBe(false);
+  });
+});
+
+it("旧 Runtime 缺少会话路由时仍发送原表情，并提示版本能力", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  vi.mocked(controlAssistant).mockResolvedValue({ state: "ready", token: "client-test-token-that-is-long-enough" });
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url) => {
+    urls.push(String(url));
+    return new Response(null, { status: String(url).endsWith("/observations/sessions") ? 404 : 202 });
+  }));
+  await apply(context, { showOnConnect: false });
+  await vi.waitFor(() => expect(log).toHaveBeenCalledWith(expect.stringContaining("状态表情继续联动")));
+  expect(urls.some((url) => url.endsWith("/expressions/state"))).toBe(true);
 });
 
 it("明确退出后不会自动重启 Runtime，卸载释放命令与事件订阅", async () => {

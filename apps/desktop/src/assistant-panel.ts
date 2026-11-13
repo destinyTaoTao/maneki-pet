@@ -9,11 +9,11 @@ import {
 import { assistantText as t } from "./assistant-text.js";
 import * as runtime from "./runtime-client.js";
 import "./assistant.css";
-import { defaultVoiceSettings, defaultBailianSettings } from "@maneki-pet/core";
+import { defaultVoiceSettings, defaultBailianSettings, describeObservedSessions, sessionPhaseText } from "@maneki-pet/core";
 import { VoiceController } from "./voice-controller.js";
 import { BrowserVoiceCapture, BrowserVoicePlayer } from "./voice-media.js";
 
-type Tab = "chat" | "todos" | "reminders" | "settings";
+type Tab = "chat" | "sessions" | "todos" | "reminders" | "settings";
 type RequestState = {
   requestId: string;
   status: string;
@@ -92,7 +92,7 @@ export function createAssistantPanel(
   confirmation.className = "assistant-confirm";
   const views = new Map<Tab, HTMLElement>(),
     tabButtons = new Map<Tab, HTMLButtonElement>();
-  for (const name of ["chat", "todos", "reminders", "settings"] as const) {
+  for (const name of ["chat", "sessions", "todos", "reminders", "settings"] as const) {
     const node = el("section");
     node.className = `assistant-${name}`;
     node.hidden = name !== tab;
@@ -457,6 +457,33 @@ export function createAssistantPanel(
     button(t.clearTodos, () => void clear("todos")),
     todoList,
   );
+  function renderSessions() {
+    const view = views.get("sessions")!;
+    view.replaceChildren();
+    const sources = snapshot?.observations ?? [];
+    if (!sources.length) { view.append(el("p", describeObservedSessions(sources))); return; }
+    let shown = 0;
+    let omitted = false;
+    for (const source of sources) {
+      const section = el("section");
+      const origin = el("strong", `dsh · ${source.profileId}`);
+      origin.title = `来源 ${source.sourceId}，客户端 ${source.clientId}`;
+      section.append(origin, el("p", source.connected ? "已连接" : "来源已失联，当前进度不可用"));
+      if (!source.sessions.length) section.append(el("p", "尚未观察到会话"));
+      for (const row of source.sessions) {
+        if (shown >= 20) { omitted = true; break; }
+        shown += 1;
+        const item = el("article");
+        item.append(el("strong", row.projectName || "目录未知"), el("p", row.sessionId),
+          el("p", source.connected ? sessionPhaseText[row.phase] : `上次为${sessionPhaseText[row.phase]}，当前状态未知`),
+          el("small", `最后观测 ${new Date(row.observedAt).toLocaleString("zh-CN")}`));
+        section.append(item);
+      }
+      if (source.truncated) section.append(el("p", "来源会话超过观察上限，部分未展示"));
+      view.append(section);
+    }
+    if (omitted) view.append(el("p", "仅显示前 20 项，请在 dsh 核查其余会话"));
+  }
   function renderTodos() {
     todoList.replaceChildren();
     if (!snapshot?.todos.length) todoList.append(el("p", t.noTodos));
@@ -882,6 +909,7 @@ export function createAssistantPanel(
       )
         void voice.cancel(false);
       snapshot = next;
+      renderSessions();
       updateVoice();
       renderChat();
       renderTodos();
@@ -930,7 +958,7 @@ export function createAssistantPanel(
           (event) => {
             if (event.kind === "assistant.voice.stop")
               voice.stopIfOwned(event.payload.leaseId);
-            if (event.kind === "assistant.changed" && !host.hidden)
+            if ((event.kind === "assistant.changed" || event.kind === "assistant.observations_changed") && !host.hidden)
               void perform(refresh);
             if (
               event.kind === "assistant.reminder" &&

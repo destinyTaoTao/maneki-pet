@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
 
 import { DshAdapter, type DshSessionEvent } from "@maneki-pet/adapter-dsh";
-import type { HarnessEvent, PetState } from "@maneki-pet/core";
+import type { HarnessEvent, PetState, ObservedSession, SessionPhase } from "@maneki-pet/core";
 import { controlAssistant, type ControlAction } from "./assistant-control.js";
 
 /** 仅使用已安装 dsh 的事件订阅面，无运行时宿主依赖或执行钩子。 */
 export interface DshPluginContext {
-  on(event: "session/event", listener: (session: { id: string }, event: DshSessionEvent["event"]) => void): () => void;
+  on(event: "session/event", listener: (session: { id: string; header?: { cwd?: string } }, event: DshSessionEvent["event"]) => void): () => void;
   on(event: "dispose", listener: () => Promise<void>): () => void;
   commands: { register(definition: { name: string; description: string; input: { hint: string }; recordInput: boolean; handler(invocation: { rawInput: string; signal: AbortSignal }): Promise<{ kind: "success" | "error"; text: string }> }): () => void };
 }
@@ -42,8 +43,13 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
   }
   const sourceId = randomUUID();
   const endpoint = new URL("/v1/expressions/state", base).href;
+  const observationEndpoint = new URL("/v1/observations/sessions", base).href;
   const controller = new AbortController();
-  const sessions = new Map<string, PetState>();
+  const sessions = new Map<string, ObservedSession>();
+  const projects = new Map<string, string>();
+  let reportSequence = 0;
+  let truncated = false;
+  let observationsSupported: boolean | undefined;
   let pulse: PetState = "idle";
   let pulseTimer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
@@ -53,8 +59,24 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
   let controlPending: Promise<void> | undefined;
 
   const current = (): PetState => {
-    const states = new Set(sessions.values());
+    const states = new Set([...sessions.values()].map((row) => row.phase));
     return (["waiting_input", "working", "thinking"] as const).find((state) => states.has(state)) ?? pulse;
+  };
+  const postObservations = async (connected: boolean, signal: AbortSignal): Promise<void> => {
+    const response = await fetch(observationEndpoint, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sourceId, reportSequence: ++reportSequence, profileId, connected, truncated, sessions: [...sessions.values()] }),
+      signal, redirect: "error",
+    });
+    await response.body?.cancel();
+    if (response.status === 404) {
+      if (observationsSupported !== false) console.error("[maneki] 当前 Runtime 尚不支持逐会话进度，请更新 Runtime 和桌面；状态表情继续联动");
+      observationsSupported = false;
+      return;
+    }
+    if (response.status !== 202) throw new Error("session observations unavailable");
+    observationsSupported = true;
   };
   const post = async (state: PetState, signal: AbortSignal): Promise<void> => {
     const response = await fetch(endpoint, {
@@ -76,6 +98,7 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
         dirty = false;
         try {
           await post(current(), AbortSignal.any([controller.signal, AbortSignal.timeout(2_000)]));
+          await postObservations(true, AbortSignal.any([controller.signal, AbortSignal.timeout(2_000)]));
           if (online === false) console.error("[maneki] 已恢复共享 Runtime 状态联动");
           online = true;
         } catch {
@@ -93,19 +116,20 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     });
   };
   const observe = (event: HarnessEvent): void => {
+    if (event.sequence === undefined) return;
     const payload = event.payload;
+    let phase: SessionPhase;
     switch (payload.type) {
       case "task.started":
       case "session.busy": {
-        if (!sessions.has(event.sessionId) && sessions.size >= 64) return;
         const state = payload.type === "session.busy" ? payload.state === "waiting" ? "waiting_input" : payload.state : "working";
-        sessions.set(event.sessionId, state);
+        phase = state;
         break;
       }
       case "task.completed":
       case "task.error":
       case "task.cancelled":
-        sessions.delete(event.sessionId);
+        phase = payload.type === "task.completed" ? "completed" : payload.type === "task.error" ? "failed" : "cancelled";
         clearTimeout(pulseTimer);
         pulse = payload.type === "task.completed" ? "celebrating" : payload.type === "task.error" ? "error" : "idle";
         pulseTimer = setTimeout(() => { pulse = "idle"; send(); }, 3_000);
@@ -113,11 +137,27 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
         break;
       default: return;
     }
+    if (!sessions.has(event.sessionId) && sessions.size >= 64) {
+      const settled = [...sessions.values()]
+        .filter((row) => ["completed", "failed", "cancelled"].includes(row.phase))
+        .sort((a, b) => a.observedAt - b.observedAt)[0];
+      truncated = true;
+      if (!settled) { send(); return; }
+      sessions.delete(settled.sessionId);
+    }
+    sessions.set(event.sessionId, { sessionId: event.sessionId, projectName: projects.get(event.sessionId) ?? "",
+      phase, sequence: event.sequence, observedAt: Date.parse(event.occurredAt) });
     send();
   };
   const adapter = new DshAdapter({
     eventSource: {
-      subscribe: (listener) => ctx.on("session/event", (session, event) => listener({ sessionId: session.id, event })),
+      subscribe: (listener) => ctx.on("session/event", (session, event) => {
+        const directory = basename(session.header?.cwd ?? process.cwd()).replace(/[\r\n]/g, " ").slice(0, 80);
+        projects.delete(session.id);
+        projects.set(session.id, directory);
+        if (projects.size > 128) projects.delete(projects.keys().next().value!);
+        listener({ sessionId: session.id, event });
+      }),
     },
   });
   const stop = await adapter.subscribe(observe, {
@@ -172,7 +212,9 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     controller.abort();
     await controlPending?.catch(() => undefined);
     await pending;
+    if (token) try { await postObservations(false, AbortSignal.timeout(2_000)); } catch { /* 最迟 15 秒标记来源失联。 */ }
     sessions.clear();
+    projects.clear();
     if (token) try { await post("idle", AbortSignal.timeout(2_000)); } catch { /* 失联时由 Runtime 的 15 秒租约回收。 */ }
   });
   if (managed) void runControl("connect", controller.signal).catch((error) => { if (!closed) console.error(`[maneki] ${error instanceof Error ? error.message : "助手不可用"}；dsh 继续运行`); });

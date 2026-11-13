@@ -22,11 +22,13 @@ import type { RuntimeStore } from "./store.js";
 import { validateObject } from "./validate.js";
 import type { AssistantService } from "./assistant-service.js";
 import { handleAssistantHttp } from "./assistant-http.js";
+import { ObservationReportError, type SessionObservations } from "./session-observations.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
 export interface LocalHttpApiDeps {
   assistant?: AssistantService;
+  observations?: SessionObservations;
   host: string;
   port: number;
   store: RuntimeStore;
@@ -150,6 +152,27 @@ export class LocalHttpApi {
       }
       await handleAssistantHttp(req, res, client, this.deps.assistant, () =>
         this.readJson(req, res, url === "/v1/assistant/voice/transcribe" ? 1400000 : MAX_BODY_BYTES));
+      return;
+    }
+
+    if (method === "POST" && url === "/v1/observations/sessions") {
+      if (!hasScope(client, EXPRESS_SCOPE)) {
+        this.forbidden(res, "observations require express scope");
+        return;
+      }
+      if (!this.deps.observations) {
+        this.sendJson(res, 503, { error: "observations_unavailable" });
+        return;
+      }
+      const body = await this.readJson(req, res);
+      if (body === undefined) return;
+      try {
+        this.deps.observations.report(client.clientId, body);
+        this.sendJson(res, 202, { accepted: true });
+      } catch (error) {
+        if (!(error instanceof ObservationReportError)) throw error;
+        this.sendJson(res, error.status, { error: error.message });
+      }
       return;
     }
 

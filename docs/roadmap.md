@@ -7,7 +7,7 @@
 | 阶段与票据 | 复用基础与增量 | Windows 实机出口 |
 |---|---|---|
 | 1 · 同一个小招 [#64](https://github.com/destinyTaoTao/maneki-pet/issues/64) | 在 alpha.2 安装预览上核实 dsh 原生配对、唤起和跨项目续接，复用本地历史、待办与单次提醒 | 2026-11-13 独立身份体验验收通过，修复与证据已交付 main。A/B 共享历史，关闭 dsh 后提醒可见，明确退出与重启续接均通过 |
-| 2 · 找到等我的会话 [#65](https://github.com/destinyTaoTao/maneki-pet/issues/65) | 从聚合表情补到逐会话只读观察。来源、标识、阶段和观测时间同时服务于面板与确定性查询 | 真实 A 等输入、B 工作后完成，面板和无模型文字查询都能定位 A；回 dsh 处理后更新，失联时显示不可用 |
+| 2 · 找到等我的会话 [#65](https://github.com/destinyTaoTao/maneki-pet/issues/65) | 逐会话只读观察，面板与确定性查询共用事实，旧表情兼容 | 2026-11-14 独立 Windows 场景通过。真实 dsh A 等输入、B 完成、回答续接、取消及失联均核对；24 个事件到视频首帧样本 p95 69 ms。见[证据](./audits/2026-11-14-session-observations.md) |
 | 3 · 开口问进度 [#66](https://github.com/destinyTaoTao/maneki-pet/issues/66) | 复用按键语音、可选朗读与 17 段动画，串联倾听、回答、首次招手和安静等待 | 用真实麦克风询问 A，录音期间 B 完成，倾听持续、回答仍指向 A；取消不提交，朗读可停，回到文字可接续 |
 | 4 · 隔天记得我的偏好 [#67](https://github.com/destinyTaoTao/maneki-pet/issues/67) | 将既有 EverNook shim 的显式保存、回执与有来源的召回接入主会话 | 真实测试身份保存唯一偏好；排除本地历史/摘要后次日换项目能召回，关闭召回做对照；记忆失联时对话、进度与到点提醒仍可用 |
 

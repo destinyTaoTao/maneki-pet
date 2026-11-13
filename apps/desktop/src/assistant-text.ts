@@ -1,4 +1,5 @@
 export const assistantText = {
+  sessions: "会话",
   voiceOpen: "打开按键语音",
   voiceSetupHint:
     "语音默认关闭。请在设置中按需启用麦克风和识别，或单独启用语音回答；文字输入始终可用。",

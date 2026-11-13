@@ -24,6 +24,7 @@ vi.mock("./runtime-client.js", () => ({
 }));
 import { createAssistantPanel } from "./assistant-panel.js";
 import { assistantText } from "./assistant-text.js";
+import type { SessionObservationSource } from "@maneki-pet/core";
 
 class PanelNode extends EventTarget {
   constructor(
@@ -47,6 +48,35 @@ class PanelNode extends EventTarget {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+it("会话面板分别显示等待、完成和失联后的最后事实，来源标签按纯文本呈现", async () => {
+  const nodes: PanelNode[] = [];
+  const doc = new EventTarget();
+  Object.assign(doc, { createElement: () => { const node = new PanelNode(); nodes.push(node); return node; } });
+  vi.stubGlobal("document", doc);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("Option", PanelNode);
+  const source: SessionObservationSource = {
+    clientId: "test-client", sourceId: "test-source", profileId: "web", connected: true, truncated: false, lastSeenAt: Date.now(),
+    sessions: [
+      { sessionId: "session-A", projectName: "<project-A>", phase: "waiting_input", sequence: 1, observedAt: Date.now() },
+      { sessionId: "session-B", projectName: "project-B", phase: "completed", sequence: 2, observedAt: Date.now() },
+    ],
+  };
+  call.mockImplementation(async () => ({ epoch: 0, revision: 0, messages: [], todos: [], reminders: [], settings: null, activeRequest: null, observations: [source] }));
+  const panel = createAssistantPanel(new PanelNode() as unknown as HTMLElement, () => undefined, () => undefined);
+  try {
+    await panel.open();
+    expect(nodes.some((node) => node.textContent === "session-A")).toBe(true);
+    expect(nodes.some((node) => node.textContent === "<project-A>")).toBe(true);
+    expect(nodes.some((node) => node.textContent === "等待你回应")).toBe(true);
+    expect(nodes.some((node) => node.textContent === "已完成")).toBe(true);
+    source.connected = false;
+    await panel.reuse();
+    expect(nodes.some((node) => node.textContent === "来源已失联，当前进度不可用")).toBe(true);
+    expect(nodes.some((node) => node.textContent === "上次为等待你回应，当前状态未知")).toBe(true);
+    expect(call.mock.calls.every((args) => args[1] === "/snapshot")).toBe(true);
+  } finally { panel.dispose(); }
 });
 it("打开提醒不自动确认，已查看和系统受理分开，确认/重试仅提交当前项版本", async () => {
   const nodes: PanelNode[] = [],

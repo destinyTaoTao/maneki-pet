@@ -3,6 +3,7 @@ import type {
   PersonalTodo,
   PersonalReminder,
   VoiceSettings,
+  SessionObservationSource,
 } from "@maneki-pet/core";
 import { readBounded } from "./bounded-fetch.js";
 
@@ -37,6 +38,7 @@ export interface AssistantSnapshot {
   reminders: PersonalReminder[];
   settings: AssistantSettingsView | null;
   expressionState: string;
+  observations?: SessionObservationSource[];
   activeRequest: { requestId: string } | null;
 }
 export class AssistantClientError extends Error {
