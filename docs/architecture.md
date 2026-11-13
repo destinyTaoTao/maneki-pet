@@ -679,6 +679,31 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 - 对话改期/取消只接受 pending 提醒；取消复用 reminder.delete，明确删除未投递记录。sending / accepted / failed / cancelled 不经对话假报撤回，也不隐式恢复或重试。查看状态区分待投递、投递中、系统受理、失败、取消；查询最多显示 20 项，多余项目引导清单。自动验证使用隔离数据库和通知/模型替身，真实语音设备与系统权限继续人工验收。
 - 当前封存的 0.2.0-alpha.1 保持原样；本增量随桌面/Runtime 一起递增为 0.2.0-alpha.2 后交付，插件保持 0.3.0。HTTP protocolVersion=1、数据 v6 与备份规则不变；安装时先退出旧后台，不能混用精确发行版本不同的桌面和 Runtime。
 
+### 6.9 逐会话只读进度（2026-11-13，#65 设计，待实现）
+
+复用 dsh `session/event` → DshAdapter 的序号与终态过滤，在原有聚合表情旁保留会话观察记录。插件从已验证的 session.id、事件阶段和 session.header.cwd 的目录名生成定位信息，完整路径、标题中的对话内容、工具参数及工程正文留在宿主。用户在小招中看到 profile、插件实例来源、目录名与完整会话 ID，再回到 dsh 操作；原生会话跳转另行验证。
+
+**上报与兼容性**
+
+- 新增 `POST /v1/observations/sessions`，沿用 express 权限，仅写入调用客户端自己的来源。请求为 `{sourceId, reportSequence, profileId, connected, truncated, sessions}`。sourceId 为插件实例 UUID，reportSequence 为该实例递增安全整数，profileId 遵循现有 1–64 位 profile 规则，connected 和 truncated 为布尔值，后者披露实例因上限省略了会话。
+- sessions 为至多 64 项完整观察快照，每项为 `{sessionId, projectName, phase, sequence, observedAt}`。sessionId 限 160 字符，projectName 限 80 字符且仅包含目录名；phase 为 thinking / working / waiting_input / completed / failed / cancelled，sequence 为宿主事件的非负安全整数，observedAt 为插件接收该事件时的 UTC 毫秒数。服务器严格检查字段、重复 ID、枚举、长度与数值；请求体沿用 64 KiB 上限，校验失败整批拒绝。
+- 原 `/v1/expressions/state` 和既有客户端行为继续沿用。新插件仍单独发送原表情请求，旧 Runtime 对新增路由返回 404 时明确提示版本缺少会话进度能力；旧客户端连接新 Runtime 时只能显示已有的聚合表情。HTTP protocolVersion 保持 1，SQLite 无迁移。实现时先更新 Runtime/桌面，再更新插件。
+
+**状态、失联与资源边界**
+
+- Runtime 按 clientId + sourceId 隔离来源，拒绝倒退的 reportSequence；同一报告的重复投递不续租。会话 sequence 只允许前进，同序号必须保留原阶段和观测时间；较旧记录不能覆盖较新记录。插件复用 Adapter 的终态/turn 水位过滤，下一轮的真实新事件才可重新进入工作状态。
+- 每实例最多保留 64 项观察记录，满时优先淘汰最早的终态记录；活动记录保留至上限并如实提示截断。Runtime 最多保留 64 个来源，每来源至多 64 项；新增来源超限时优先回收最早失联来源，全部在线时返回 429。UI 与文字回答各展示前 20 项并披露省略，快照响应保持现有 4 MiB 客户端读取上限。
+- 在线实例每 5 秒发送最新快照续租；15 秒无更新、凭证撤销或显式 connected=false 时将来源标为不可用，保留最后阶段与最后观测时间。失联来源的等待状态不能作为当前仍在等待的事实回答。Runtime 重启后观察为空，用户看到尚未观察到会话；插件重新上报后恢复。该记录只在内存中存在。
+- 会话完成、失败和取消均保留终态记录。B 完成时不能清除 A 的等待状态。新观察链不主动触发完成提醒或重播庆祝，原有表情仲裁继续决定当前动画。
+
+**查询与展示**
+
+- `GET /v1/assistant/snapshot` 增加可选 observations 字段，包含按来源隔离的定位信息、连接可用性、最后观测时间及会话阶段。assistant 权限才能读取全部观察；express 客户端不能借上报接口读取其他来源或个人接口。
+- 新增 `assistant.observations_changed` 事件，仅提示重新读取快照，沿用现有 assistant 事件权限过滤与重连读取。来源失联、会话变化和撤销都刷新视图。
+- 助手增加“会话”视图；文字查询“查看会话进度”“查看会话”“哪个会话在等我”“哪个会话在等输入”在模型调用前确定性处理，并从同一观察快照生成回答。未观察到来源、来源在线但暂无会话、来源不可用分别说明；完成、失败、取消分别使用对应文案。宿主数据通过 textContent 或转义后的纯文本展示。
+
+实施按 Runtime 上报/快照及回归 → 插件逐会话采集与兼容 → 面板和规则查询 → 真实 dsh 双会话/失联验证推进。必须覆盖旧表情入口、权限隔离、重复/迟到报告、上限、A 等输入而 B 完成、取消/失败以及租约过期；实机记录宿主版本、脱敏来源对照、结果与事件到动画采样。
+
 ## 7. 安全与信任边界
 
 ### 7.1 本地服务与宿主
