@@ -10,6 +10,10 @@ pub const QUIT_CONFIRM: &str =
 pub fn pair_confirm(client: &str) -> String {
     format!("允许 dsh 配置 {} 连接小招并驱动宠物状态吗？\n仅授予状态表达权限，不包含工程派发、设置或退出权限。", client)
 }
+pub fn speech_pair_confirm(client: &str) -> String {
+    format!("允许 dsh 配置 {} 为小招提供语音识别吗？\n仅在小招中选中该来源并按住说话时，向此 dsh 发送本轮录音；不授予主会话、设置或工程执行权限。", client)
+}
+pub const SPEECH_RECOVER_CONFIRM: &str = "仅当你已经完全退出所有相关 dsh 及其语音识别进程时，才可恢复录音。若旧识别仍在运行，恢复可能导致多路语音同时处理。\n确认已停止并恢复录音吗？";
 pub const TOOLTIP: &str = "小招 · Maneki";
 
 pub fn runtime_error(code: &str) -> &'static str {

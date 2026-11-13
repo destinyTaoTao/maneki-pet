@@ -6,11 +6,11 @@ import { DesktopCredentialError, openAdminSession } from "./admin-session.js";
 import { clientCredential } from "./desktop-credential.js";
 import { InstanceLock, LockBusyError } from "./lifecycle.js";
 
-export const assistantActions = ["connect", "pair", "status", "show", "assistant", "quit"] as const;
+export const assistantActions = ["connect", "pair", "speech-connect", "speech-pair", "speech-recover", "status", "show", "assistant", "quit"] as const;
 export type AssistantAction = typeof assistantActions[number];
 
 /** 此模式由本安装原生入口调用；不打开数据库，不把 root 返回调用端。 */
-export async function manageAssistant(configDir: string, port: number, cli: string, action: AssistantAction, client: string): Promise<{ state: "ready" | "stopped"; token?: string }> {
+export async function manageAssistant(configDir: string, port: number, cli: string, action: AssistantAction, client: string): Promise<{ state: "ready" | "stopped"; token?: string; clientId?: string }> {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(client) || !assistantActions.includes(action) || !Number.isInteger(port) || port < 1 || port > 65535) throw new DesktopCredentialError("invalid_config");
   mkdirSync(configDir, { recursive: true });
   const lock = new InstanceLock(join(configDir, "assistant-manager.lock"));
@@ -47,6 +47,11 @@ export async function manageAssistant(configDir: string, port: number, cli: stri
         }
       }
     }
+    if (action === "speech-recover") {
+      const result = await session.request("/v1/admin/speech-recover", {});
+      if (result.status !== 200 || result.body.recovered !== true) throw new DesktopCredentialError("speech_recovery_blocked");
+      return { state: "ready" };
+    }
     if (action === "quit") {
       const result = await session.request("/v1/shutdown", {});
       if (result.status !== 200 || result.body.stopping !== true) throw new DesktopCredentialError("runtime_unavailable");
@@ -58,7 +63,8 @@ export async function manageAssistant(configDir: string, port: number, cli: stri
       return { state: "stopped" };
     }
     if (action === "status" || action === "show" || action === "assistant") return { state: "ready" };
-    const credential = await clientCredential(configDir, port, `dsh-client-${client}`, `dsh-${client}`, "express", action === "pair");
-    return { state: "ready", token: credential.token };
+    const speech = action === "speech-connect" || action === "speech-pair";
+    const credential = await clientCredential(configDir, port, `${speech ? "dsh-speech" : "dsh-client"}-${client}`, `dsh-${client}${speech ? "-speech" : ""}`, speech ? "speech_host" : "express", action === "pair" || action === "speech-pair");
+    return { state: "ready", token: credential.token, ...(speech ? { clientId: credential.clientId } : {}) };
   } finally { lock.release(); }
 }

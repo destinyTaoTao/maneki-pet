@@ -3,11 +3,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it, vi } from "vitest";
 import { startRuntime } from "../src/runtime.js";
+import { defaultAssistantSettings } from "../src/assistant-settings.js";
+import { captureWave } from "@maneki-pet/core";
 
 it("正式 HTTP 面板快照和无模型查询共用会话事实，上报凭证不能读取个人快照", async () => {
   const directory = mkdtempSync(join(tmpdir(), "maneki-observation-http-"));
   const provider = vi.fn();
-  const runtime = await startRuntime({ configDir: directory, notifier: { notify: vi.fn() }, chatProvider: provider });
+  const runtime = await startRuntime({ configDir: directory, notifier: { notify: vi.fn() }, chatProvider: provider,
+    speech: { recognizer: () => ({ info: { id: "fixture", apiVersion: 1, locality: "local" }, transcribe: async () => ({ text: "查看進度" }) }) },
+  });
   const call = async (path: string, token: string, body?: unknown) => {
     const response = await fetch(`http://127.0.0.1:${runtime.port}/v1${path}`, {
       method: body === undefined ? "GET" : "POST",
@@ -47,6 +51,24 @@ it("正式 HTTP 面板快照和无模型查询共用会话事实，上报凭证�
     expect(waiting).toContain("session-A");
     expect(waiting).not.toContain("session-B");
     expect(await query("all", "查看会话进度")).toContain("session-B：已完成");
+    const { schemaVersion: _, ...settings } = defaultAssistantSettings();
+    settings.voice.microphoneEnabled = true;
+    settings.voice.asr.enabled = true;
+    runtime.assistant.updateSettings(settings);
+    const lease = await call("/assistant/voice/acquire", assistantToken, { requestId: "voice-progress", kind: "capture" });
+    expect(lease.status).toBe(200);
+    const samples = Float32Array.from({ length: 16000 }, (_, i) => Math.sin(i * 2 * Math.PI * 440 / 16000) * 0.15);
+    const audio = Buffer.from(captureWave(samples, 16000)).toString("base64");
+    const recognized = await call("/assistant/voice/transcribe", assistantToken, { requestId: "voice-progress", leaseId: lease.body.leaseId, audio });
+    expect(recognized.body.transcript).toBe("查看進度");
+    expect((await call("/assistant/voice/submit", assistantToken, { requestId: "voice-progress", leaseId: lease.body.leaseId })).body.status).toBe("submitted");
+    await vi.waitFor(async () => {
+      const state = await call("/assistant/chat/voice-progress", assistantToken);
+      expect(state.body.status).toBe("completed");
+      expect(state.body.message.text).toContain("session-A：等待你回应");
+      expect(state.body.message.text).toContain("session-B：已完成");
+    });
+    await call("/assistant/voice/release", assistantToken, { leaseId: lease.body.leaseId });
     await call("/observations/sessions", token, { ...report, reportSequence: 2, connected: false });
     expect(await query("offline", "哪个会话在等我")).toContain("来源已失联，当前进度不可用");
     expect(provider).not.toHaveBeenCalled();

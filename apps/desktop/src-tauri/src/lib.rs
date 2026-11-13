@@ -156,6 +156,9 @@ fn assistant_view(app: AppHandle, open: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn recover_speech() -> Result<(), String> { assistant_control::recover_speech() }
+
+#[tauri::command]
 fn assistant_entry() -> bool {
     std::env::args().any(|arg| arg == "--assistant-view")
 }
@@ -304,6 +307,7 @@ pub fn run() {
             desktop_credential::desktop_client_token,
             desktop_credential::assistant_client_token,
             assistant_view,
+            recover_speech,
             assistant_entry,
             spawn_runtime,
             sync_tray_dnd,

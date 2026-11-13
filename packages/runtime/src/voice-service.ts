@@ -6,6 +6,7 @@ import {
   validCaptureWave,
   pcmWaveInfo,
   defaultBailianSettings,
+  sessionProgressReply,
   type SpeechRecognizer,
   type SpeechSynthesizer,
   type VoiceOwner,
@@ -21,9 +22,11 @@ import { WhisperRecognizer } from "./whisper-recognizer.js";
 import { WindowsSynthesizer } from "./windows-synthesizer.js";
 import { validateObject } from "./validate.js";
 import { BailianRecognizer, BailianSynthesizer } from "./bailian-speech.js";
+import type { SpeechHostBroker } from "./speech-host.js";
 export interface VoiceProviders {
   recognizer?: (language: "zh" | "en" | "auto") => SpeechRecognizer;
   synthesizer?: SpeechSynthesizer;
+  host?: SpeechHostBroker;
 }
 export interface VoiceServiceOptions extends VoiceProviders {
   configDir: string;
@@ -67,6 +70,14 @@ export class VoiceService {
   }
   private recognizer() {
     const settings = this.deps.settings();
+    if (settings.voice.asr.provider === "dsh") {
+      const client = settings.voice.asr.hostClientId, source = settings.voice.asr.hostSourceId;
+      if (!client || !source || !this.deps.host?.available(client, source, settings.voice.asr.language))
+        throw new AssistantError(503, "asr_host_unavailable");
+      const host = this.deps.host;
+      return { info: { id: "dsh-asr", apiVersion: 1 as const, locality: "local" as const },
+        transcribe: (audio: { bytes: Uint8Array }, ctx: { signal: AbortSignal }) => host.transcribe(client, source, audio.bytes, settings.voice.asr.language, ctx.signal) };
+    }
     if (!this.deps.recognizer && settings.voice.asr.provider === "bailian")
       return new BailianRecognizer(
         settings.voice.bailian ?? defaultBailianSettings(),
@@ -90,6 +101,7 @@ export class VoiceService {
       );
     return this.deps.synthesizer ?? new WindowsSynthesizer();
   }
+  hosts() { return this.deps.host?.list() ?? []; }
   private cloudKey() {
     if (!this.deps.settings().cloudEnabled)
       throw new AssistantError(403, "cloud_disabled");
@@ -122,6 +134,7 @@ export class VoiceService {
       asrAvailable,
       ttsAvailable,
       voices,
+      hosts: this.hosts(),
       configurationOnly:
         this.deps.settings().voice.asr.provider === "bailian" ||
         this.deps.settings().voice.tts.provider === "bailian",
@@ -131,6 +144,9 @@ export class VoiceService {
     const voice = this.deps.settings().voice;
     if (kind === "capture" && (!voice.microphoneEnabled || !voice.asr.enabled))
       throw new AssistantError(403, "microphone_disabled");
+    if (kind === "capture" && voice.asr.provider === "dsh" &&
+        (!voice.asr.hostClientId || !voice.asr.hostSourceId || !this.deps.host?.available(voice.asr.hostClientId, voice.asr.hostSourceId, voice.asr.language)))
+      throw new AssistantError(503, "asr_host_unavailable");
     if (kind === "playback" && !voice.tts.enabled)
       throw new AssistantError(403, "speech_output_disabled");
     if (
@@ -177,6 +193,7 @@ export class VoiceService {
     const kind = raw.kind as VoiceOwner["kind"];
     this.enabled(kind);
     if (kind === "capture") {
+      if (this.deps.host?.busy()) throw new AssistantError(409, "voice_host_cleanup_pending");
       if (this.deps.chatBusy()) throw new AssistantError(409, "chat_busy");
       const recognizer = this.recognizer();
       if (
@@ -462,6 +479,8 @@ export class VoiceService {
       owner.requestId !== requestId
     )
       throw new AssistantError(409, "voice_request_invalid");
+    if (this.deps.settings().voice.asr.provider === "dsh" && sessionProgressReply(candidate.text, []) === null)
+      throw new AssistantError(403, "speech_host_query_only");
     this.deps.submit(client, requestId, candidate.text);
     this.deps.store.settleVoiceRequest(client, requestId, "submitted", null);
     this.candidate = undefined;

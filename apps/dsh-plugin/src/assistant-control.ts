@@ -2,8 +2,8 @@ import { runControlProcess } from "./control-process.js";
 import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
-export type ControlAction = "connect" | "pair" | "status" | "show" | "assistant" | "quit";
-export interface ControlResult { state: "ready" | "stopped"; token?: string }
+export type ControlAction = "connect" | "pair" | "speech-connect" | "speech-pair" | "status" | "show" | "assistant" | "quit";
+export interface ControlResult { state: "ready" | "stopped"; token?: string; clientId?: string }
 
 export const controlText: Record<string, string> = {
   not_installed: "请先安装并运行更新后的小招，登记本机启动入口",
@@ -43,8 +43,12 @@ export async function controlAssistant(action: ControlAction, profileId: string,
   if (typeof value !== "object" || value === null) throw new Error(controlText.protocol_mismatch);
   if ("error" in value) throw new Error(controlText[String(value.error)] ?? controlText.invalid_config);
   if (!("state" in value) || (value.state !== "ready" && value.state !== "stopped")) throw new Error(controlText.protocol_mismatch);
-  if (action === "connect" || action === "pair") {
+  if (["connect", "pair", "speech-connect", "speech-pair"].includes(action)) {
     if (!("token" in value) || typeof value.token !== "string" || !/^[A-Za-z0-9_-]{32,}$/.test(value.token)) throw new Error(controlText.protocol_mismatch);
+    if (action === "speech-connect" || action === "speech-pair") {
+      if (!("clientId" in value) || typeof value.clientId !== "string" || !/^client-[0-9a-f]{12}$/.test(value.clientId)) throw new Error(controlText.protocol_mismatch);
+      return { state: value.state, token: value.token, clientId: value.clientId };
+    }
     return { state: value.state, token: value.token };
   }
   return { state: value.state };

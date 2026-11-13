@@ -1,3 +1,4 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   assistantCall,
   assistantToken,
@@ -10,7 +11,7 @@ import { assistantText as t } from "./assistant-text.js";
 import * as runtime from "./runtime-client.js";
 import "./assistant.css";
 import { defaultVoiceSettings, defaultBailianSettings, describeObservedSessions, sessionPhaseText } from "@maneki-pet/core";
-import { VoiceController } from "./voice-controller.js";
+import { VoiceController, type VoicePhase } from "./voice-controller.js";
 import { BrowserVoiceCapture, BrowserVoicePlayer } from "./voice-media.js";
 
 type Tab = "chat" | "sessions" | "todos" | "reminders" | "settings";
@@ -57,6 +58,7 @@ export function createAssistantPanel(
   host: HTMLElement,
   onClose: () => void,
   onReminder: (text: string) => void,
+  onVoicePhase: (phase: VoicePhase) => void = () => undefined,
 ) {
   let token: string | undefined,
     snapshot: AssistantSnapshot | undefined,
@@ -159,6 +161,7 @@ export function createAssistantPanel(
     capture: () => new BrowserVoiceCapture(),
     player: new BrowserVoicePlayer(),
     changed: (phase) => {
+      onVoicePhase(phase);
       voiceHint.textContent = t.voicePhases[phase] ?? "";
       hold.setAttribute(
         "aria-pressed",
@@ -706,6 +709,20 @@ export function createAssistantPanel(
         new Option(t.voiceLocal, "local"),
         new Option(t.voiceBailian, "bailian"),
       );
+    asrProvider.append(new Option(t.voiceDsh, "dsh"));
+    const hostLabel = el("label", t.voiceHost), hostSelect = el("select");
+    hostSelect.append(new Option(t.voiceHostEmpty, ""));
+    const savedHost = voiceSettings.asr.hostClientId && voiceSettings.asr.hostSourceId
+      ? JSON.stringify([voiceSettings.asr.hostClientId, voiceSettings.asr.hostSourceId]) : "";
+    if (savedHost) hostSelect.append(new Option(`${voiceSettings.asr.hostClientId} / ${voiceSettings.asr.hostSourceId}（上次选择）`, savedHost));
+    hostSelect.value = savedHost;
+    hostLabel.append(hostSelect);
+    void assistantCall<{ hosts?: Array<{ clientId: string; sourceId: string; providerId: string; locality: string }> }>(token!, "/voice/hosts").then((status) => {
+      for (const host of status.hosts ?? []) {
+        const value = JSON.stringify([host.clientId, host.sourceId]);
+        if (value !== savedHost) hostSelect.append(new Option(`${host.providerId} · 宿主声明本地 · ${host.clientId} / ${host.sourceId}`, value));
+      }
+    }).catch(() => undefined);
     asrProvider.value = voiceSettings.asr.provider ?? "local";
     ttsProvider.value = voiceSettings.tts.provider ?? "local";
     asrProviderLabel.append(asrProvider);
@@ -790,6 +807,7 @@ export function createAssistantPanel(
       microphone.label,
       asr.label,
       asrProviderLabel,
+      hostLabel,
       languageLabel,
       tts.label,
       ttsProviderLabel,
@@ -806,6 +824,7 @@ export function createAssistantPanel(
       removeSpeechKey.label,
       detect,
       availability,
+      ...(isTauri() ? [button("恢复语音采集", () => { void invoke("recover_speech").then(() => { availability.textContent = "语音采集已恢复。"; }).catch((error: unknown) => { availability.textContent = error === "user_denied" ? "已取消恢复。" : "恢复失败；请先完全退出相关 dsh，稍后重试。"; }); })] : []),
       save,
       button(
         t.reload,
@@ -837,6 +856,7 @@ export function createAssistantPanel(
               enabled: asr.input.checked,
               language: language.value,
               provider: asrProvider.value,
+              ...(hostSelect.value ? { hostClientId: JSON.parse(hostSelect.value)[0] as string, hostSourceId: JSON.parse(hostSelect.value)[1] as string } : {}),
             },
             tts: {
               enabled: tts.input.checked,

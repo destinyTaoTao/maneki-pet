@@ -19,6 +19,15 @@
 .assistant-panel [hidden] {
   display: none !important;
 }
+.assistant-listening-avatar {
+  position: absolute;
+  top: 108px;
+  right: 20px;
+  width: 110px;
+  height: 110px;
+  pointer-events: none;
+  z-index: 2;
+}
 .assistant-panel header {
   display: flex;
   justify-content: space-between;

@@ -38,6 +38,8 @@
 
 ## ✨ 目标能力
 
+2026-11-14 #66 源码增量：按键语音可选本地、百炼或经独立授权的 dsh 本地识别来源；dsh 来源目前仅支持只读会话进度查询；失联时保留文字入口，不自动切换服务。隔离 Windows 测试曾验证真实 dsh SenseVoice 与本地合成语音链路；后续安全加固后的真实链路、麦克风及桌面选择仍待本轮人工验收。需一起更新桌面、Runtime 和插件；封存的 alpha.2 发行包不含此增量。见[语音说明](./docs/voice.md)和[验证记录](./docs/audits/2026-11-14-voice-session-progress.md)。
+
 2026-11-14 源码增量：助手新增“会话”页，可查看已观察到的 dsh 会话来源、项目目录名、完整会话 ID 与阶段。模型关闭时可输入“查看会话进度”“哪个会话在等我”。A 等待、B 完成、回答后续接、取消和宿主失联已通过独立 Windows 场景验证；详见[验证记录](./docs/audits/2026-11-14-session-observations.md)。使用本轮一起构建的 Runtime、桌面和插件；alpha.2 封存发行包仍对应原交付内容。原生跳转、发现未观察过的历史会话另验。
 
 Windows 开发机可运行 `pnpm release:windows`，在 `dist/releases/maneki-0.2.0-alpha.2-windows-x64` 生成完整交付目录，上一版封存包保留。构建要求 Node 24.12.0 x64 与已批准本地素材，缺失时拒绝发行；产物不入 Git，尚无公开 Release 下载地址。`pnpm acceptance:windows` 使用独立安装身份与临时数据实际验证安装/升级、Runtime 和 dsh；检查原生视图后运行 `pnpm acceptance:windows finish` 卸载测试身份并保留测试数据。该流程不替换用户安装、不代点授权。

@@ -42,6 +42,10 @@ export async function handleAssistantHttp(
       send(200, await service.voice.status());
       return;
     }
+    if (req.method === "GET" && path === "/voice/hosts") {
+      send(200, { hosts: service.voice.hosts() });
+      return;
+    }
     const voiceResult = /^\/voice\/result\/([A-Za-z0-9_-]{1,80})$/.exec(path);
     if (req.method === "GET" && voiceResult) {
       send(200, service.voice.result(client.clientId, voiceResult[1]!));

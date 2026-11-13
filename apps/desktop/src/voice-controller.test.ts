@@ -148,6 +148,18 @@ it("续租一直无响应时本地截止仍关闭设备，不等网络请求完�
   expect(capture.cancel).toHaveBeenCalled();
   expect(error).toHaveBeenCalledWith("voice_lease_expired");
 });
+it("录音中宿主失联时停止采集并显示宿主不可用", async () => {
+  vi.useFakeTimers();
+  const { controller, capture, call, error } = setup();
+  call.mockImplementation((path) => path === "/voice/renew"
+    ? Promise.reject(new Error("asr_host_unavailable"))
+    : Promise.resolve({ leaseId: "lease", ttlMs: 8000 }));
+  await controller.start();
+  await vi.advanceTimersByTimeAsync(2100);
+  expect(controller.state()).toBe("idle");
+  expect(capture.cancel).toHaveBeenCalled();
+  expect(error).toHaveBeenCalledWith("asr_host_unavailable");
+});
 it("同一轮成功转写只通知一次，关闭后不自动续租", async () => {
   vi.useFakeTimers();
   const { controller, submitted, call } = setup();
@@ -159,4 +171,22 @@ it("同一轮成功转写只通知一次，关闭后不自动续租", async () =
   const count = call.mock.calls.length;
   await vi.advanceTimersByTimeAsync(10000);
   expect(call.mock.calls.length).toBe(count);
+});
+it("朗读进行中再次按住说话，先停止播放再开始采集", async () => {
+  const { controller, capture, player, call } = setup();
+  call.mockImplementation(async (path) => path === "/voice/synthesize"
+    ? { audio: "AQ==", truncated: false }
+    : { leaseId: "lease", ttlMs: 8000 });
+  let endPlayback: () => void = () => undefined;
+  player.play.mockImplementation(() => new Promise<void>((resolve) => { endPlayback = resolve; }));
+  const speaking = controller.speak(1);
+  await flush();
+  expect(controller.state()).toBe("speaking");
+  await controller.start();
+  expect(controller.state()).toBe("recording");
+  expect(player.stop.mock.invocationCallOrder.at(-1)).toBeLessThan(capture.start.mock.invocationCallOrder[0]!);
+  endPlayback();
+  await speaking;
+  expect(controller.state()).toBe("recording");
+  await controller.cancel(false);
 });

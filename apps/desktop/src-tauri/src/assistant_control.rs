@@ -168,6 +168,8 @@ fn authorized_action(
 ) -> Result<serde_json::Value, String> {
     let prompt = match action {
         "pair" => Some(super::ui_text::pair_confirm(client)),
+        "speech-pair" => Some(super::ui_text::speech_pair_confirm(client)),
+        "speech-recover" => Some(super::ui_text::SPEECH_RECOVER_CONFIRM.to_string()),
         "quit" => Some(super::ui_text::QUIT_CONFIRM.to_string()),
         _ => None,
     };
@@ -175,6 +177,11 @@ fn authorized_action(
         return Err("user_denied".into());
     }
     manage()
+}
+
+pub fn recover_speech() -> Result<(), String> {
+    authorized_action("speech-recover", "desktop", |text| message(text, true), || helper("speech-recover", "desktop"))?;
+    Ok(())
 }
 
 pub fn quit_from_tray(app: tauri::AppHandle) {
@@ -221,7 +228,7 @@ pub fn dispatch_cli() -> bool {
         if action == "unregister" {
             return Ok(serde_json::json!({"unregistered": unregister_installation()?}));
         }
-        if !["connect", "pair", "status", "show", "assistant", "quit"].contains(&action) {
+        if !["connect", "pair", "speech-connect", "speech-pair", "speech-recover", "status", "show", "assistant", "quit"].contains(&action) {
             return Err("invalid_config".into());
         }
         let result = authorized_action(
@@ -268,7 +275,7 @@ mod tests {
 
     #[test]
     fn rejecting_pair_or_quit_never_reaches_privileged_helper() {
-        for action in ["pair", "quit"] {
+        for action in ["pair", "speech-pair", "speech-recover", "quit"] {
             let result = authorized_action(
                 action,
                 "web",

@@ -11,6 +11,7 @@ import { listen } from "@tauri-apps/api/event";
 import { createAssistantPanel } from "./assistant-panel.js";
 import { assistantText } from "./assistant-text.js";
 import { PetPlayer } from "./player.js";
+import { VoicePetCoordinator } from "./voice-pet.js";
 import { BoundedReadError, MEDIA_READ_TIMEOUT_MS, readBounded, readMedia } from "./bounded-fetch.js";
 import { imageDimensions, MediaBudgetError, withinPixelBudget } from "./media-budget.js";
 import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
@@ -133,12 +134,16 @@ const assistantHost=document.createElement("section");
 assistantHost.className="assistant-panel";
 assistantHost.hidden=true;
 assistantHost.setAttribute("aria-label",assistantText.title);
+const listeningAvatar = document.createElement("div");
+listeningAvatar.className = "assistant-listening-avatar";
+listeningAvatar.hidden = true;
+assistantHost.append(listeningAvatar);
 app.append(assistantHost);
 const assistantPanel=createAssistantPanel(assistantHost,()=>{
   assistantPanel.close();
   for(const node of [status,petButton,controls,panel])node.inert=false;
   if(isTauriRuntime())void invoke("assistant_view",{open:false}).catch(()=>showBubble(uiText.interactionUnavailable));
-},showBubble);
+},showBubble, (phase) => voicePet.voiceChanged(phase));
 async function openAssistant(draft?:string):Promise<void>{
   setPanelOpen(false);
   if(isTauriRuntime()){
@@ -171,6 +176,15 @@ const player = new PetPlayer(playerRoot, () => {
   window.setTimeout(() => {
     if (status.textContent === uiText.playbackRecovered) status.dataset.visible = "false";
   }, 4000);
+});
+const voicePet = new VoicePetCoordinator({
+  showListening: (listening) => {
+    listeningAvatar.hidden = !listening;
+    if (listening) listeningAvatar.append(playerRoot);
+    else petButton.append(playerRoot);
+  },
+  setState: (state) => player.setState(state),
+  playAction: (action) => player.playAction(action),
 });
 window.addEventListener("pagehide", () => player.dispose(), { once: true });
 const packs = new Map<string, ValidatedPetPack>();
@@ -440,6 +454,7 @@ async function refreshRuntimePanel(token: string): Promise<void> {
       `${uiText.limitsLabel}：${limits.proactive.remaining}/${limits.proactive.limit}` +
       ` · ${uiText.notificationsLabel}：${limits.notifications.usedThisHour}/${limits.notifications.maxPerHour}`;
     const dnd = await runtimeClient.getDnd(token);
+    voicePet.setDnd(dnd);
     runtimeDndLine.textContent = `${uiText.dndStateLabel}：${dnd ? uiText.dndOn : uiText.dndOff}`;
   } catch {
     // 刷新失败保持上次内容，连接状态由事件流回调维护。
@@ -489,9 +504,9 @@ async function connectRuntime(): Promise<void> {
     void refreshRuntimePanel(token);
   });
   let stateRevision = 0;
-  const applyExpressionState = (state: unknown): void => {
+  const applyExpressionState = (state: unknown, live = false): void => {
     if (typeof state === "string" && petStates.includes(state as PetState)) {
-      player.setState(state as PetState);
+      voicePet.expressionChanged(state as PetState, live);
       stateSelect.value = state;
     }
   };
@@ -500,7 +515,7 @@ async function connectRuntime(): Promise<void> {
     (event) => {
       if (event.kind === "expression.state") {
         stateRevision += 1;
-        applyExpressionState(event.payload.state);
+        applyExpressionState(event.payload.state, true);
         return;
       }
       if (event.kind === "expression.say") {
@@ -508,7 +523,7 @@ async function connectRuntime(): Promise<void> {
         return;
       }
       if (event.kind === "expression.play") {
-        if (typeof event.payload.action === "string") player.playAction(event.payload.action);
+        if (typeof event.payload.action === "string") voicePet.playAction(event.payload.action);
         return;
       }
       if (event.kind === "notification.sent") {
@@ -520,6 +535,7 @@ async function connectRuntime(): Promise<void> {
       }
       if (event.kind === "dnd.changed") {
         if (typeof event.payload.enabled === "boolean") {
+          voicePet.setDnd(event.payload.enabled);
           void runtimeClient.syncRuntimeDnd(event.payload.enabled).catch(() => {
             runtimeStateLine.textContent = uiText.dndSyncFailure;
           });

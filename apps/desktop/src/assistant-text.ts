@@ -13,6 +13,9 @@ export const assistantText = {
   asrProvider: "识别服务",
   ttsProvider: "合成服务",
   voiceLocal: "本地",
+  voiceDsh: "dsh 宿主识别（宿主声明本地）",
+  voiceHost: "dsh 语音来源",
+  voiceHostEmpty: "请先在 dsh 执行 /maneki speech-pair 并准备本地识别组件",
   voiceBailian: "阿里百炼（北京）",
   voiceWorkspace: "百炼 Workspace ID（留空使用北京公共域名）",
   voiceAsrModel: "百炼 ASR 模型",
@@ -129,6 +132,9 @@ export const assistantText = {
     microphone_unavailable:
       "麦克风不可用、被占用或当前窗口不支持采集，请使用文字。",
     asr_not_installed: "尚未安装本地识别引擎或模型，请按设置页说明准备文件。",
+    voice_host_cleanup_pending: "宿主识别尚未确认停止，暂不能再次录音；请保持原 dsh 运行以完成停止确认。若宿主已退出，请在设置中确认恢复录音；文字输入仍可用。",
+    asr_host_unavailable: "所选 dsh 语音服务不可用，可重连或在设置中选择其他语音来源；文字输入仍可用。",
+    speech_host_query_only: "dsh 语音目前只支持会话进度查询；其他内容请使用文字或选择其他语音来源。",
     speech_key_missing:
       "未配置独立语音 API Key，请在助手设置中保存百炼北京地域密钥。",
     speech_auth_failed: "语音服务认证失败，请核对密钥、地域与账号权限。",

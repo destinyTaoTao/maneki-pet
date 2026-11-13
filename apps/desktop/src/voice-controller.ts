@@ -84,9 +84,9 @@ export class VoiceController {
           this.deadline(result.ttlMs, started, generation);
           this.heartbeat(generation);
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (generation === this.generation)
-            void this.cancel(false, "voice_lease_expired");
+            void this.cancel(false, error instanceof Error && error.message === "asr_host_unavailable" ? "asr_host_unavailable" : "voice_lease_expired");
         });
     }, 2000);
   }

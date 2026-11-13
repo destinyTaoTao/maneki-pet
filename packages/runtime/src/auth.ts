@@ -20,6 +20,11 @@ export function runtimeIdentityProof(rootToken: string, challenge: string, proto
   return createHmac("sha256", rootToken).update(JSON.stringify(["maneki-runtime-identity-v1", challenge, protocolVersion, instanceId, boundPort])).digest("hex");
 }
 
+/** 独立语音宿主凭证的挑战证明，不发送 token 或其哈希。 */
+export function speechHostIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
+  return createHmac("sha256", Buffer.from(tokenHash, "hex")).update(JSON.stringify(["maneki-speech-host-proof-v1", clientId, challenge, instanceId, boundPort])).digest("hex");
+}
+
 export type AuthCheck = { ok: true } | { ok: false; status: 400 | 401 | 403; reason: string };
 
 /** 解析 Authorization: Bearer <token>；缺失/格式错是 401（不是 403）。 */

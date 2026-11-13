@@ -19,6 +19,7 @@ import { RuntimeStore } from "./store.js";
 import { TaskService } from "./task-service.js";
 import { RELEASE_VERSION } from "./release-version.js";
 import { WsHub } from "./ws.js";
+import { SpeechHostBroker } from "./speech-host.js";
 
 export interface RuntimeOptions {
   speech?: AssistantServiceOptions["speech"];
@@ -79,6 +80,10 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
     const root = ensureRootToken(options.configDir, store);
 
     const feed = new EventFeed();
+    const speechHost = new SpeechHostBroker((id) => {
+      const client = store.findClient(id);
+      return Boolean(client && !client.revokedAt && client.scopes.includes("speech_host"));
+    }, Date.now, { get: () => store.kvGet("speechHostUnsettled"), set: (value) => store.kvSet("speechHostUnsettled", value) });
     const expressions = new ExpressionStateFeed({
       active: (clientId) => {
         const client = store.findClient(clientId);
@@ -119,7 +124,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       expressionState: () => expressions.current(),
       observations: () => observations.snapshot(),
       ...(options.chatProvider ? { provider: options.chatProvider } : {}),
-      ...(options.speech ? { speech: options.speech } : {}),
+      speech: { ...options.speech, host: speechHost },
     });
     openedAssistant = assistant;
     const stopAssistantEvents = feed.subscribe((event) => {
@@ -181,8 +186,10 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       observations,
       dnd,
       assistant,
+      speechHost,
       ...(tasks ? { tasks } : {}),
       onClientRevoked: (clientId) => {
+        speechHost.revoke(clientId);
         assistant.cancelClient(clientId);
         hub.revokeClient(clientId);
         expressions.current();

@@ -291,8 +291,10 @@ function checkedVoice(
       type: "string",
       required: false,
       maxLength: 7,
-      enumValues: ["local", "bailian"],
+      enumValues: ["local", "bailian", "dsh"],
     },
+    hostClientId: { type: "string", required: false, maxLength: 80 },
+    hostSourceId: { type: "string", required: false, maxLength: 80 },
     enabled: { type: "boolean", required: true },
     language: {
       type: "string",
@@ -333,11 +335,19 @@ function checkedVoice(
   }
   const asrProvider = recognition.value.provider ?? old.asr.provider;
   const ttsProvider = synthesis.value.provider ?? old.tts.provider;
+  const hostClientId = recognition.value.hostClientId ?? old.asr.hostClientId;
+  const hostSourceId = recognition.value.hostSourceId ?? old.asr.hostSourceId;
+  const { hostClientId: _client, hostSourceId: _source, ...asrFields } = recognition.value;
+  if ((hostClientId !== undefined && (typeof hostClientId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(hostClientId))) ||
+      (hostSourceId !== undefined && (typeof hostSourceId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(hostSourceId))) ||
+      (asrProvider === "dsh" && (!hostClientId || !hostSourceId))) throw new AssistantError(400, "voice_settings_invalid");
   return {
     microphoneEnabled: checked.value.microphoneEnabled as boolean,
     asr: {
-      ...recognition.value,
+      ...asrFields,
       ...(asrProvider ? { provider: asrProvider } : {}),
+      ...(asrProvider === "dsh" && hostClientId ? { hostClientId } : {}),
+      ...(asrProvider === "dsh" && hostSourceId ? { hostSourceId } : {}),
     } as VoiceSettings["asr"],
     tts: {
       ...synthesis.value,

@@ -9,7 +9,7 @@ export async function desktopCredential(configDir: string, port: number): Promis
   return clientCredential(configDir, port, "desktop-client", "desktop-shell", "express,notify,settings", true);
 }
 
-export async function clientCredential(configDir: string, port: number, fileId: string, name: string, scopes: string, allowPair: boolean): Promise<{ token: string }> {
+export async function clientCredential(configDir: string, port: number, fileId: string, name: string, scopes: string, allowPair: boolean): Promise<{ token: string; clientId: string }> {
   const session = await openAdminSession(configDir, port);
   // 管理入口并发配对也串行；残锁由现有 PID 存活检查回收。
   const lock = new InstanceLock(join(configDir, `${fileId}.lock`));
@@ -21,13 +21,13 @@ export async function clientCredential(configDir: string, port: number, fileId: 
       let saved: unknown;
       try { saved = JSON.parse(readFileSync(path, "utf8")); }
       catch { throw new DesktopCredentialError("invalid_config"); }
-      if (typeof saved !== "object" || saved === null || !("instanceId" in saved) || saved.instanceId !== session.instanceId || !("token" in saved) || typeof saved.token !== "string") {
+      if (typeof saved !== "object" || saved === null || !("instanceId" in saved) || saved.instanceId !== session.instanceId || !("token" in saved) || typeof saved.token !== "string" || !("clientId" in saved) || typeof saved.clientId !== "string" || !/^client-[0-9a-f]{12}$/.test(saved.clientId)) {
         throw new DesktopCredentialError("invalid_config");
       }
       // 复用校验只能调用该凭证本来拥有的接口；个人助理没有 express 权限。
-      const probe = await session.request(scopes.split(",").includes("assistant") ? "/v1/assistant/settings" : "/v1/limits", undefined, saved.token);
+      const probe = await session.request(scopes === "speech_host" ? "/v1/speech-host/identity" : scopes.split(",").includes("assistant") ? "/v1/assistant/settings" : "/v1/limits", undefined, saved.token);
       if (probe.status !== 200) throw new DesktopCredentialError("credential_rejected");
-      return { token: saved.token };
+      return { token: saved.token, clientId: saved.clientId };
     }
     if (!allowPair) throw new DesktopCredentialError("pairing_required");
     const pair = await session.request("/v1/pair", { name, scopes });
@@ -36,7 +36,7 @@ export async function clientCredential(configDir: string, port: number, fileId: 
     }
     writeFileSync(pending, JSON.stringify({ instanceId: session.instanceId, clientId: pair.body.clientId, token: pair.body.token }), { mode: 0o600 });
     renameSync(pending, path);
-    return { token: pair.body.token };
+    return { token: pair.body.token, clientId: pair.body.clientId };
   } finally {
     rmSync(pending, { force: true });
     lock.release();

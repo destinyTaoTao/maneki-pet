@@ -33,7 +33,7 @@ if (management) {
   try {
     const { desktopCredential, clientCredential } = await import("./desktop-credential.js");
     const credential=process.argv.includes("--desktop-credential")?await desktopCredential(configDir,Number(portArg)):await clientCredential(configDir,Number(portArg),"assistant-client","desktop-assistant","assistant,settings",process.argv.includes("--assistant-credential"));
-    process.stdout.write(JSON.stringify(credential));
+    process.stdout.write(JSON.stringify({ token: credential.token }));
   } catch (error) {
     // 管理凭证、响应正文与文件内容不能出现在错误日志中。
     const { DesktopCredentialError } = await import("./desktop-credential.js");

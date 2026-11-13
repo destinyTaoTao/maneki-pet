@@ -4,7 +4,9 @@ export interface VoiceSettings {
   asr: {
     enabled: boolean;
     language: "zh" | "en" | "auto";
-    provider?: "local" | "bailian";
+    provider?: "local" | "bailian" | "dsh";
+    hostClientId?: string;
+    hostSourceId?: string;
   };
   tts: { enabled: boolean; voiceId: string; provider?: "local" | "bailian" };
   bailian?: {

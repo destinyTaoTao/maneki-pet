@@ -47,8 +47,10 @@ export function describeObservedSessions(sources: SessionObservationSource[], wa
 }
 
 export function sessionProgressReply(input: string, sources: SessionObservationSource[]): string | null {
-  const query = input.trim().replace(/[？?。！!]$/, "");
-  if (query === "查看会话进度" || query === "查看会话") return describeObservedSessions(sources);
+  // 只规范化这些只读查询涉及的繁体字；不对同音词进行意图猜测。
+  const traditional: Record<string, string> = { 會: "会", 話: "话", 進: "进", 個: "个", 輸: "输" };
+  const query = input.trim().replace(/[？?。！!]$/, "").replace(/[會話進個輸]/g, (character) => traditional[character]!);
+  if (query === "查看会话进度" || query === "查看会话" || query === "查看进度") return describeObservedSessions(sources);
   if (query === "哪个会话在等我" || query === "哪个会话在等输入") return describeObservedSessions(sources, true);
   return null;
 }

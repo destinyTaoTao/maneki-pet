@@ -5,7 +5,7 @@ import { generateToken, runtimeIdentityProof } from "./auth.js";
 import { RELEASE_VERSION } from "./release-version.js";
 
 export class DesktopCredentialError extends Error {
-  constructor(readonly code: "invalid_config" | "timeout" | "runtime_unavailable" | "protocol_mismatch" | "identity_mismatch" | "credential_rejected" | "pairing_failed" | "pairing_busy" | "pairing_required") { super(code); }
+  constructor(readonly code: "invalid_config" | "timeout" | "runtime_unavailable" | "protocol_mismatch" | "identity_mismatch" | "credential_rejected" | "pairing_failed" | "pairing_busy" | "pairing_required" | "speech_recovery_blocked") { super(code); }
 }
 
 /** 仅供受信管理进程：完成身份核验后才允许发送凭证。 */

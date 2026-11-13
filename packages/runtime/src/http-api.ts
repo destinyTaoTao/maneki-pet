@@ -13,6 +13,7 @@ import {
   hashToken,
   parseBearer,
   runtimeIdentityProof,
+  speechHostIdentityProof,
   TicketIssuer,
 } from "./auth.js";
 import type { EventFeed } from "./events.js";
@@ -23,11 +24,14 @@ import { validateObject } from "./validate.js";
 import type { AssistantService } from "./assistant-service.js";
 import { handleAssistantHttp } from "./assistant-http.js";
 import { ObservationReportError, type SessionObservations } from "./session-observations.js";
+import { AssistantError } from "./assistant-settings.js";
+import type { SpeechHostBroker, SpeechHostRegistration } from "./speech-host.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
 export interface LocalHttpApiDeps {
   assistant?: AssistantService;
+  speechHost?: SpeechHostBroker;
   observations?: SessionObservations;
   host: string;
   port: number;
@@ -135,7 +139,11 @@ export class LocalHttpApi {
       const challenge = req.headers["x-maneki-challenge"];
       const proof = typeof challenge === "string" && /^[A-Za-z0-9_-]{43}$/.test(challenge)
         ? { identityProof: runtimeIdentityProof(this.deps.rootToken, challenge, 1, this.deps.instanceId, (this.server!.address() as { port: number }).port) } : {};
-      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version, ...proof });
+      const speechClient = req.headers["x-maneki-speech-client"], speechChallenge = req.headers["x-maneki-speech-challenge"];
+      const record = typeof speechClient === "string" && /^client-[0-9a-f]{12}$/.test(speechClient) ? this.deps.store.findClient(speechClient) : null;
+      const speechProof = record && !record.revokedAt && record.scopes.includes("speech_host") && typeof speechChallenge === "string" && /^[A-Za-z0-9_-]{43}$/.test(speechChallenge)
+        ? { speechProof: speechHostIdentityProof(record.tokenHash, record.clientId, speechChallenge, this.deps.instanceId, (this.server!.address() as { port: number }).port) } : {};
+      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version, ...proof, ...speechProof });
       return;
     }
 
@@ -145,6 +153,41 @@ export class LocalHttpApi {
       return;
     }
     const client = auth.client;
+    if (url.startsWith("/v1/speech-host/")) {
+      if (!hasScope(client, "speech_host")) { this.forbidden(res, "speech host scope required"); return; }
+      const broker = this.deps.speechHost;
+      if (!broker) { this.sendJson(res, 503, { error: "speech_host_unavailable" }); return; }
+      if (method === "GET" && url === "/v1/speech-host/identity") { this.sendJson(res, 200, { clientId: client.clientId }); return; }
+      if (method !== "POST") { this.sendJson(res, 404, { error: "not_found" }); return; }
+      const body = await this.readJson(req, res);
+      if (!body) return;
+      try {
+        if (url === "/v1/speech-host/register") {
+          if (Object.keys(body).some((key) => !["protocolVersion", "sourceId", "sourceSecret", "providerId", "locality", "languages", "ready"].includes(key))) throw new AssistantError(400, "speech_host_invalid");
+          broker.register(client.clientId, body as unknown as SpeechHostRegistration);
+          this.sendJson(res, 200, { accepted: true }); return;
+        }
+        const spec = { sourceId: { type: "string", required: true, maxLength: 80 }, sourceSecret: { type: "string", required: true, maxLength: 43 } } as const;
+        if (url === "/v1/speech-host/claim") {
+          const value = validateObject(body, spec);
+          if (!value.ok) throw new AssistantError(400, "speech_host_invalid");
+          this.sendJson(res, 200, { job: broker.claim(client.clientId, value.value.sourceId as string, value.value.sourceSecret as string) }); return;
+        }
+        const value = validateObject(body, { ...spec, jobId: { type: "string", required: true, maxLength: 80 }, text: { type: "string", required: false, maxLength: 4000 }, failed: { type: "boolean", required: false } });
+        if (!value.ok) throw new AssistantError(400, "speech_host_invalid");
+        const { sourceId, sourceSecret, jobId, text, failed } = value.value;
+        if (url === "/v1/speech-host/pending") { this.sendJson(res, 200, { pending: broker.pending(client.clientId, sourceId as string, sourceSecret as string, jobId as string) }); return; }
+        if (url === "/v1/speech-host/ack") { const accepted = broker.acknowledge(client.clientId, sourceId as string, sourceSecret as string, jobId as string); this.sendJson(res, accepted ? 200 : 409, { accepted }); return; }
+        if (url === "/v1/speech-host/complete") {
+          const accepted = failed === true && text === undefined ? broker.fail(client.clientId, sourceId as string, sourceSecret as string, jobId as string) : failed === undefined && typeof text === "string" ? broker.complete(client.clientId, sourceId as string, sourceSecret as string, jobId as string, text) : false;
+          this.sendJson(res, accepted ? 200 : 409, { accepted }); return;
+        }
+        this.sendJson(res, 404, { error: "not_found" }); return;
+      } catch (error) {
+        if (!(error instanceof AssistantError)) throw error;
+        this.sendJson(res, error.status, { error: error.code }); return;
+      }
+    }
     if (url.startsWith("/v1/assistant/")) {
       if (!this.deps.assistant) {
         this.sendJson(res, 503, { error: "assistant_unavailable" });
@@ -219,7 +262,7 @@ export class LocalHttpApi {
         return;
       }
       const requested = (checked.value.scopes as string).split(",").map((scope) => scope.trim());
-      const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE, "assistant"].includes(scope));
+      const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE, "assistant", "speech_host"].includes(scope));
       if (invalid !== undefined) {
         this.sendJson(res, 400, { error: `unknown scope "${invalid}"` });
         return;
@@ -398,6 +441,13 @@ export class LocalHttpApi {
         this.sendJson(res, status, { error: error instanceof Error ? error.message : String(error) });
       }
       return;
+    }
+
+    if (method === "POST" && url === "/v1/admin/speech-recover") {
+      if (!hasScope(client, ADMIN_SCOPE)) { this.forbidden(res, "speech recovery requires admin scope"); return; }
+      const recovered = this.deps.speechHost?.recover() ?? false;
+      if (recovered) this.deps.store.audit("speech_host.recovered", client.clientId, {}, new Date().toISOString());
+      this.sendJson(res, recovered ? 200 : 409, { recovered }); return;
     }
 
     if (method === "POST" && url === "/v1/shutdown") {

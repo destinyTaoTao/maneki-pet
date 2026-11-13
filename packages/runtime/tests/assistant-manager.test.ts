@@ -89,3 +89,18 @@ it("服务冒充、非法 profile 或未知管理操作均不发送任何凭证"
     expect(existsSync(join(dir, "runtime.db"))).toBe(false);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });
+
+it("语音宿主单独配对，不扩权既有状态凭证", async () => {
+  const dir = directory();
+  const runtime = await startRuntime({ configDir: dir }); runtimes.push(runtime);
+  const expression = JSON.parse((await manage(dir, runtime.port, "pair")).stdout) as { token: string };
+  await expect(manage(dir, runtime.port, "speech-connect")).rejects.toMatchObject({ stdout: '{"error":"pairing_required"}' });
+  const speech = JSON.parse((await manage(dir, runtime.port, "speech-pair")).stdout) as { token: string };
+  expect(speech.token).not.toBe(expression.token);
+  expect(JSON.parse((await manage(dir, runtime.port, "speech-connect")).stdout).token).toBe(speech.token);
+  const call = (path: string, token: string) => fetch(`http://127.0.0.1:${runtime.port}/v1${path}`, { headers: { authorization: `Bearer ${token}` } });
+  expect((await call("/speech-host/identity", expression.token)).status).toBe(403);
+  expect((await call("/speech-host/identity", speech.token)).status).toBe(200);
+  expect((await call("/assistant/snapshot", speech.token)).status).toBe(403);
+  expect((await call("/limits", speech.token)).status).toBe(403);
+});

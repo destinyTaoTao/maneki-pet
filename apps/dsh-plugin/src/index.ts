@@ -1,13 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 
 import { DshAdapter, type DshSessionEvent } from "@maneki-pet/adapter-dsh";
 import type { HarnessEvent, PetState, ObservedSession, SessionPhase } from "@maneki-pet/core";
 import { controlAssistant, type ControlAction } from "./assistant-control.js";
+import { startSpeechHost, type DshSpeechService } from "./speech-host.js";
 
 /** 仅使用已安装 dsh 的事件订阅面，无运行时宿主依赖或执行钩子。 */
 export interface DshPluginContext {
+  inject?(services: string[], callback: (child: { speechToText: DshSpeechService; on(event: "dispose", listener: () => Promise<void>): unknown }) => void): unknown;
   on(event: "session/event", listener: (session: { id: string; header?: { cwd?: string } }, event: DshSessionEvent["event"]) => void): () => void;
   on(event: "dispose", listener: () => Promise<void>): () => void;
   commands: { register(definition: { name: string; description: string; input: { hint: string }; recordInput: boolean; handler(invocation: { rawInput: string; signal: AbortSignal }): Promise<{ kind: "success" | "error"; text: string }> }): () => void };
@@ -42,6 +44,7 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     if (!/^[A-Za-z0-9_-]{32,}$/.test(token)) throw new Error("Maneki 客户端凭证格式无效");
   }
   const sourceId = randomUUID();
+  const speechInstanceSecret = randomBytes(32).toString("base64url");
   const endpoint = new URL("/v1/expressions/state", base).href;
   const observationEndpoint = new URL("/v1/observations/sessions", base).href;
   const controller = new AbortController();
@@ -57,6 +60,12 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
   let pending: Promise<void> | undefined;
   let online: boolean | undefined;
   let controlPending: Promise<void> | undefined;
+  let stopSpeech: (() => Promise<void>) | undefined;
+  let speechService: DshSpeechService | undefined;
+  ctx.inject?.(["speechToText"], (child) => {
+    speechService = child.speechToText;
+    child.on("dispose", async () => { speechService = undefined; await stopSpeech?.(); stopSpeech = undefined; });
+  });
 
   const current = (): PetState => {
     const states = new Set([...sessions.values()].map((row) => row.phase));
@@ -172,6 +181,13 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     if (closed || signal.aborted) throw new Error("操作已取消");
     const result = await controlAssistant(action, profileId, AbortSignal.any([controller.signal, signal]));
     if (closed) return "插件已停用";
+    if (action === "speech-connect" || action === "speech-pair") {
+      if (!speechService) throw new Error("dsh 语音识别服务尚未启用，请先在宿主准备语音组件");
+      if (!result.token || !result.clientId) throw new Error("语音配对凭证不可用");
+      await stopSpeech?.();
+      stopSpeech = startSpeechHost(base, result.token, result.clientId, sourceId, () => speechService, speechInstanceSecret);
+      return "dsh 语音服务已连接；请在小招语音设置中选择此来源";
+    }
     if (action === "connect" || action === "pair") {
       token = result.token;
       online = undefined;
@@ -195,10 +211,10 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     try { await controlPending; return text; } finally { controlPending = undefined; }
   };
   const unregister = ctx.commands.register({
-    name: "maneki", description: "连接、配对、打开文字助手或退出小招", input: { hint: "status | connect | pair | show | assistant | quit" }, recordInput: false,
+    name: "maneki", description: "连接、配对、打开文字助手或退出小招", input: { hint: "status | connect | pair | speech-pair | speech-connect | show | assistant | quit" }, recordInput: false,
     handler: async ({ rawInput, signal }) => {
       const action = rawInput.trim() || "status";
-      if (!["status", "connect", "pair", "show", "assistant", "quit"].includes(action)) return { kind: "error", text: "用法：/maneki status|connect|pair|show|assistant|quit" };
+      if (!["status", "connect", "pair", "speech-pair", "speech-connect", "show", "assistant", "quit"].includes(action)) return { kind: "error", text: "用法：/maneki status|connect|pair|speech-pair|speech-connect|show|assistant|quit" };
       try { return { kind: "success", text: await runControl(action as ControlAction, signal) }; }
       catch (error) { return { kind: "error", text: error instanceof Error ? error.message : "助手管理操作失败" }; }
     },
@@ -210,6 +226,7 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     clearInterval(heartbeat);
     clearTimeout(pulseTimer);
     controller.abort();
+    await stopSpeech?.();
     await controlPending?.catch(() => undefined);
     await pending;
     if (token) try { await postObservations(false, AbortSignal.timeout(2_000)); } catch { /* 最迟 15 秒标记来源失联。 */ }
