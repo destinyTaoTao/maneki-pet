@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { runControlProcess } from "./control-process.js";
 import { readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
@@ -36,12 +36,8 @@ export function installedExecutable(): string {
 export async function controlAssistant(action: ControlAction, profileId: string, signal: AbortSignal): Promise<ControlResult> {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(profileId)) throw new Error(controlText.invalid_config);
   const executable = installedExecutable();
-  const stdout = await new Promise<string>((resolve, reject) => {
-    execFile(executable, ["--assistant", action, "--client", profileId], { windowsHide: true, timeout: 120_000, maxBuffer: 16_384, signal }, (error, output) => {
-      if (error && !output) reject(new Error(controlText.runtime_unavailable));
-      else resolve(output);
-    });
-  });
+  const stdout = await runControlProcess(executable, ["--assistant", action, "--client", profileId], signal)
+    .catch(() => { throw new Error(controlText.runtime_unavailable); });
   let value: unknown;
   try { value = JSON.parse(stdout); } catch { throw new Error(controlText.protocol_mismatch); }
   if (typeof value !== "object" || value === null) throw new Error(controlText.protocol_mismatch);
