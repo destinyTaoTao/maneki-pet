@@ -180,3 +180,6 @@ body,
 @media (prefers-reduced-motion: reduce) {
   .pet-controls, .control-button, .status-bubble { transition: none; }
 }
+
+.status-bubble[data-visible="true"][data-interactive="true"] { pointer-events: auto; }
+.status-bubble button { margin-left: 6px; }

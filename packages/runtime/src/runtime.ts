@@ -1,3 +1,7 @@
+import { CompanionService } from "./companion-service.js";
+import { CompanionStore } from "./companion-store.js";
+import { CompanionLeases } from "./companion-leases.js";
+import { readAssistantSettings } from "./assistant-settings.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
@@ -128,7 +132,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
     });
     openedAssistant = assistant;
     const stopAssistantEvents = feed.subscribe((event) => {
-      if (event.kind === "dnd.changed") assistant.wake();
+      if (event.kind === "dnd.changed") { assistant.wake(); assistant.companion?.policyChanged(); }
     });
 
     // HTTP 签发与 WS 兑换必须共享同一票据发行器，票据才有效。
@@ -158,7 +162,9 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       feed.publish("tasks.configured", { adapter: "dsh", gateway: config.dsh.baseUrl });
     }
 
+    let companion: CompanionService | undefined;
     const hub = new WsHub({
+      onConnectionClosed: (connectionId) => companion?.connectionClosed(connectionId),
       tickets,
       feed,
       clientScopes: (clientId) => {
@@ -169,6 +175,19 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       log,
       ...(options.wsAuthTimeoutMs !== undefined ? { authTimeoutMs: options.wsAuthTimeoutMs } : {}),
     });
+    const companionLeases = new CompanionLeases({
+      runtimeEpoch: hub.runtimeEpoch,
+      now: Date.now, mono: () => performance.now(),
+      scopes: (clientId) => { const c=store.findClient(clientId); return c&&!c.revokedAt?c.scopes:undefined; },
+      ownsConnection: (clientId, connectionId) => hub.ownsConnection(clientId, connectionId),
+      policyRevision: () => companion?.policyRevision() ?? 0,
+    });
+    companion = new CompanionService({
+      store: new CompanionStore(store.assistantStore()), leases: companionLeases,
+      feed, runtimeEpoch: hub.runtimeEpoch, settings: () => readAssistantSettings(store.assistantStore()),
+      historyEpoch: () => store.assistantStore().epoch(), dnd: () => dnd.get(),
+    });
+    assistant.companion = companion;
     const api = new LocalHttpApi({
       host: "127.0.0.1",
       port: options.port ?? 0,
@@ -191,6 +210,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       onClientRevoked: (clientId) => {
         speechHost.revoke(clientId);
         assistant.cancelClient(clientId);
+        companion?.revoke(clientId);
         hub.revokeClient(clientId);
         expressions.current();
       },

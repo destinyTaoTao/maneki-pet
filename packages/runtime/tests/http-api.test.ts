@@ -266,7 +266,7 @@ describe("限额持久化与查询（#43 的 Runtime 层）", () => {
       }),
       "utf8",
     );
-    const first = await startRuntime({ configDir: dir, log: () => undefined });
+    const first = await startFetchCompatibleRuntime({ configDir: dir, log: () => undefined });
     runtimes.push(first);
     const pair = await jsonFetch(`http://127.0.0.1:${first.port}`, "/v1/pair", {
       token: first.rootToken,
@@ -276,7 +276,7 @@ describe("限额持久化与查询（#43 的 Runtime 层）", () => {
     await jsonFetch(`http://127.0.0.1:${first.port}`, "/v1/usage/record", { token, body: { kind: "interactive", tokens: 2_500 } });
     await first.stop();
 
-    const second = await startRuntime({ configDir: dir, log: () => undefined });
+    const second = await startFetchCompatibleRuntime({ configDir: dir, log: () => undefined });
     runtimes.push(second);
     const view = await jsonFetch(`http://127.0.0.1:${second.port}`, "/v1/limits", { token });
     expect(view.status).toBe(200);
@@ -297,7 +297,7 @@ describe("勿扰端到端（#44 的 Runtime 层）", () => {
   it("勿扰状态可查询、可切换并持久化跨重启", async () => {
     const dir = mkdtempSync(join(tmpdir(), "maneki-rt-dnd-"));
     tempDirs.push(dir);
-    const first = await startRuntime({ configDir: dir, log: () => undefined });
+    const first = await startFetchCompatibleRuntime({ configDir: dir, log: () => undefined });
     runtimes.push(first);
     const pair = await jsonFetch(`http://127.0.0.1:${first.port}`, "/v1/pair", {
       token: first.rootToken,
@@ -309,7 +309,7 @@ describe("勿扰端到端（#44 的 Runtime 层）", () => {
     expect((await jsonFetch(`http://127.0.0.1:${first.port}`, "/v1/dnd", { token })).body.enabled).toBe(true);
     await first.stop();
 
-    const second = await startRuntime({ configDir: dir, log: () => undefined });
+    const second = await startFetchCompatibleRuntime({ configDir: dir, log: () => undefined });
     runtimes.push(second);
     expect((await jsonFetch(`http://127.0.0.1:${second.port}`, "/v1/dnd", { token })).body.enabled).toBe(true);
   });

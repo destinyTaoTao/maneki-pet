@@ -1,3 +1,4 @@
+import { CompanionStore } from "./companion-store.js";
 import {
   existsSync,
   readFileSync,
@@ -98,11 +99,14 @@ export function readAssistantSettings(
     throw new AssistantError(503, "settings_invalid");
   }
 }
-export function settingsView(settings: AssistantSettings) {
+export function settingsView(settings: AssistantSettings, companion?: CompanionStore) {
+  let companionView: import("@maneki-pet/core").CompanionPreferences | undefined;
+  if (companion) { try { companionView = companion.readState().preferences; } catch {} }
   const { apiKeyRef: _secret, ...chat } = settings.chat;
   const { speechApiKeyRef, ...visible } = settings;
   return {
     ...visible,
+    ...(companionView ? { companion: companionView } : {}),
     voice: { ...settings.voice, apiKeyConfigured: Boolean(speechApiKeyRef) },
     chat: { ...chat, apiKeyConfigured: Boolean(_secret) },
   };
@@ -191,7 +195,9 @@ export function saveAssistantSettings(
   dir: string,
   raw: Record<string, unknown>,
 ): AssistantSettings {
-  const { chat: rawChat, voice: rawVoice, ...flat } = raw;
+  const { chat: rawChat, voice: rawVoice, companion: rawCompanion, ...flat } = raw;
+  if (Object.hasOwn(raw,"companion") && !validateObject(rawCompanion, {murmurEnabled:{type:"boolean",required:true}}).ok)
+    throw new AssistantError(400,"settings_invalid");
   const checked = validateObject(flat, {
     version: { type: "number", required: true, min: 0 },
     timeZone: { type: "string", required: true, maxLength: 80 },
@@ -250,6 +256,11 @@ export function saveAssistantSettings(
     } else if (old.speechApiKeyRef)
       settings.speechApiKeyRef = old.speechApiKeyRef;
     store.transaction(() => {
+      if (rawCompanion !== undefined) {
+        const companion = new CompanionStore(store);
+        const previous = companion.readPreferences();
+        companion.writePreferences({...previous,murmurEnabled:(rawCompanion as {murmurEnabled:boolean}).murmurEnabled});
+      }
       store.set("settings", JSON.stringify(settings));
       store.changed();
     });

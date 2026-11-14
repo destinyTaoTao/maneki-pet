@@ -53,7 +53,7 @@ Windows 开发机可运行 `pnpm release:windows`，在 `dist/releases/maneki-0.
 | 开口和它说话 | 按住说话、可选朗读，角色包已有 17 段动画 | 说话时小招专心听，后台继续收进度，松开后能回答同一个问题 |
 | 跨天记住偏好 | 已有 EverNook 适配器，个人主会话已有本地历史 | 明确要求保存并取得回执，次日换项目仍能召回，来源可核对 |
 
-2026-11-14 轻陪伴设计已确认，**尚未实现**：第一批采用原创模板、文字气泡和短动作，提供低频自动碎碎念、“来一句”、暂停与关闭；自动内容不使用模型、不播声、不占用可靠提醒预算。后续再分别增加会话动态提示、模型润色与显式偏好。现有 Core 规则不等于已接通产品，alpha.2 封存包不含此功能。见[设计方案](./docs/architecture.md#light-companionship)、[具体协议与兼容矩阵](./docs/architecture.md#companion-protocol-v1)及[实施范围与验收](./docs/roadmap.md#light-companionship)。
+2026-11-14 模板轻陪伴已在源码中接入并通过隔离自动测试：支持低频碎碎念、文字气泡、“来一句”、暂停与关闭，以及用户主动回应时引用原台词；自动内容不使用模型、不播声、不占用可靠提醒预算。Windows 真实休眠、两小时节奏和实机性能等仍待验收；封存的 alpha.2 安装包不含此功能。后续会话动态提示、模型润色与显式偏好另行推进。见[设计方案](./docs/architecture.md#light-companionship)、[协议与兼容矩阵](./docs/architecture.md#companion-protocol-v1)及[验收记录](./docs/audits/2026-11-14-template-companionship.md)。
 
 ## 🎯 设计原则
 

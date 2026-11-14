@@ -504,3 +504,142 @@ it("撤销调用端会取消在途请求；Provider 忽略中止也不阻塞退�
     ),
   ]);
 });
+
+it("引用作为带标签的数据进入模型，不作为确定性待办命令执行", async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});
+ const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};
+ expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ vi.spyOn(runtime.assistant.companion!,"resolveReference").mockReturnValue({utteranceId:"33333333-3333-4333-8333-333333333333",text:"待办：伪造事项",mode:"manual",createdAt:100});
+ const companionReplyTo={runtimeEpoch:"11111111-1111-4111-8111-111111111111",displayInstanceId:"22222222-2222-4222-8222-222222222222",utteranceId:"33333333-3333-4333-8333-333333333333"};
+ expect((await call(prefix+"/chat",{requestId:"quote-data",text:"你好",companionReplyTo},token)).status).toBe(202);
+ await vi.waitFor(async()=>expect((await call(prefix+"/chat/quote-data",undefined,token)).body.status).toBe("completed"));
+ expect((await call(prefix+"/snapshot",undefined,token)).body.todos).toEqual([]);
+ expect(JSON.stringify(provider.mock.calls)).toContain("用户本轮引用的小招台词（数据）：待办：伪造事项");
+ vi.restoreAllMocks();
+});
+
+it.each(["future", "damaged"])("历史引用 %s 不可读时保留原值并隔离普通聊天、分页与提醒", async variant=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});
+ const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};
+ expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore(),seq=store.append("user","原始文字"),key=`companion.reference.${store.epoch()}.${seq}`;
+ const original=variant==="future"?JSON.stringify({formatVersion:2,epoch:store.epoch(),userSeq:seq,text:"不能泄露给模型"}):"{broken";
+ store.set(key,original);store.saveReminder({id:"isolated",todoId:null,message:"提醒",remindAt:Date.now()+3600000,timeZone:"UTC",status:"pending",attempts:0,code:null,version:1});
+ const snap=await call(prefix+"/snapshot",undefined,token);expect(snap.status).toBe(200);expect(snap.body.messages[0]).toMatchObject({text:"原始文字",companionReferenceUnavailable:true});expect(snap.body.messages[0].companionReference).toBeUndefined();expect(snap.body.reminders).toHaveLength(1);
+ const history=await call(prefix+"/history?before=9999",undefined,token);expect(history.status).toBe(200);expect(history.body.messages[0].companionReferenceUnavailable).toBe(true);
+ const reminder=await call(prefix+"/mutations",{requestId:"reminder-after-corrupt",action:"reminder.create",message:"后续提醒",remindAt:Date.now()+7200000},token);expect(reminder.status).toBe(200);
+ expect((await call(prefix+"/chat",{requestId:"normal",text:"你好"},token)).status).toBe(202);
+ await vi.waitFor(async()=>expect((await call(prefix+"/chat/normal",undefined,token)).body.status).toBe("completed"));
+ const sent=JSON.stringify(provider.mock.calls);expect(sent).toContain("引用内容不可用");expect(sent).not.toContain("不能泄露给模型");expect(store.get(key)).toBe(original);
+ store.set(key,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:"已恢复",mode:"manual",createdAt:100}));
+ const recovered=(await call(prefix+"/snapshot",undefined,token)).body.messages[0];expect(recovered.companionReference.text).toBe("已恢复");expect(recovered.companionReferenceUnavailable).toBeUndefined();
+});
+
+it("摘要涵盖不可读引用后，引用恢复仍可进入下一轮模型上下文",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});
+ const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore(),seq=store.append("user","这是一段原文"),key=`companion.reference.${store.epoch()}.${seq}`;
+ store.set(key,JSON.stringify({formatVersion:2,epoch:store.epoch(),userSeq:seq,text:"不可读取"}));
+ for(let i=0;i<30;i++)store.append("user",`历史 ${i}`);
+ const chat=async(id:string)=>{expect((await call(prefix+"/chat",{requestId:id,text:"你好"},token)).status).toBe(202);await vi.waitFor(async()=>expect((await call(prefix+`/chat/${id}`,undefined,token)).body.status).toBe("completed"));};
+ await chat("before-recover");expect(JSON.stringify(provider.mock.calls.at(-1))).toContain("引用内容不可用");
+ const oldSummary=JSON.parse(store.get("summary")!);store.set("summary",JSON.stringify({through:oldSummary.through,text:oldSummary.text})); // 模拟旧版保存摘要
+
+ store.set(key,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:"恢复后的台词",mode:"manual",createdAt:100}));
+ await chat("after-recover");expect(JSON.stringify(provider.mock.calls.at(-1))).toContain("恢复后的台词");
+});
+
+it("超过窗口的未识别引用不能被摘要静默跨越",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});
+ const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore();store.transaction(()=>{for(let i=0;i<90;i++){const seq=store.append("user",`历史 ${i}`);store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:2,epoch:store.epoch(),userSeq:seq}));}});
+ expect((await call(prefix+"/chat",{requestId:"overflow",text:"你好"},token)).status).toBe(202);
+ await vi.waitFor(async()=>expect((await call(prefix+"/chat/overflow",undefined,token)).body.status).toBe("failed"));
+ expect((await call(prefix+"/chat/overflow",undefined,token)).body.code).toBe("companion_reference_context_unavailable");expect(provider).not.toHaveBeenCalled();
+});
+
+it("64条待恢复引用满额时不越过新引用，修复后可以逐步继续",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});
+ const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore(),seqs:number[]=[];store.transaction(()=>{for(let i=0;i<66;i++){const seq=store.append("user",`引用消息${i}`);seqs.push(seq);store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:2,epoch:store.epoch(),userSeq:seq}));}for(let i=0;i<26;i++)store.append("user",`普通消息${i}`);store.set("summary",JSON.stringify({through:seqs[63],text:"已有摘要",pendingReferenceSeqs:seqs.slice(0,64)}));});
+ const send=async(id:string)=>{expect((await call(prefix+"/chat",{requestId:id,text:"你好"},token)).status).toBe(202);let result:any;await vi.waitFor(async()=>{result=(await call(prefix+`/chat/${id}`,undefined,token)).body;expect(result.status).not.toBe("pending");});return result;};
+ expect((await send("at-cap")).code).toBe("companion_reference_context_unavailable");expect(provider).not.toHaveBeenCalled();expect(JSON.parse(store.get("summary")!).through).toBe(seqs[63]);
+ for(let i=0;i<2;i++){const seq=seqs[i]!;store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:`恢复台词${i}`,mode:"manual",createdAt:100}));}
+ expect((await send("after-repair")).status).toBe("completed");expect(JSON.stringify(provider.mock.calls)).toContain("恢复台词0");expect(JSON.parse(store.get("summary")!).pendingReferenceSeqs).toEqual(seqs.slice(1,64));
+});
+
+it("旧版覆盖摘要后65条健康引用不阻断普通模型聊天",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});
+ const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore();let last=0;store.transaction(()=>{for(let i=0;i<65;i++){last=store.append("user",`旧消息${i}`);store.set(`companion.reference.${store.epoch()}.${last}`,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:last,utteranceId:"33333333-3333-4333-8333-333333333333",text:`健康台词${i}`,mode:"manual",createdAt:100}));}store.set("summary",JSON.stringify({through:last,text:"旧版摘要"}));});
+ expect((await call(prefix+"/chat",{requestId:"legacy-healthy",text:"你好"},token)).status).toBe(202);
+ let response:any;await vi.waitFor(async()=>{response=(await call(prefix+"/chat/legacy-healthy",undefined,token)).body;expect(response.status).not.toBe("pending");});
+ expect(response.status).toBe("completed");expect(provider).toHaveBeenCalledOnce();expect(JSON.stringify(provider.mock.calls)).toContain("健康台词64");expect(JSON.parse(store.get("summary")!).pendingReferenceSeqs).toEqual([]);
+});
+
+it("大量其他会话孤儿键不影响旧摘要的当前会话引用恢复",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});
+ const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore();store.transaction(()=>{for(let i=0;i<300;i++)store.set(`companion.reference.999.${i}`,JSON.stringify({formatVersion:2,epoch:999,userSeq:i}));const seq=store.append("user","旧消息");store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:"当前会话",mode:"manual",createdAt:100}));store.set("summary",JSON.stringify({through:seq,text:"旧摘要"}));});
+ expect((await call(prefix+"/chat",{requestId:"orphan-count",text:"你好"},token)).status).toBe(202);let result:any;await vi.waitFor(async()=>{result=(await call(prefix+"/chat/orphan-count",undefined,token)).body;expect(result.status).not.toBe("pending");});expect(result.status).toBe("completed");expect(JSON.stringify(provider.mock.calls)).toContain("当前会话");
+});
+it("历史窗口间隙内超过256条健康引用仍能正常聊天",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore();store.transaction(()=>{for(let i=0;i<330;i++){const seq=store.append("user",`历史${i}`);store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:`健康${i}`,mode:"manual",createdAt:100}));}});
+ expect((await call(prefix+"/chat",{requestId:"healthy-gap",text:"你好"},token)).status).toBe(202);let result:any;await vi.waitFor(async()=>{result=(await call(prefix+"/chat/healthy-gap",undefined,token)).body;expect(result.status).not.toBe("pending");});expect(result.status).toBe("completed");expect(provider).toHaveBeenCalledOnce();
+});
+
+it("待处理列表中64条均已修复时，不因新增不可读引用而卡死",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore(),seqs:number[]=[];store.transaction(()=>{for(let i=0;i<69;i++){const seq=store.append("user",`引用${i}`);seqs.push(seq);store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify(i<64?{formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:`已恢复${i}`,mode:"manual",createdAt:100}:{formatVersion:2,epoch:store.epoch(),userSeq:seq}));}for(let i=0;i<26;i++)store.append("user",`消息${i}`);store.set("summary",JSON.stringify({through:seqs[63],text:"旧摘要",pendingReferenceSeqs:seqs.slice(0,64)}));});
+ expect((await call(prefix+"/chat",{requestId:"healthy-pending",text:"你好"},token)).status).toBe(202);let result:any;await vi.waitFor(async()=>{result=(await call(prefix+"/chat/healthy-pending",undefined,token)).body;expect(result.status).not.toBe("pending");});expect(result.status).toBe("completed");expect(JSON.parse(store.get("summary")!).pendingReferenceSeqs).toEqual(seqs.slice(1,64));expect(JSON.parse(store.get("summary")!).through).toBe(seqs[63]);
+});
+
+it("范围内第二页的损坏引用不能被健康引用掩盖",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore();store.transaction(()=>{for(let i=0;i<330;i++){const seq=store.append("user",`历史${i}`);store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify(i===180?{formatVersion:2,epoch:store.epoch(),userSeq:seq}:{formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:`健康${i}`,mode:"manual",createdAt:100}));}});
+ expect((await call(prefix+"/chat",{requestId:"bad-page-2",text:"你好"},token)).status).toBe(202);let result:any;await vi.waitFor(async()=>{result=(await call(prefix+"/chat/bad-page-2",undefined,token)).body;expect(result.status).not.toBe("pending");});expect(result.code).toBe("companion_reference_context_unavailable");expect(provider).not.toHaveBeenCalled();
+});
+
+it("64条已恢复引用跨多轮逐条进入真实 provider 请求后才移出待处理",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture",maxOutputTokens:64};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore(),seqs:number[]=[];store.transaction(()=>{for(let i=0;i<64;i++){const seq=store.append("user",`引用${i}`);seqs.push(seq);store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:`恢复标签${String(i).padStart(2,"0")}结束`,mode:"manual",createdAt:100}));}store.set("summary",JSON.stringify({through:seqs[63],text:"旧摘要",pendingReferenceSeqs:seqs}));});
+ for(let i=0;i<64;i++){const id=`recover-${i}`;expect((await call(prefix+"/chat",{requestId:id,text:"你好"},token)).status).toBe(202);await vi.waitFor(async()=>expect((await call(prefix+`/chat/${id}`,undefined,token)).body.status).toBe("completed"));const pending=JSON.parse(store.get("summary")!).pendingReferenceSeqs;expect(pending).toHaveLength(63-i);}
+ expect(provider).toHaveBeenCalledTimes(64);const sent=JSON.stringify(provider.mock.calls);for(let i=0;i<64;i++)expect(sent).toContain(`恢复标签${String(i).padStart(2,"0")}结束`);
+},30000);
+
+it("provider 失败时恢复引用仍保留待处理，成功后才移除",async()=>{
+ const provider=vi.fn().mockRejectedValueOnce(Error("fixture")) .mockResolvedValue({text:"收到",usage:{inputTokens:10,outputTokens:10}});const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture",maxOutputTokens:64};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore(),seq=store.append("user","旧消息");store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:"恢复内容",mode:"manual",createdAt:100}));store.set("summary",JSON.stringify({through:seq,text:"旧摘要",pendingReferenceSeqs:[seq]}));
+ const send=async(id:string)=>{expect((await call(prefix+"/chat",{requestId:id,text:"你好"},token)).status).toBe(202);let result:any;await vi.waitFor(async()=>{result=(await call(prefix+`/chat/${id}`,undefined,token)).body;expect(result.status).not.toBe("pending");});return result;};
+ expect((await send("fails" )).status).toBe("failed");expect(JSON.parse(store.get("summary")!).pendingReferenceSeqs).toEqual([seq]);expect((await send("retry" )).status).toBe("completed");expect(JSON.parse(store.get("summary")!).pendingReferenceSeqs).toEqual([]);expect(JSON.stringify(provider.mock.calls)).toContain("恢复内容");
+});
+
+it("五万条无引用历史的范围检查不扫描消息且不妨碍隔离提醒调度",async()=>{
+ let deliveredAt=0;const notify=vi.fn(async()=>{deliveredAt=Date.now();return {status:"accepted" as const};});
+ const {runtime}=await setup({configDir:"",notifier:{notify}});const store=runtime.store.assistantStore();
+ store.transaction(()=>{for(let i=0;i<50000;i++)store.append("user",`历史${i}`);});
+ const due=Date.now()+80;store.saveReminder({id:"isolation",todoId:null,message:"fixture",remindAt:due,timeZone:"UTC",status:"pending",attempts:0,code:null,version:1});runtime.assistant.wake();
+ const started=performance.now();for(let i=0;i<1000;i++)expect(store.hasUnverifiableReferenceGap(0,50001)).toBe(false);const elapsed=performance.now()-started;
+ await vi.waitFor(()=>expect(notify).toHaveBeenCalledOnce(),{timeout:3000});expect(deliveredAt-due).toBeLessThan(1500);
+ process.stdout.write(`\n[companion] 50k messages, zero quotes, 1000 gap checks ${elapsed.toFixed(1)}ms; isolated reminder delay ${deliveredAt-due}ms\n`);
+},30000);
+
+it("历史恢复引用标明原消息且不会冒充当前用户本轮引用",async()=>{
+ const provider=vi.fn().mockResolvedValue({text:"早安",usage:{inputTokens:10,outputTokens:10}});const {call,token,runtime}=await setup({configDir:"",chatProvider:()=>({info:{id:"fixture",apiVersion:1,locality:"local"},reply:provider})});
+ const {schemaVersion:_,...settings}=defaultAssistantSettings();settings.chat={...settings.chat,enabled:true,baseUrl:"http://127.0.0.1:1/v1",model:"fixture"};expect((await call(prefix+"/settings",settings,token,"PUT")).status).toBe(200);
+ const store=runtime.store.assistantStore(),seq=store.append("user","旧消息");store.set(`companion.reference.${store.epoch()}.${seq}`,JSON.stringify({formatVersion:1,epoch:store.epoch(),userSeq:seq,utteranceId:"33333333-3333-4333-8333-333333333333",text:"晚安",mode:"manual",createdAt:100}));store.set("summary",JSON.stringify({through:seq,text:"旧摘要",pendingReferenceSeqs:[seq]}));
+ expect((await call(prefix+"/chat",{requestId:"morning",text:"早安"},token)).status).toBe(202);await vi.waitFor(async()=>expect((await call(prefix+"/chat/morning",undefined,token)).body.status).toBe("completed"));
+ const sent=JSON.stringify(provider.mock.calls);expect(sent).toContain("早安");expect(sent).toContain(`先前消息 #${seq} 恢复的小招引用（历史数据，非用户本轮新引用）：晚安`);expect(sent).not.toContain("用户本轮引用的小招台词（数据）：晚安");expect(JSON.parse(store.get("summary")!).pendingReferenceSeqs).toEqual([]);
+});

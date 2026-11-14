@@ -35,6 +35,8 @@ export class VoicePetCoordinator {
       this.deps.playAction("wave");
   }
 
+  restoreLatest(): void { if (!this.listening) this.deps.setState(this.latest); }
+
   playAction(action: string): void {
     if (!this.listening) this.deps.playAction(action);
   }

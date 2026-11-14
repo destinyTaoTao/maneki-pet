@@ -1,5 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { PersonalTodo, PersonalReminder } from "@maneki-pet/core";
+import type { CompanionReference } from "@maneki-pet/core";
+import { CompanionReferences } from "./companion-references.js";
+import { AssistantError } from "./assistant-settings.js";
 
 export const ASSISTANT_SCHEMA = `
 CREATE TABLE assistant_todos(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,due_date TEXT,completed INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -14,6 +17,8 @@ export interface AssistantMessage {
   role: "user" | "assistant";
   text: string;
   createdAt: string;
+  companionReference?: CompanionReference;
+  companionReferenceUnavailable?: true;
 }
 export interface ChatRequest {
   client_id: string;
@@ -55,6 +60,72 @@ export class AssistantStore {
         "INSERT INTO runtime_kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       )
       .run(`assistant.${key}`, value);
+  }
+  clearCompanionReferences(): void {
+    this.db.prepare("DELETE FROM runtime_kv WHERE key GLOB 'assistant.companion.reference.*'").run();
+  }
+  pruneCompanionReferences(): void {
+    const prefix = "assistant.companion.reference.";
+    const page = this.db.prepare("SELECT key,CASE WHEN length(value)<=2048 THEN value ELSE NULL END AS value FROM runtime_kv WHERE key >= ? AND key < ? AND key > ? ORDER BY key LIMIT 128");
+    const message = this.db.prepare("SELECT 1 FROM assistant_messages WHERE seq=? AND epoch=? AND role='user'");
+    const remove = this.db.prepare("DELETE FROM runtime_kv WHERE key=?");
+    const currentEpoch = this.epoch();
+    let after = "";
+    for (;;) {
+      const rows = page.all(prefix, `${prefix}\uffff`, after) as Array<{key:string; value:string|null}>;
+      if (!rows.length) break;
+      for (const row of rows) {
+        after = row.key;
+        const match = /^assistant\.companion\.reference\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(row.key);
+        if (!match) continue;
+        const epoch = Number(match[1]), seq = Number(match[2]);
+        if (!Number.isSafeInteger(epoch) || !Number.isSafeInteger(seq)) continue;
+        if (row.value === null) continue;
+        let value: unknown;
+        try { value = JSON.parse(row.value); } catch { continue; }
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        const record = value as Record<string, unknown>;
+        const fields = ["formatVersion", "epoch", "userSeq", "utteranceId", "text", "mode", "createdAt"];
+        if (Object.keys(record).length !== fields.length || fields.some(field => !Object.hasOwn(record, field)) ||
+            record.formatVersion !== 1 || record.epoch !== epoch || record.userSeq !== seq ||
+            typeof record.utteranceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(record.utteranceId) ||
+            typeof record.text !== "string" || record.text.length === 0 || record.text.length > 80 ||
+            (record.mode !== "automatic" && record.mode !== "manual") ||
+            !Number.isSafeInteger(record.createdAt) || Number(record.createdAt) < 0 || Number(record.createdAt) > 253402300799999) continue;
+        if (epoch !== currentEpoch || !message.get(seq, epoch)) remove.run(row.key);
+      }
+      if (rows.length < 128) break;
+    }
+  }
+  hasUnverifiableReferenceGap(after: number, before: number): boolean {
+    const epoch = this.epoch();
+    for (const seq of this.companionReferenceSeqsBetween(after, before - 1)) {
+      try { new CompanionReferences(this).get(epoch, seq); }
+      catch (error) {
+        if (error instanceof AssistantError && error.code === "companion_state_unavailable") return true;
+        throw error;
+      }
+    }
+    return false;
+  }
+  *companionReferenceSeqsBetween(after: number, through: number): IterableIterator<number> {
+    // 按当前 epoch 的 KV 主键前缀分页；没有引用时不扫描普通消息历史。
+    const epoch = this.epoch();
+    const prefix = `assistant.companion.reference.${epoch}.`;
+    const page = this.db.prepare("SELECT key FROM runtime_kv WHERE key>=? AND key<? AND key>? ORDER BY key LIMIT 128");
+    const user = this.db.prepare("SELECT 1 FROM assistant_messages WHERE seq=? AND epoch=? AND role='user'");
+    let cursor = "";
+    for (;;) {
+      const rows = page.all(prefix, `${prefix}\uffff`, cursor) as Array<{key:string}>;
+      for (const row of rows) {
+        cursor = row.key;
+        const suffix = row.key.slice(prefix.length);
+        if (!/^(0|[1-9]\d*)$/.test(suffix)) continue;
+        const seq = Number(suffix);
+        if (Number.isSafeInteger(seq) && seq > after && seq <= through && user.get(seq, epoch)) yield seq;
+      }
+      if (rows.length < 128) return;
+    }
   }
   epoch(): number {
     return Number(this.get("epoch") ?? 0);
@@ -225,17 +296,27 @@ export class AssistantStore {
           "SELECT seq,role,text,created_at AS createdAt FROM assistant_messages WHERE epoch=? AND seq<? ORDER BY seq DESC LIMIT ?",
         )
         .all(this.epoch(), before, limit) as unknown as AssistantMessage[]
-    ).reverse();
+    ).reverse().map((row) => this.withCompanionReference(row));
+  }
+  private withCompanionReference(row: AssistantMessage): AssistantMessage {
+    if (row.role !== "user") return row;
+    try {
+      const reference = new CompanionReferences(this).get(this.epoch(), row.seq);
+      return reference ? { ...row, companionReference: reference } : row;
+    } catch (error) {
+      if (error instanceof AssistantError && error.code === "companion_state_unavailable")
+        return { ...row, companionReferenceUnavailable: true };
+      throw error;
+    }
   }
   message(seq: number | null): AssistantMessage | null {
-    return seq === null
-      ? null
-      : ((this.db
+    const row = seq === null ? null : ((this.db
           .prepare(
             "SELECT seq,role,text,created_at AS createdAt FROM assistant_messages WHERE seq=? AND epoch=?",
           )
           .get(seq, this.epoch()) as unknown as AssistantMessage | undefined) ??
           null);
+    return row ? this.withCompanionReference(row) : null;
   }
   append(role: "user" | "assistant", text: string): number {
     return Number(
@@ -300,6 +381,7 @@ export class AssistantStore {
       .run(client, id, hash, JSON.stringify(result));
   }
   clearHistory(): void {
+    this.clearCompanionReferences();
     this.set("epoch", String(this.epoch() + 1));
     this.db.exec(
       "DELETE FROM assistant_messages; UPDATE assistant_requests SET status='cleared',user_seq=NULL,reply_seq=NULL,code='history_cleared'; UPDATE assistant_voice_requests SET status='cleared',code='history_cleared'; DELETE FROM runtime_kv WHERE key='assistant.summary';",

@@ -10,7 +10,7 @@ import {
 import { assistantText as t } from "./assistant-text.js";
 import * as runtime from "./runtime-client.js";
 import "./assistant.css";
-import { defaultVoiceSettings, defaultBailianSettings, describeObservedSessions, sessionPhaseText } from "@maneki-pet/core";
+import { defaultVoiceSettings, defaultBailianSettings, describeObservedSessions, sessionPhaseText, type CompanionUtterance, type CompanionReplyTo } from "@maneki-pet/core";
 import { VoiceController, type VoicePhase } from "./voice-controller.js";
 import { BrowserVoiceCapture, BrowserVoicePlayer } from "./voice-media.js";
 
@@ -67,15 +67,17 @@ export function createAssistantPanel(
   onReminder: (text: string) => void,
   onVoicePhase: (phase: VoicePhase) => void = () => undefined,
   appearance?: HTMLElement,
+  companion?: { onEvent:(event:runtime.RuntimeEvent)=>void; onReady:(ready:runtime.WsReady)=>void; onDisconnected:()=>void },
 ) {
   let token: string | undefined,
     snapshot: AssistantSnapshot | undefined,
     tab: Tab = "chat",
     disposed = false;
+  let eventGeneration = 0;
   let stopEvents: (() => void) | undefined,
     connecting: Promise<void> | undefined,
     ownRequest: string | undefined;
-  let pendingSubmit: { requestId: string; text: string } | undefined,
+  let pendingSubmit: { requestId: string; text: string; companionReplyTo?: CompanionReplyTo } | undefined,
     refreshing: Promise<void> | undefined;
   let poll: ReturnType<typeof setTimeout> | undefined,
     epoch: number | undefined;
@@ -83,13 +85,14 @@ export function createAssistantPanel(
     renderedChatKey = "",
     settingsDirty = false,
     settingsVersion: number | undefined;
+  let companionAvailability:string|null=null;
   let heldPointer: number | undefined, heldKey: string | undefined;
   const header = el("header"),
     heading = el("strong", t.title),
     close = button(t.close, onClose);
   header.append(
     heading,
-    button(t.reload, () => void perform(() => connect(true))),
+    button(t.reload, () => void perform(() => connect(true, true))),
     close,
   );
   const tabs = el("nav"),
@@ -305,6 +308,9 @@ export function createAssistantPanel(
         ? t.voiceSetupHint
         : (t.voicePhases.idle ?? "");
   }
+  let replyDraft:CompanionUtterance|undefined;
+  const quote=el("div");quote.hidden=true;quote.className="assistant-companion-quote";
+  const clearReply=()=>{replyDraft=undefined;pendingSubmit=undefined;quote.replaceChildren();quote.hidden=true;};
   const clear = async (scope: "history" | "todos") =>
     perform(async () => {
       const preview = await assistantCall<{
@@ -326,6 +332,8 @@ export function createAssistantPanel(
               });
               confirmation.hidden = true;
               older = [];
+              historyStatus.textContent = "";
+              newerHistory.hidden = true;
               await refresh();
             }),
         ),
@@ -341,7 +349,11 @@ export function createAssistantPanel(
     form = el("form"),
     composer = el("textarea"),
     send = el("button", t.send),
-    requestStatus = el("p");
+    requestStatus = el("p"),
+    historyStatus = el("p");
+  historyStatus.setAttribute("role", "status");
+  const newerHistory = button(t.historyNewer, () => void perform(() => connect(true, true)));
+  newerHistory.hidden = true;
   composer.maxLength = 4000;
   composer.rows = 3;
   composer.placeholder = t.placeholder;
@@ -357,7 +369,12 @@ export function createAssistantPanel(
           messages: AssistantMessage[];
         }>(token!, `/history?before=${first.seq}`);
         if (page.epoch !== snapshot?.epoch) return;
-        older = [...page.messages, ...older].slice(-200);
+        const loaded = [...page.messages, ...older];
+        if (loaded.length > 200) {
+          historyStatus.textContent = t.historyOlderGap;
+          newerHistory.hidden = false;
+        }
+        older = loaded.slice(0, 200);
         earlier.disabled = page.messages.length < 50;
         renderChat(false);
       }),
@@ -376,11 +393,14 @@ export function createAssistantPanel(
   chatTools.append(
     earlier,
     button(t.clearChat, () => void clear("history")),
+    newerHistory,
+    historyStatus,
   );
   messages.className = "assistant-messages";
   messages.setAttribute("aria-live", "polite");
   send.type = "submit";
   form.append(
+    quote,
     composer,
     send,
     cancel,
@@ -403,8 +423,9 @@ export function createAssistantPanel(
   async function submit() {
     if (!token || !composer.value.trim()) return;
     const text = composer.value.trim();
-    if (!pendingSubmit || pendingSubmit.text !== text)
-      pendingSubmit = { requestId: crypto.randomUUID(), text };
+    const replyTo=replyDraft?{runtimeEpoch:replyDraft.runtimeEpoch,displayInstanceId:replyDraft.displayInstanceId,utteranceId:replyDraft.utteranceId}:undefined;
+    if (!pendingSubmit || pendingSubmit.text !== text || JSON.stringify(pendingSubmit.companionReplyTo)!==JSON.stringify(replyTo))
+      pendingSubmit = { requestId: crypto.randomUUID(), text, ...(replyTo ? {companionReplyTo:replyTo} : {}) };
     const request = pendingSubmit;
     send.disabled = true;
     try {
@@ -413,6 +434,7 @@ export function createAssistantPanel(
       ownRequest = state.requestId;
       pendingSubmit = undefined;
       composer.value = "";
+      clearReply();
       await refresh();
     } catch (error) {
       showError(error);
@@ -425,7 +447,8 @@ export function createAssistantPanel(
     const combined = new Map(
       [...older, ...snapshot.messages].map((item) => [item.seq, item]),
     );
-    const key = `${snapshot.epoch}:${[...combined.keys()].join(",")}`;
+    const key = JSON.stringify([snapshot.epoch, [...combined.values()].map(message =>
+      [message.seq, message.companionReference ?? null, message.companionReferenceUnavailable ?? false])]);
     requestStatus.textContent = snapshot.activeRequest ? t.requestPending : "";
     cancel.disabled =
       voice.state() === "idle" &&
@@ -444,6 +467,8 @@ export function createAssistantPanel(
       entry.className = message.role;
       entry.append(
         el("small", message.role === "user" ? t.you : t.assistant),
+        ...(message.companionReference ? [el("blockquote", `${t.companionQuote}${message.companionReference.text}`)] : []),
+        ...(message.companionReferenceUnavailable ? [el("blockquote", t.companionQuoteUnavailable)] : []),
         el("p", message.text),
       );
       messages.append(entry);
@@ -727,6 +752,7 @@ export function createAssistantPanel(
     const fields = el("form"),
       timeZone = input(t.timeZone, "text", settings.timeZone),
       persona = input(t.persona, "text", settings.persona);
+    const companionEnabled = settings.companion ? check(t.companionEnabled,settings.companion.murmurEnabled) : undefined;
     const enabled = check(t.enableModel, settings.chat.enabled),
       cloud = check(t.cloud, settings.cloudEnabled),
       locality = el("select"),
@@ -852,6 +878,9 @@ export function createAssistantPanel(
       node.className = "settings-note";
       return node;
     };
+    const companionSnoozeStatus = note(settings.companion?.murmurSnoozedUntil
+      ? `${t.companionSnoozedUntil} ${new Date(settings.companion.murmurSnoozedUntil).toLocaleString()}`
+      : "");
     const credentialRow = (configured: boolean, removal: HTMLLabelElement) => {
       const row = el("div"), status = el("span", configured ? t.keySaved : t.keyEmpty);
       row.className = "credential-row";
@@ -919,7 +948,14 @@ export function createAssistantPanel(
     voiceSection.className += " settings-voice";
     fields.append(
       intro,
-      section(t.generalSettings, t.generalSettingsHint, timeZone.label, persona.label, cloud.label),
+      section(t.generalSettings, t.generalSettingsHint, timeZone.label, persona.label, cloud.label,
+        ...(companionAvailability ? [note(companionAvailability)] : []),
+        ...(companionEnabled ? [companionEnabled.label, companionSnoozeStatus,button(t.companionSnooze,()=>void (async()=>{
+          await mutate({action:"companion.snooze",version:settingsVersion});
+          const until=snapshot?.settings?.companion?.murmurSnoozedUntil;
+          companionSnoozeStatus.textContent=until ? `${t.companionSnoozedUntil} ${new Date(until).toLocaleString()}` : "";
+          notice.textContent=companionSnoozeStatus.textContent || t.stored;
+        })().catch(showError))] : [])) ,
       section(
         t.chatSettings,
         t.chatSettingsHint,
@@ -960,6 +996,7 @@ export function createAssistantPanel(
           timeZone: timeZone.input.value,
           persona: persona.input.value,
           cloudEnabled: cloud.input.checked,
+          ...(companionEnabled ? {companion:{murmurEnabled:companionEnabled.input.checked}} : {}),
           voice: {
             microphoneEnabled: microphone.input.checked,
             asr: {
@@ -1021,16 +1058,54 @@ export function createAssistantPanel(
     });
     settingsPane.replaceChildren(fields);
   }
-  async function refresh() {
+  async function refresh(reloadOlder = false) {
     if (!token || disposed) return;
-    if (refreshing) return refreshing;
+    if (refreshing) {
+      await refreshing;
+      if (!reloadOlder || disposed) return;
+    }
     refreshing = (async () => {
       const next = await assistantCall<AssistantSnapshot>(token!, "/snapshot");
       if (disposed) return;
       if (epoch !== undefined && epoch !== next.epoch) {
         void voice.cancel(false);
         older = [];
+        historyStatus.textContent = "";
+        newerHistory.hidden = true;
         pendingSubmit = undefined;
+      }
+      if (snapshot && epoch === next.epoch && next.messages.length && (reloadOlder || newerHistory.hidden)) {
+        const prior = [...new Map([...older, ...snapshot.messages].map(message => [message.seq, message])).values()]
+          .sort((a,b) => a.seq-b.seq);
+        const nextSeqs = new Set(next.messages.map(message => message.seq));
+        const firstNext = next.messages[0]!.seq;
+        const priorFirst = prior[0]?.seq;
+        const overlapping = snapshot.messages.some(message => nextSeqs.has(message.seq));
+        const needsPages = reloadOlder || (priorFirst !== undefined && firstNext > priorFirst && !overlapping);
+        if (priorFirst !== undefined && firstNext > priorFirst && needsPages) {
+          let before = firstNext;
+          let reloaded: AssistantMessage[] = [];
+          let lastPageSize = 50;
+          while (before > priorFirst && reloaded.length < 200) {
+            const page = await assistantCall<{epoch:number;messages:AssistantMessage[]}>(token!, `/history?before=${before}`);
+            if (disposed) return;
+            if (page.epoch !== next.epoch) { reloaded = []; break; }
+            lastPageSize = page.messages.length;
+            if (!lastPageSize) break;
+            const oldest = page.messages[0]!.seq;
+            if (oldest >= before) break;
+            reloaded = [...page.messages.filter(message => message.seq >= priorFirst), ...reloaded];
+            before = oldest;
+          }
+          if (before > priorFirst || reloaded.length > 200) historyStatus.textContent = t.historyTrimmed;
+          older = reloaded.slice(-200);
+          earlier.disabled = lastPageSize < 50;
+          newerHistory.hidden = true;
+        } else {
+          const retained = prior.filter(message => message.seq < firstNext);
+          if (retained.length > 200) { historyStatus.textContent = t.historyTrimmed; earlier.disabled = false; }
+          older = retained.slice(-200);
+        }
       }
       epoch = next.epoch;
       if (
@@ -1078,14 +1153,17 @@ export function createAssistantPanel(
     });
     return refreshing;
   }
-  async function connect(create: boolean) {
-    if (connecting) return connecting;
+  async function connect(create: boolean, reloadOlder = false) {
+    if (connecting) { await connecting; if (reloadOlder) await refresh(true); return; }
     connecting = (async () => {
       token = await assistantToken(create);
-      if (!stopEvents)
+      if (!stopEvents) {
+        const generation=++eventGeneration;
         stopEvents = await runtime.connectEvents(
           token,
           (event) => {
+            if(generation!==eventGeneration)return;
+            companion?.onEvent(event);
             if (event.kind === "assistant.voice.stop")
               voice.stopIfOwned(event.payload.leaseId);
             if ((event.kind === "assistant.changed" || event.kind === "assistant.observations_changed") && !host.hidden)
@@ -1097,11 +1175,14 @@ export function createAssistantPanel(
               onReminder(event.payload.body);
           },
           (connected) => {
-            if (!connected) void voice.cancel(false);
+            if(generation!==eventGeneration)return;
+            if (!connected) { companion?.onDisconnected(); void voice.cancel(false); }
             if (connected && !host.hidden) void perform(refresh);
           },
+          (ready) => {if(generation===eventGeneration)companion?.onReady(ready);},
         );
-      await refresh();
+      }
+      await refresh(reloadOlder);
     })().finally(() => {
       connecting = undefined;
     });
@@ -1114,20 +1195,51 @@ export function createAssistantPanel(
   return {
     show: showView,
     setPetAppearance,
+    setCompanionAvailability(reason:string|null):void {companionAvailability=reason;if(tab==="settings"&&!settingsDirty)renderSettings();},
+    async snoozeCompanion():Promise<void> {
+      if(!token)throw new AssistantClientError("assistant_credential_pairing_required");
+      const capability=await assistantCall<{protocolVersion:number}>(token,"/companion/status");
+      if(capability.protocolVersion!==1)throw new AssistantClientError("companion_protocol_unsupported");
+      const settings=await assistantCall<AssistantSettingsView>(token,"/settings");
+      await mutate({action:"companion.snooze",version:settings.version});
+    },
+    async setCompanionEnabled(enabled:boolean):Promise<void> {
+      if(!token)throw new AssistantClientError("assistant_credential_pairing_required");
+      const settings=await assistantCall<AssistantSettingsView>(token,"/settings");
+      if(!settings.companion)throw new AssistantClientError("companion_state_unavailable");
+      const {apiKeyConfigured:_,...chat}=settings.chat;
+      await assistantCall(token,"/settings",{version:settings.version,timeZone:settings.timeZone,persona:settings.persona,cloudEnabled:settings.cloudEnabled,chat,companion:{murmurEnabled:enabled}},"PUT");
+      await refresh();
+    },
+    async companionCall(path:string, body?:unknown):Promise<unknown> {
+      if(!token)throw new AssistantClientError("assistant_credential_pairing_required");
+      return assistantCall(token,path,body);
+    },
+    reconnectCompanion():void {
+      eventGeneration++;stopEvents?.();stopEvents=undefined;
+      const previous=connecting;
+      void (async()=>{if(previous)await previous.catch(()=>undefined);if(!disposed)await connect(false);})().catch(()=>undefined);
+    },
+    async openWithCompanionReply(utterance:CompanionUtterance):Promise<void> {
+      if(!token)await connect(true);
+      replyDraft=utterance;pendingSubmit=undefined;quote.hidden=false;
+      quote.replaceChildren(el("span",`${t.companionQuote}${utterance.text}`),button(t.removeCompanionReply,clearReply));
+      selectTab("chat");composer.focus();
+    },
     async open(draft?: string) {
       host.hidden = false;
       if (appearance && tab === "appearance") appearance.hidden = false;
       if (draft) composer.value = draft;
       notice.textContent = t.loading;
       await perform(async () => {
-        await connect(true);
+        await connect(true, true);
         notice.textContent = "";
         composer.focus();
       });
     },
     async reuse() {
       try {
-        await connect(false);
+        await connect(false, true);
       } catch {
         /* 从未打开过的助理不自动授予个人数据权限。 */
       }
@@ -1143,6 +1255,7 @@ export function createAssistantPanel(
       window.removeEventListener("blur", onWindowBlur);
       document.removeEventListener("visibilitychange", onVisibility);
       disposed = true;
+      eventGeneration++;
       clearTimeout(poll);
       stopEvents?.();
     },

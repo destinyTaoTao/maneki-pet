@@ -344,3 +344,20 @@ function clientWaitReady(client: ClientEvents): Promise<void> {
     }, 2_000);
   });
 }
+
+it("same assistant credential has distinct server connections and private events reach only their target", async()=>{
+ const {runtime}=await makeRuntime();const base=`http://127.0.0.1:${runtime.port}`;
+ const pair=await fetch(base+"/v1/pair",{method:"POST",headers:{authorization:`Bearer ${runtime.rootToken}`,"content-type":"application/json"},body:JSON.stringify({name:"companion",scopes:"assistant"})});
+ const identity=await pair.json() as {token:string;clientId:string};
+ const open=async()=>connect(base.replace("http","ws")+"/v1/events",JSON.stringify({type:"auth",ticket:await issueTicket(base,identity.token)}));
+ const a=await open(),b=await open();await expect.poll(()=>[a,b].every(c=>c.messages.some(m=>m.type==="ready"))).toBe(true);
+ const readyA=a.messages.find(m=>m.type==="ready")!,readyB=b.messages.find(m=>m.type==="ready")!;
+ expect(readyA.connectionId).toEqual(expect.any(String));expect(readyA.connectionId).not.toBe(readyB.connectionId);
+ runtime.feed.publish("assistant.companion",{text:"targeted"},{clientId:identity.clientId,connectionId:String(readyA.connectionId)});
+ runtime.feed.publish("assistant.changed",{revision:1});
+ await expect.poll(()=>[a,b].every(c=>c.messages.some(m=>(m.event as {kind?:string})?.kind==="assistant.changed"))).toBe(true);
+ expect(a.messages.filter(m=>(m.event as {kind?:string})?.kind==="assistant.companion")).toHaveLength(1);
+ expect(b.messages.filter(m=>(m.event as {kind?:string})?.kind==="assistant.companion")).toHaveLength(0);
+ expect(JSON.stringify(a.messages)).not.toContain(identity.clientId);
+ socketOf(a).close();socketOf(b).close();
+});

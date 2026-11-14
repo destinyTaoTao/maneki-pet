@@ -78,7 +78,7 @@ it("隔离授权宿主、单次领取、取消迟到和失联，保留文字与�
     expect(unavailable.body.error).toBe("asr_host_unavailable");
     expect((await call("/assistant/snapshot", assistant.token)).status).toBe(200);
     const current = runtime.assistant.settings();
-    const { schemaVersion: __, chat, voice, ...base } = current;
+    const { schemaVersion: __, companion: _companion, chat, voice, ...base } = current;
     const { apiKeyConfigured: ___, ...cleanChat } = chat;
     const { apiKeyConfigured: ____, ...cleanVoice } = voice;
     const switched = runtime.assistant.updateSettings({ ...base, chat: cleanChat, voice: { ...cleanVoice, asr: { ...cleanVoice.asr, provider: "local" } } });

@@ -4,6 +4,8 @@ import type {
   PersonalReminder,
   VoiceSettings,
   SessionObservationSource,
+  CompanionReference,
+  CompanionPreferences,
 } from "@maneki-pet/core";
 import { readBounded } from "./bounded-fetch.js";
 
@@ -12,6 +14,8 @@ export interface AssistantMessage {
   role: "user" | "assistant";
   text: string;
   createdAt: string;
+  companionReference?: CompanionReference;
+  companionReferenceUnavailable?: true;
 }
 export interface AssistantSettingsView {
   schemaVersion: 1;
@@ -19,6 +23,7 @@ export interface AssistantSettingsView {
   timeZone: string;
   persona: string;
   cloudEnabled: boolean;
+  companion?: CompanionPreferences;
   voice?: VoiceSettings & { apiKeyConfigured?: boolean };
   chat: {
     enabled: boolean;
@@ -42,7 +47,7 @@ export interface AssistantSnapshot {
   activeRequest: { requestId: string } | null;
 }
 export class AssistantClientError extends Error {
-  constructor(readonly code: string) {
+  constructor(readonly code: string, readonly status?: number) {
     super(code);
   }
 }
@@ -91,7 +96,7 @@ export async function assistantCall<T>(
     throw new AssistantClientError("runtime_unavailable");
   }
   // 保留服务端错误码，且错误响应也须受读取上限约束。
-  const bytes = await readBounded(new Response(response.body), 4 * 1024 * 1024);
+  const bytes = await readBounded(new Response(response.body), path.startsWith("/companion/") ? 16 * 1024 : 4 * 1024 * 1024);
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder().decode(bytes));
@@ -103,6 +108,7 @@ export async function assistantCall<T>(
       typeof value === "object" && value !== null && "error" in value
         ? String(value.error)
         : "assistant_failed",
+      response.status,
     );
   return value as T;
 }

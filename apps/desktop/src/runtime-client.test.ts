@@ -4,7 +4,7 @@ const native = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: native.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: native.listen }));
 
-import { ensureRuntime, getDnd, setDnd, syncRuntimeDnd, watchTrayDnd } from "./runtime-client";
+import { connectEvents, ensureRuntime, getDnd, setDnd, syncRuntimeDnd, watchTrayDnd } from "./runtime-client";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetAllMocks(); });
 
@@ -56,4 +56,14 @@ it("共享事件直接更新回滚基线，旧读取和失败写入不能覆盖�
   click({ payload: false });
   await expect.poll(() => onError.mock.calls.length).toBe(1);
   expect(native.invoke).toHaveBeenLastCalledWith("sync_tray_dnd", { enabled: true });
+});
+
+it("过期鉴权连接的迟到 ready 不能登记展示实例", async()=>{
+ vi.useFakeTimers();
+ class Socket extends EventTarget {static instances:Socket[]=[];sent:string[]=[];closed=false;constructor(_url:string){super();Socket.instances.push(this);}send(value:string){this.sent.push(value);}close(){this.closed=true;this.dispatchEvent(new Event("close"));}}
+ vi.stubGlobal("WebSocket",Socket);vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify({ticket:"ticket"}))));
+ const ready=vi.fn(),state=vi.fn();const stop=await connectEvents("fixture",()=>undefined,state,ready);
+ for(let i=0;i<20;i++)await Promise.resolve();const stale=Socket.instances[0]!;stale.dispatchEvent(new Event("open"));vi.advanceTimersByTime(4001);
+ stale.dispatchEvent(new MessageEvent("message",{data:JSON.stringify({type:"ready",connectionId:"old",runtimeEpoch:"old"})}));
+ expect(ready).not.toHaveBeenCalled();expect(stale.closed).toBe(true);stop();vi.useRealTimers();
 });

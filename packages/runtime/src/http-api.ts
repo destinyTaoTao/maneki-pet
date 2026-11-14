@@ -193,8 +193,8 @@ export class LocalHttpApi {
         this.sendJson(res, 503, { error: "assistant_unavailable" });
         return;
       }
-      await handleAssistantHttp(req, res, client, this.deps.assistant, () =>
-        this.readJson(req, res, url === "/v1/assistant/voice/transcribe" ? 1400000 : MAX_BODY_BYTES));
+      await handleAssistantHttp(req, res, client, this.deps.assistant, (maxBytes) =>
+        this.readJson(req, res, maxBytes ?? (url === "/v1/assistant/voice/transcribe" ? 1400000 : MAX_BODY_BYTES)));
       return;
     }
 

@@ -5,7 +5,8 @@ export interface RuntimeEvent {
   payload: Record<string, unknown>;
 }
 
-export type EventListener = (event: RuntimeEvent) => void;
+export interface EventAudience { clientId:string; connectionId:string }
+export type EventListener = (event: RuntimeEvent, audience?: EventAudience) => void;
 
 /** 进程内事件源：表达桥通知、勿扰变更、生命周期状态变化都从这里广播给受信 WS 客户端。 */
 export class EventFeed {
@@ -19,7 +20,7 @@ export class EventFeed {
     };
   }
 
-  publish(kind: string, payload: Record<string, unknown> = {}): RuntimeEvent {
+  publish(kind: string, payload: Record<string, unknown> = {}, audience?: EventAudience): RuntimeEvent {
     this.nextId += 1;
     const event: RuntimeEvent = {
       eventId: `evt-${this.nextId}`,
@@ -28,7 +29,7 @@ export class EventFeed {
       payload,
     };
     for (const listener of this.listeners) {
-      listener(event);
+      listener(event, audience);
     }
     return event;
   }

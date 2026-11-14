@@ -36,6 +36,8 @@ export interface RuntimeEvent {
   payload: Record<string, unknown>;
 }
 
+export interface WsReady { connectionId?: string; runtimeEpoch?: string }
+
 export interface RuntimeSession {
   token: string;
   close(): void;
@@ -138,9 +140,11 @@ export async function connectEvents(
   token: string,
   onEvent: (event: RuntimeEvent) => void,
   onStateChange?: (connected: boolean) => void,
+  onReady?: (ready: WsReady) => void,
 ): Promise<() => void> {
   let closed = false;
   let socket: WebSocket | undefined;
+  let pendingSocket: WebSocket | undefined;
 
   const open = async (): Promise<void> => {
     while (!closed) {
@@ -148,19 +152,30 @@ export async function connectEvents(
         void (async () => {
           try {
             const ticket = await issueWsTicket(token);
+            if (closed) { resolve(false); return; }
             const ws = new WebSocket(`ws://127.0.0.1:${RUNTIME_PORT}/v1/events`);
+            pendingSocket = ws;
             let authed = false;
-            const failTimer = setTimeout(() => resolve(false), 4_000);
+            let expired = false;
+            const failTimer = setTimeout(() => { expired=true; if(pendingSocket===ws)pendingSocket=undefined; ws.close(); resolve(false); }, 4_000);
             ws.addEventListener("open", () => {
+              if (closed || expired) { ws.close(); return; }
               ws.send(JSON.stringify({ type: "auth", ticket }));
             });
             ws.addEventListener("message", (event) => {
-              const message = JSON.parse(event.data as string) as Record<string, unknown>;
+              if (closed || expired) return;
+              let message:Record<string,unknown>;
+              try { message = JSON.parse(event.data as string) as Record<string, unknown>; } catch { return; }
+              if(!message||typeof message!=="object")return;
+              const payloadEvent=message.event as {kind?:unknown}|undefined;
+              if(typeof payloadEvent?.kind==="string"&&payloadEvent.kind.startsWith("assistant.companion")&&new TextEncoder().encode(event.data as string).length>16384)return;
               if (!authed) {
                 if (message.type === "ready") {
                   authed = true;
                   clearTimeout(failTimer);
                   socket = ws;
+                  if(pendingSocket===ws)pendingSocket=undefined;
+                  onReady?.({ ...(typeof message.connectionId === "string" ? { connectionId: message.connectionId } : {}), ...(typeof message.runtimeEpoch === "string" ? { runtimeEpoch: message.runtimeEpoch } : {}) });
                   onStateChange?.(true);
                   resolve(true);
                 }
@@ -172,13 +187,14 @@ export async function connectEvents(
             });
             ws.addEventListener("close", () => {
               clearTimeout(failTimer);
+              if(pendingSocket===ws)pendingSocket=undefined;
               if (socket === ws) socket = undefined;
               if (!authed) resolve(false);
-              else onStateChange?.(false);
+              else if(!closed) onStateChange?.(false);
             });
             ws.addEventListener("error", () => {
               clearTimeout(failTimer);
-              if (!authed) resolve(false);
+              if (!authed) { expired=true; ws.close(); resolve(false); }
             });
           } catch {
             resolve(false);
@@ -206,6 +222,7 @@ export async function connectEvents(
 
   return () => {
     closed = true;
+    pendingSocket?.close();
     socket?.close();
   };
 }

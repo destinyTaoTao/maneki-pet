@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 
 import { checkHost, checkOrigin, EXPRESS_SCOPE, TicketIssuer } from "./auth.js";
-import type { EventFeed, RuntimeEvent } from "./events.js";
+import type { EventAudience, EventFeed, RuntimeEvent } from "./events.js";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX_FRAME_BYTES = 64 * 1024;
@@ -13,6 +13,7 @@ const MAX_SEND_BUFFER_BYTES = 1024 * 1024;
 interface ReadySocket {
   socket: Duplex;
   clientId: string;
+  connectionId: string;
 }
 
 /**
@@ -30,9 +31,13 @@ export class WsHub {
   private readonly originAllowlist: string[];
   private readonly log: (line: string) => void;
   private readonly clientScopes: (clientId: string) => string[] | undefined;
+  readonly runtimeEpoch: string;
+  private readonly onConnectionClosed: (connectionId:string)=>void;
   private unsubscribe: (() => void) | undefined;
 
-  constructor(deps: { tickets: TicketIssuer; feed: EventFeed; clientScopes: (clientId: string) => string[] | undefined; authTimeoutMs?: number; originAllowlist?: string[]; log?: (line: string) => void }) {
+  constructor(deps: { runtimeEpoch?:string; onConnectionClosed?:(connectionId:string)=>void; tickets: TicketIssuer; feed: EventFeed; clientScopes: (clientId: string) => string[] | undefined; authTimeoutMs?: number; originAllowlist?: string[]; log?: (line: string) => void }) {
+    this.runtimeEpoch = deps.runtimeEpoch ?? randomUUID();
+    this.onConnectionClosed = deps.onConnectionClosed ?? (()=>undefined);
     this.tickets = deps.tickets;
     this.feed = deps.feed;
     this.authTimeoutMs = deps.authTimeoutMs ?? 5_000;
@@ -70,8 +75,8 @@ export class WsHub {
       socket.once("close", () => this.sockets.delete(socket));
       this.awaitAuthentication(socket, head, req.headers.origin);
     });
-    this.unsubscribe = this.feed.subscribe((event) => {
-      this.broadcast({ type: "event", event });
+    this.unsubscribe = this.feed.subscribe((event, audience) => {
+      this.broadcast({ type: "event", event }, audience);
     });
   }
 
@@ -80,6 +85,7 @@ export class WsHub {
     for (const socket of this.sockets) {
       this.closeSocket(socket, 1001, "server stopping");
     }
+    for (const connection of this.ready) this.onConnectionClosed(connection.connectionId);
     this.ready.clear();
   }
 
@@ -87,6 +93,7 @@ export class WsHub {
     for (const connection of this.ready) {
       if (connection.clientId === clientId) {
         this.ready.delete(connection);
+          this.onConnectionClosed(connection.connectionId);
         this.closeSocket(connection.socket, 4001, "client revoked");
       }
     }
@@ -119,8 +126,9 @@ export class WsHub {
         this.closeSocket(socket, 4001, authCheck.reason);
         return;
       }
-      this.ready.add({ socket, clientId: authCheck.clientId });
-      this.send(socket, JSON.stringify({ type: "ready" }));
+      const connectionId = randomUUID();
+      this.ready.add({ socket, clientId: authCheck.clientId, connectionId });
+      this.send(socket, JSON.stringify({ type: "ready", connectionId, runtimeEpoch:this.runtimeEpoch }));
       let laterBuffer: Buffer = buffer.subarray(frame.totalLength);
       const onLater = (later: Buffer): void => {
         laterBuffer = this.handleLaterFrames(socket, Buffer.concat([laterBuffer, later]));
@@ -140,6 +148,7 @@ export class WsHub {
       for (const connection of this.ready) {
         if (connection.socket === socket) {
           this.ready.delete(connection);
+          this.onConnectionClosed(connection.connectionId);
         }
       }
     });
@@ -190,11 +199,16 @@ export class WsHub {
     return Buffer.alloc(0);
   }
 
-  private broadcast(message: Record<string, unknown>): void {
+  ownsConnection(clientId:string,connectionId:string):boolean {
+    return [...this.ready].some(c=>c.clientId===clientId&&c.connectionId===connectionId&&!this.closing.has(c.socket)&&!c.socket.destroyed&&Boolean(this.clientScopes(clientId)?.includes("assistant")));
+  }
+  private broadcast(message: Record<string, unknown>, audience?: EventAudience): void {
     const text = JSON.stringify(message);
     for (const connection of this.ready) {
+      if(audience&&(audience.clientId!==connection.clientId||audience.connectionId!==connection.connectionId))continue;
       const scopes=this.clientScopes(connection.clientId);
       const event=message.event as RuntimeEvent|undefined;
+      if(event?.kind==="assistant.companion"&&(!audience||Buffer.byteLength(text)>16384))continue;
       if(event?.kind.startsWith("assistant.")&&!scopes?.includes("assistant"))continue;
       if(!event?.kind.startsWith("assistant.")&&!scopes?.includes(EXPRESS_SCOPE))continue;
       this.send(connection.socket, text);

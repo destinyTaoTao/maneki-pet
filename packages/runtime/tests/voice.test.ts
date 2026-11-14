@@ -73,6 +73,7 @@ async function setup(
   const enable = async () => {
     const {
       schemaVersion: _,
+      companion: _companion,
       chat: { apiKeyConfigured: __, ...chat },
       ...rest
     } = (await settings()).body;
@@ -124,6 +125,7 @@ it("默认不开麦，旧设置保存保留语音偏好，观察端无语音权�
   expect((await enable()).status).toBe(200);
   const {
     schemaVersion: _,
+      companion: _companion,
     voice: __,
     chat: { apiKeyConfigured: ___, ...chat },
     ...oldInput
@@ -380,6 +382,7 @@ it("静音不调用 ASR，关闭麦克风会中止在途处理且保持文字入
   await vi.waitFor(() => expect(transcribe).toHaveBeenCalledOnce());
   const {
     schemaVersion: _,
+      companion: _companion,
     chat: { apiKeyConfigured: __, ...chat },
     ...input
   } = (await settings()).body;
@@ -482,6 +485,7 @@ it("语音输出关闭立即中止合成回执，迟到音频不回传而文字�
   await vi.waitFor(() => expect(synthesize).toHaveBeenCalledOnce());
   const {
     schemaVersion: _,
+      companion: _companion,
     chat: { apiKeyConfigured: __, ...chat },
     ...input
   } = (await settings()).body;

@@ -1,3 +1,4 @@
+import { CompanionPowerGuard } from "./companion-power.js";
 import {
   petStates,
   validatePetPack,
@@ -10,8 +11,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createAssistantPanel, petVariantForPack } from "./assistant-panel.js";
 import { assistantText } from "./assistant-text.js";
+import { AssistantClientError } from "./assistant-client.js";
 import { PetPlayer } from "./player.js";
 import { VoicePetCoordinator } from "./voice-pet.js";
+import { CompanionClient } from "./companion-client.js";
+import { bindCompanionInputFocus, CompanionPresence } from "./companion-presence.js";
+import { CompanionBubble } from "./companion-bubble.js";
 import { BoundedReadError, MEDIA_READ_TIMEOUT_MS, readBounded, readMedia } from "./bounded-fetch.js";
 import { imageDimensions, MediaBudgetError, withinPixelBudget } from "./media-budget.js";
 import { attachWindowDrag, isTauriRuntime } from "./window-drag.js";
@@ -165,15 +170,39 @@ const quickAll=Object.assign(document.createElement("button"),{type:"button",tex
 quickMenu.append(quickCaption,quickDndLabel,quickVoice,quickAppearance,quickAll);
 assistantHost.append(quickMenu);
 let runtimeToken: string | undefined;
+let companionClient:CompanionClient|undefined;
+let companionPresence:CompanionPresence|undefined;
+let companionBubble:CompanionBubble|undefined;
+let nativeVisible=false;
+let visibilityGeneration=0;
+const companionPower = new CompanionPowerGuard(
+  () => invoke<number>("companion_power_generation"),
+  () => companionPresence?.resume(),
+);
+async function refreshCompanionVisibility():Promise<boolean> {
+  const generation=++visibilityGeneration;
+  let visible=false;
+  try { visible=!document.hidden && (isTauriRuntime()?await companionPower.checkVisible(()=>invoke<boolean>("companion_window_visible"),()=>!document.hidden):true); } catch { visible=false; }
+  if(generation===visibilityGeneration){nativeVisible=visible;companionPresence?.setVisible(visible);}
+  return generation===visibilityGeneration&&visible;
+}
 const setQuickOpen=(open:boolean):void=>{quickMenu.hidden=!open;};
 const assistantPanel=createAssistantPanel(assistantHost,()=>{
   assistantPanel.close();
+  companionPresence?.setBusy("panel",false);
   setQuickOpen(false);
   app.dataset.assistantOpen="false";
   settingsButton.setAttribute("aria-expanded","false");
   for(const node of [status,petButton,controls,panel])node.inert=false;
   if(isTauriRuntime())void invoke("assistant_view",{open:false}).catch(()=>showBubble(uiText.interactionUnavailable));
-},showBubble, (phase) => voicePet.voiceChanged(phase),panel);
+},showBubble, (phase) => { voicePet.voiceChanged(phase); companionPresence?.setBusy("voice",phase!=="idle"); },panel,{
+  onReady:(ready)=>void companionClient?.connected(ready),
+  onDisconnected:()=>companionClient?.disconnected(),
+  onEvent:(event)=>{
+    if(event.kind==="assistant.companion")void refreshCompanionVisibility().then(visible=>{if(visible)companionClient?.onEvent(event);});
+    else companionClient?.onEvent(event);
+  },
+});
 type AssistantTarget = "settings" | "appearance" | "voice";
 async function openAssistant(draft?:string,target?:AssistantTarget,quick=false):Promise<void>{
   setQuickOpen(false);
@@ -181,6 +210,7 @@ async function openAssistant(draft?:string,target?:AssistantTarget,quick=false):
     await invoke("assistant_view",{open:true});
     if(!await runtimeClient.ensureRuntime())throw new Error(uiText.runtimeUnavailable);
   }
+  companionPresence?.setBusy("panel",true);
   await assistantPanel.open(draft);
   app!.dataset.assistantOpen="true";
   status.inert=true;
@@ -251,6 +281,49 @@ const voicePet = new VoicePetCoordinator({
   playAction: (action) => player.playAction(action),
 });
 window.addEventListener("pagehide", () => player.dispose(), { once: true });
+companionBubble=new CompanionBubble({
+  render:(value)=>{
+    status.replaceChildren();status.dataset.visible=value?"true":"false";status.inert=!assistantHost.hidden&&!value?.utterance;
+    companionPresence?.setBusy("important",value?.mode==="important");
+    if(!value){delete status.dataset.interactive;return;}
+    const text=document.createElement("span");text.textContent=value.text;status.append(text);
+    if(value.utterance){
+      status.dataset.interactive="true";
+      const reply=document.createElement("button");reply.type="button";reply.textContent=assistantText.companionReply;
+      reply.addEventListener("click",()=>{const utterance=value.utterance!;companionBubble?.dismiss(value.utteranceId);void openAssistant().then(()=>assistantPanel.openWithCompanionReply(utterance)).catch(()=>showBubble(assistantText.companionUnavailable));});
+      const close=document.createElement("button");close.type="button";close.textContent=assistantText.companionClose;close.addEventListener("click",()=>companionBubble?.dismiss(value.utteranceId));status.append(reply,close);
+    } else delete status.dataset.interactive;
+  },
+  playAction:(id)=>voicePet.playAction(id),restoreLatest:()=>voicePet.restoreLatest(),
+});
+companionClient=new CompanionClient({
+  call:(path,body)=>assistantPanel.companionCall(path,body),
+  beforeShow:()=>refreshCompanionVisibility(),
+  show:(utterance)=>nativeVisible?companionBubble!.show(utterance):false,
+  reconnect:()=>assistantPanel.reconnectCompanion(),wallNow:Date.now,monoNow:()=>performance.now(),
+  onDropAutomatic:()=>companionBubble?.dropAutomatic(),
+  onPolicy:(policy)=>assistantPanel.setCompanionAvailability(policy.healthy?null:assistantText.companionUnavailable),
+  onUnavailable:()=>assistantPanel.setCompanionAvailability(assistantText.companionUnavailable),
+});
+companionPresence=new CompanionPresence(state=>{companionClient?.setDisplayState(state);companionBubble?.setUserBusy(state.busyReasons.some(reason=>reason!=="important"));},()=>companionClient?.invalidate());
+const visibilityTimer=setInterval(()=>{companionClient?.checkClock();void refreshCompanionVisibility();},2000);
+document.addEventListener("visibilitychange",()=>{if(document.hidden){nativeVisible=false;companionPresence?.setVisible(false);companionPresence?.resume();}else{companionPresence?.resume();void refreshCompanionVisibility();}});
+window.addEventListener("pageshow",()=>{companionPresence?.resume();void refreshCompanionVisibility();});
+window.addEventListener("pagehide",()=>{clearInterval(visibilityTimer);companionPresence?.dispose();companionClient?.dispose();companionBubble?.dispose();},{once:true});
+void refreshCompanionVisibility();
+app.addEventListener("pointerdown",()=>companionPresence?.noteInteraction());
+app.addEventListener("keydown",()=>companionPresence?.noteInteraction());
+const stopCompanionInputFocus=bindCompanionInputFocus(app,document,window,value=>companionPresence?.setBusy("input",value));
+window.addEventListener("pagehide",stopCompanionInputFocus,{once:true});
+petButton.addEventListener("pointerdown",()=>companionPresence?.setBusy("drag",true));
+for(const event of ["pointerup","pointercancel","lostpointercapture"] as const)window.addEventListener(event,()=>companionPresence?.setBusy("drag",false));
+const companionSay=Object.assign(document.createElement("button"),{type:"button",textContent:assistantText.companionSay});
+companionSay.addEventListener("click",()=>{void (async()=>{try{if(!companionClient?.isReady()){await openAssistant();assistantPanel.reconnectCompanion();showFeedback(assistantText.companionReconnect);return;}await refreshCompanionVisibility();await companionClient.say();}catch(error){showFeedback(error instanceof AssistantClientError&&error.code==="companion_display_not_shown"?assistantText.companionNotShown:assistantText.companionUnavailable);}})();});
+const companionSnooze=Object.assign(document.createElement("button"),{type:"button",textContent:assistantText.companionSnooze});
+companionSnooze.addEventListener("click",()=>void assistantPanel.snoozeCompanion().catch(()=>showFeedback(assistantText.companionUnavailable)));
+const companionDisable=Object.assign(document.createElement("button"),{type:"button",textContent:assistantText.companionDisable});
+companionDisable.addEventListener("click",()=>void assistantPanel.setCompanionEnabled(false).catch(()=>showFeedback(assistantText.companionUnavailable)));
+quickMenu.append(companionSay,companionSnooze,companionDisable);
 const packs = new Map<string, ValidatedPetPack>();
 const dragHandle = isTauriRuntime() ? attachWindowDrag(petButton) : undefined;
 
@@ -308,10 +381,13 @@ if (isTauriRuntime()) {
       const regions: HTMLElement[] = [];
       const drawer = assistantHost.querySelector<HTMLElement>(".assistant-drawer");
       if (drawer) regions.push(drawer);
+      if (status.dataset.interactive === "true") regions.push(status);
       if (!quickMenu.hidden) regions.push(quickMenu);
       return regions;
     }
-    return app.dataset.controlsVisible === "true" ? [controls] : [];
+    const regions:HTMLElement[] = app.dataset.controlsVisible === "true" ? [controls] : [];
+    if(status.dataset.interactive === "true") regions.push(status);
+    return regions;
   },
     (hover) => {
       nativeHover = !hover.unavailable;
@@ -554,7 +630,12 @@ async function start(): Promise<void> {
   }
 }
 
+function showFeedback(text:string):void {
+  if(companionBubble){companionBubble.showFeedback(crypto.randomUUID(),text);return;}
+  showBubble(text);
+}
 function showBubble(text: string): void {
+  if(companionBubble){companionBubble.showImportant(crypto.randomUUID(),text);return;}
   status.textContent = text;
   status.dataset.visible = "true";
   window.setTimeout(() => {

@@ -1,3 +1,4 @@
+import { handleCompanionHttp } from "./companion-http.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AssistantError } from "./assistant-settings.js";
 import type { AssistantService } from "./assistant-service.js";
@@ -7,7 +8,7 @@ export async function handleAssistantHttp(
   res: ServerResponse,
   client: { clientId: string; scopes: string[] },
   service: AssistantService,
-  readBody: () => Promise<Record<string, unknown> | undefined>,
+  readBody: (maxBytes?: number) => Promise<Record<string, unknown> | undefined>,
 ): Promise<void> {
   const send = (status: number, value: unknown) => {
     res.writeHead(status, { "content-type": "application/json" });
@@ -21,6 +22,8 @@ export async function handleAssistantHttp(
       throw new AssistantError(403, "assistant_scope_required");
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const path = url.pathname.slice("/v1/assistant".length);
+    if (path.startsWith("/companion/") && service.companion &&
+        await handleCompanionHttp(req, res, client, service.companion, readBody)) return;
     if (req.method === "GET" && path === "/snapshot") {
       send(200, service.snapshot());
       return;
@@ -98,10 +101,15 @@ export async function handleAssistantHttp(
       }
     }
     if (req.method === "POST" && path === "/chat") {
+      if (Object.hasOwn(body, "companionReplyTo") && !client.scopes.includes("assistant"))
+        throw new AssistantError(403, "assistant_scope_required");
       send(202, service.submit(client.clientId, body));
       return;
     }
     if (req.method === "POST" && path === "/mutations") {
+      if (body.action === "companion.snooze" && !client.scopes.includes("admin") &&
+          !(client.scopes.includes("assistant") && client.scopes.includes("settings")))
+        throw new AssistantError(403, "settings_scope_required");
       send(200, service.mutation(client.clientId, body));
       return;
     }

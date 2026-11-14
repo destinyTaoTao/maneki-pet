@@ -1,6 +1,7 @@
 mod assistant_control;
 mod desktop_credential;
 mod interaction;
+mod companion_power;
 mod ui_text;
 
 use std::path::PathBuf;
@@ -118,6 +119,13 @@ fn runtime_info(app: AppHandle) -> Result<RuntimeInfo, String> {
 }
 
 #[tauri::command]
+fn companion_window_visible(window: tauri::WebviewWindow) -> Result<bool, String> {
+    let visible = window.is_visible().map_err(|e| e.to_string())?;
+    let minimized = window.is_minimized().map_err(|e| e.to_string())?;
+    Ok(visible && !minimized)
+}
+
+#[tauri::command]
 fn spawn_runtime(app: AppHandle) -> Result<(), String> {
     spawn_runtime_child(&app)
 }
@@ -214,6 +222,7 @@ pub fn run() {
                 app.handle().exit(0);
                 return Ok(());
             }
+            companion_power::initialize();
             let _ = assistant_control::register_installation();
             let _ = spawn_runtime_child(app.handle());
             let show = MenuItem::with_id(app, "show", ui_text::SHOW, true, None::<&str>)?;
@@ -322,6 +331,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             runtime_info,
+            companion_window_visible,
+            companion_power::companion_power_generation,
             desktop_credential::desktop_client_token,
             desktop_credential::assistant_client_token,
             assistant_view,
