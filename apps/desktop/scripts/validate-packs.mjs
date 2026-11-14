@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { readPackJson, verifyPackOnDisk } from "./lib/pack-fs.mjs";
 import { assertPackNotRetired } from "./lib/pack-preparation.mjs";
 import packIds from "../config/builtin-packs.json" with { type: "json" };
+import optionalPackIds from "../config/optional-packs.json" with { type: "json" };
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -14,10 +15,16 @@ if (args.length !== 0 && (args.length !== 2 || args[0] !== "--packs-dir" || !arg
   throw new Error("Usage: node scripts/validate-packs.mjs [--packs-dir <dir>]");
 }
 const packsRoot = args.length ? resolve(args[1]) : join(root, "public", "packs");
+let validated = 0;
+let skipped = 0;
 
 for (const packId of packIds) {
   const packRoot = resolve(packsRoot, packId);
   if (!existsSync(join(packRoot, "pet-pack.json")) || !existsSync(join(packRoot, "assets.manifest.json"))) {
+    if (optionalPackIds.includes(packId)) {
+      skipped += 1;
+      continue;
+    }
     throw new Error(`Missing prepared pack ${packId} in ${packsRoot}. Import the versioned asset directory with node scripts/install-pack.mjs <source-pack-dir> --packs-dir <dir>. For development placeholders only, run generate:packs.`);
   }
   const pack = readPackJson(join(packRoot, "pet-pack.json"));
@@ -32,6 +39,7 @@ for (const packId of packIds) {
   if (errors.length > 0) {
     throw new Error(`${packId}: ${errors.join("; ")}`);
   }
+  validated += 1;
 }
 
-console.log(`Validated ${packIds.length} pet packs`);
+console.log(`Validated ${validated} pet packs${skipped > 0 ? `; ${skipped} optional packs not imported` : ""}`);

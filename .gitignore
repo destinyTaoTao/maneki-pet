@@ -52,3 +52,8 @@ npm-debug.log*
 apps/desktop/src-tauri/binaries/
 apps/desktop/src-tauri/resources/
 packages/adapters/evernook/*.egg-info/
+
+apps/desktop/public/variants/
+output/settings-design/
+__pycache__/
+*.pyc

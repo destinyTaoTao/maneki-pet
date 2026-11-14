@@ -145,9 +145,27 @@ fn assistant_view(app: AppHandle, open: bool) -> Result<(), String> {
         window
             .set_ignore_cursor_events(false)
             .map_err(|e| e.to_string())?;
+        if open {
+            let scale = window.scale_factor().map_err(|e| e.to_string())?;
+            if let Some(monitor) = window.current_monitor().map_err(|e| e.to_string())? {
+                let origin = window.outer_position().map_err(|e| e.to_string())?;
+                let monitor_origin = monitor.position();
+                let monitor_size = monitor.size();
+                let width = (760.0 * scale).round() as i32;
+                let height = (640.0 * scale).round() as i32;
+                let max_x = (monitor_origin.x + monitor_size.width as i32 - width).max(monitor_origin.x);
+                let max_y = (monitor_origin.y + monitor_size.height as i32 - height).max(monitor_origin.y);
+                window
+                    .set_position(tauri::PhysicalPosition::new(
+                        origin.x.clamp(monitor_origin.x, max_x),
+                        origin.y.clamp(monitor_origin.y, max_y),
+                    ))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         window
             .set_size(tauri::LogicalSize::new(
-                if open { 440.0 } else { 300.0 },
+                if open { 760.0 } else { 300.0 },
                 if open { 640.0 } else { 360.0 },
             ))
             .map_err(|e| e.to_string())?;

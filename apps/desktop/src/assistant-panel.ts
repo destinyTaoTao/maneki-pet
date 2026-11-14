@@ -14,7 +14,7 @@ import { defaultVoiceSettings, defaultBailianSettings, describeObservedSessions,
 import { VoiceController, type VoicePhase } from "./voice-controller.js";
 import { BrowserVoiceCapture, BrowserVoicePlayer } from "./voice-media.js";
 
-type Tab = "chat" | "sessions" | "todos" | "reminders" | "settings";
+type Tab = "chat" | "sessions" | "todos" | "reminders" | "appearance" | "settings";
 type RequestState = {
   requestId: string;
   status: string;
@@ -53,12 +53,20 @@ function check(label: string, checked: boolean) {
   return field;
 }
 
+export function petVariantForPack(packId: string): "orange" | "white" | "black" | "custom" {
+  if (packId === "xiaozhao-default") return "orange";
+  if (packId === "xiaozhao-white") return "white";
+  if (packId === "xiaozhao-black") return "black";
+  return "custom";
+}
+
 /** 单 WebView 面板：所有返回内容通过 textContent 渲染，提交只走明确操作。 */
 export function createAssistantPanel(
   host: HTMLElement,
   onClose: () => void,
   onReminder: (text: string) => void,
   onVoicePhase: (phase: VoicePhase) => void = () => undefined,
+  appearance?: HTMLElement,
 ) {
   let token: string | undefined,
     snapshot: AssistantSnapshot | undefined,
@@ -89,29 +97,61 @@ export function createAssistantPanel(
     notice = el("p");
   notice.className = "assistant-notice";
   notice.setAttribute("role", "status");
+  const railMark = el("div", t.railMark);
+  railMark.className = "assistant-rail-mark";
+  railMark.setAttribute("aria-hidden", "true");
+  tabs.append(railMark);
   const confirmation = el("section");
   confirmation.hidden = true;
   confirmation.className = "assistant-confirm";
   const views = new Map<Tab, HTMLElement>(),
     tabButtons = new Map<Tab, HTMLButtonElement>();
-  for (const name of ["chat", "sessions", "todos", "reminders", "settings"] as const) {
+  const selectTab = (name: Tab): void => {
+    tab = name;
+    heading.textContent = name === "settings" ? t.settingsTitle : name === "appearance" ? t.appearanceTitle : t.title;
+    for (const [key, value] of views) value.hidden = key !== name;
+    for (const [key, value] of tabButtons)
+      value.setAttribute("aria-pressed", String(key === name));
+    if (appearance) appearance.hidden = name !== "appearance";
+    if (name === "settings" && !settingsDirty) renderSettings();
+  };
+  for (const name of ["chat", "sessions", "todos", "reminders", "appearance", "settings"] as const) {
     const node = el("section");
     node.className = `assistant-${name}`;
     node.hidden = name !== tab;
     views.set(name, node);
     content.append(node);
-    const btn = button(t[name], () => {
-      tab = name;
-      for (const [key, value] of views) value.hidden = key !== name;
-      for (const [key, value] of tabButtons)
-        value.setAttribute("aria-pressed", String(key === name));
-      if (name === "settings" && !settingsDirty) renderSettings();
-    });
+    const btn = button(t[name], () => selectTab(name));
+    btn.className = `assistant-tab-${name}`;
     btn.setAttribute("aria-pressed", String(name === tab));
     tabs.append(btn);
     tabButtons.set(name, btn);
   }
-  host.append(header, tabs, notice, confirmation, content);
+  if (appearance) {
+    const intro = el("p", t.appearanceHint);
+    intro.className = "settings-intro";
+    views.get("appearance")!.append(intro, appearance);
+    appearance.hidden = true;
+  }
+  const drawer = el("div");
+  drawer.className = "assistant-drawer";
+  drawer.append(header, tabs, notice, confirmation, content);
+  host.append(drawer);
+  const setPetAppearance = (packId: string): void => {
+    const variant = petVariantForPack(packId);
+    host.dataset.petVariant = variant;
+    if (variant === "custom") {
+      railMark.textContent = t.railMark;
+      return;
+    }
+    const avatar = el("img");
+    avatar.className = "assistant-rail-avatar";
+    avatar.alt = "";
+    avatar.draggable = false;
+    avatar.src = `/variants/${variant}.png`;
+    avatar.onerror = () => { railMark.textContent = t.railMark; };
+    railMark.replaceChildren(avatar);
+  };
   const showError = (error: unknown) => {
     const code =
       error instanceof AssistantClientError
@@ -787,44 +827,74 @@ export function createAssistantPanel(
     inputLimit.input.max = "32768";
     outputLimit.input.min = "64";
     outputLimit.input.max = "4096";
-    const save = el("button", t.save);
+    const save = el("button", t.saveSettings);
     save.type = "submit";
-    fields.append(
-      timeZone.label,
-      persona.label,
-      enabled.label,
-      cloud.label,
-      localityLabel,
-      url.label,
-      model.label,
-      key.label,
-      el("small", settings.chat.apiKeyConfigured ? t.keySaved : t.keyEmpty),
-      removeKey.label,
-      inputLimit.label,
-      outputLimit.label,
-      el("p", t.usage),
-      el("h3", t.voiceSettings),
-      microphone.label,
-      asr.label,
-      asrProviderLabel,
-      hostLabel,
-      languageLabel,
-      tts.label,
-      ttsProviderLabel,
-      voiceId.label,
-      el("p", t.voiceInstall),
-      el("h3", t.voiceBailian),
-      el("p", t.voiceCloudDisclosure),
+    fields.className = "settings-form";
+    availability.className = "settings-availability";
+    const grid = (...children: HTMLElement[]) => {
+      const node = el("div");
+      node.className = "settings-grid";
+      node.append(...children);
+      return node;
+    };
+    const section = (title: string, hint: string, ...children: HTMLElement[]) => {
+      const card = el("section"), heading = el("div"), body = el("div");
+      card.className = "settings-section";
+      heading.className = "settings-section-heading";
+      body.className = "settings-section-body";
+      heading.append(el("h3", title), el("p", hint));
+      body.append(...children);
+      card.append(heading, body);
+      return card;
+    };
+    const note = (text: string) => {
+      const node = el("p", text);
+      node.className = "settings-note";
+      return node;
+    };
+    const credentialRow = (configured: boolean, removal: HTMLLabelElement) => {
+      const row = el("div"), status = el("span", configured ? t.keySaved : t.keyEmpty);
+      row.className = "credential-row";
+      status.className = configured ? "credential-status is-configured" : "credential-status";
+      row.append(status, removal);
+      return row;
+    };
+    const voiceInput = el("div"), voiceOutput = el("div");
+    voiceInput.className = "settings-subsection";
+    voiceOutput.className = "settings-subsection";
+    voiceInput.append(el("h4", t.voiceInput), asr.label, asrProviderLabel, hostLabel, languageLabel);
+    voiceOutput.append(el("h4", t.voiceOutput), tts.label, ttsProviderLabel, voiceId.label);
+    const localVoiceNote = note(t.voiceInstall);
+    const diagnostics = el("div");
+    diagnostics.className = "settings-diagnostics";
+    diagnostics.append(detect, availability);
+    const recovery = el("div");
+    recovery.className = "settings-recovery";
+    recovery.append(
+      note(t.voiceRecoveryHint),
+      button(t.voiceRecovery, () => {
+        void invoke("recover_speech").then(() => {
+          availability.textContent = t.voiceRecovered;
+        }).catch((error: unknown) => {
+          availability.textContent = error === "user_denied" ? t.voiceRecoveryCancelled : t.voiceRecoveryFailed;
+        });
+      }),
+    );
+    const onlineSection = section(
+      t.voiceBailian,
+      t.voiceBailianHint,
+      note(t.voiceCloudDisclosure),
       workspace.label,
-      asrModel.label,
-      ttsModel.label,
+      grid(asrModel.label, ttsModel.label),
       onlineVoice.label,
       speechKey.label,
-      el("small", settings.voice?.apiKeyConfigured ? t.keySaved : t.keyEmpty),
-      removeSpeechKey.label,
-      detect,
-      availability,
-      ...(isTauri() ? [button("恢复语音采集", () => { void invoke("recover_speech").then(() => { availability.textContent = "语音采集已恢复。"; }).catch((error: unknown) => { availability.textContent = error === "user_denied" ? "已取消恢复。" : "恢复失败；请先完全退出相关 dsh，稍后重试。"; }); })] : []),
+      credentialRow(settings.voice?.apiKeyConfigured ?? false, removeSpeechKey.label),
+    );
+    const intro = el("p", t.settingsIntro);
+    intro.className = "settings-intro";
+    const actions = el("div");
+    actions.className = "settings-actions";
+    actions.append(
       save,
       button(
         t.reload,
@@ -836,6 +906,46 @@ export function createAssistantPanel(
           }),
       ),
     );
+    const voiceSection = section(
+      t.voiceSettings,
+      t.voiceSettingsHint,
+      microphone.label,
+      voiceInput,
+      voiceOutput,
+      localVoiceNote,
+      diagnostics,
+      ...(isTauri() ? [recovery] : []),
+    );
+    voiceSection.className += " settings-voice";
+    fields.append(
+      intro,
+      section(t.generalSettings, t.generalSettingsHint, timeZone.label, persona.label, cloud.label),
+      section(
+        t.chatSettings,
+        t.chatSettingsHint,
+        enabled.label,
+        grid(localityLabel, model.label),
+        url.label,
+        key.label,
+        credentialRow(settings.chat.apiKeyConfigured, removeKey.label),
+        grid(inputLimit.label, outputLimit.label),
+        note(t.usage),
+      ),
+      voiceSection,
+      onlineSection,
+      actions,
+    );
+    const updateProviderFields = () => {
+      hostLabel.hidden = asrProvider.value !== "dsh";
+      voiceId.label.hidden = ttsProvider.value !== "local";
+      localVoiceNote.hidden = asrProvider.value !== "local" && ttsProvider.value !== "local";
+      onlineSection.hidden = asrProvider.value !== "bailian" && ttsProvider.value !== "bailian";
+    };
+    for (const provider of [asrProvider, ttsProvider]) provider.addEventListener("change", () => {
+      settingsDirty = true;
+      updateProviderFields();
+    });
+    updateProviderFields();
     fields.addEventListener("input", () => {
       settingsDirty = true;
     });
@@ -997,9 +1107,16 @@ export function createAssistantPanel(
     });
     return connecting;
   }
+  const showView = (view: Tab = "settings", anchor?: "voice"): void => {
+    selectTab(view);
+    if (anchor === "voice") settingsPane.querySelector(".settings-voice")?.scrollIntoView({ block: "start" });
+  };
   return {
+    show: showView,
+    setPetAppearance,
     async open(draft?: string) {
       host.hidden = false;
+      if (appearance && tab === "appearance") appearance.hidden = false;
       if (draft) composer.value = draft;
       notice.textContent = t.loading;
       await perform(async () => {
@@ -1018,6 +1135,7 @@ export function createAssistantPanel(
     close() {
       void voice.cancel(false);
       host.hidden = true;
+      if (appearance) appearance.hidden = true;
       clearTimeout(poll);
     },
     dispose() {
@@ -1031,7 +1149,7 @@ export function createAssistantPanel(
     focusVoice() {
       const settings = snapshot?.settings?.voice ?? defaultVoiceSettings();
       if (!settings.microphoneEnabled || !settings.asr.enabled) {
-        tabButtons.get("settings")?.click();
+        showView("settings", "voice");
         notice.textContent = t.voiceSetupHint;
       } else if (hold.disabled) cancel.focus();
       else hold.focus();

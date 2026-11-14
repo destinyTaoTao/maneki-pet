@@ -8,7 +8,7 @@ import {
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { createAssistantPanel } from "./assistant-panel.js";
+import { createAssistantPanel, petVariantForPack } from "./assistant-panel.js";
 import { assistantText } from "./assistant-text.js";
 import { PetPlayer } from "./player.js";
 import { VoicePetCoordinator } from "./voice-pet.js";
@@ -20,6 +20,7 @@ import * as runtimeClient from "./runtime-client.js";
 import { uiText } from "./ui-text.js";
 import "./style.css";
 import packIds from "../config/builtin-packs.json" with { type: "json" };
+import optionalPackIds from "../config/optional-packs.json" with { type: "json" };
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root missing");
@@ -100,6 +101,10 @@ packLabel.textContent = uiText.packLabel;
 const packSelect = document.createElement("select");
 packSelect.disabled = true;
 packLabel.append(packSelect);
+const packGallery = document.createElement("div");
+packGallery.className = "pack-gallery";
+packGallery.setAttribute("aria-label", uiText.packLabel);
+const packCards = new Map<string, HTMLButtonElement>();
 const stateLabel = document.createElement("label");
 stateLabel.textContent = uiText.stateLabel;
 const stateSelect = document.createElement("select");
@@ -128,7 +133,7 @@ const runtimeLimitsLine = document.createElement("div");
 runtimeLimitsLine.className = "runtime-line";
 const runtimeDndLine = document.createElement("div");
 runtimeDndLine.className = "runtime-line";
-panel.append(packLabel, stateLabel, actionLabel, playActionButton, runtimeSectionLabel, runtimeStateLine, runtimeLimitsLine, runtimeDndLine);
+panel.append(packGallery, stateLabel, actionLabel, playActionButton, runtimeSectionLabel, runtimeStateLine, runtimeLimitsLine, runtimeDndLine);
 app.append(status, petButton, controls, panel);
 const assistantHost=document.createElement("section");
 assistantHost.className="assistant-panel";
@@ -139,21 +144,80 @@ listeningAvatar.className = "assistant-listening-avatar";
 listeningAvatar.hidden = true;
 assistantHost.append(listeningAvatar);
 app.append(assistantHost);
+const quickMenu=document.createElement("aside");
+quickMenu.className="pet-quick-menu";
+quickMenu.hidden=true;
+quickMenu.setAttribute("aria-label",uiText.quickSettings);
+const quickCaption=document.createElement("span");
+quickCaption.className="quick-caption";
+quickCaption.textContent=uiText.quickSettings;
+const quickDndLabel=document.createElement("label");
+quickDndLabel.className="quick-dnd";
+quickDndLabel.append(document.createTextNode(uiText.dndLabel));
+const quickDnd=document.createElement("input");
+quickDnd.type="checkbox";
+quickDnd.className="quick-switch";
+quickDnd.disabled=true;
+quickDndLabel.append(quickDnd);
+const quickVoice=Object.assign(document.createElement("button"),{type:"button",textContent:uiText.quickVoice});
+const quickAppearance=Object.assign(document.createElement("button"),{type:"button",textContent:uiText.quickAppearance});
+const quickAll=Object.assign(document.createElement("button"),{type:"button",textContent:uiText.quickAll,className:"quick-all"});
+quickMenu.append(quickCaption,quickDndLabel,quickVoice,quickAppearance,quickAll);
+assistantHost.append(quickMenu);
+let runtimeToken: string | undefined;
+const setQuickOpen=(open:boolean):void=>{quickMenu.hidden=!open;};
 const assistantPanel=createAssistantPanel(assistantHost,()=>{
   assistantPanel.close();
+  setQuickOpen(false);
+  app.dataset.assistantOpen="false";
+  settingsButton.setAttribute("aria-expanded","false");
   for(const node of [status,petButton,controls,panel])node.inert=false;
   if(isTauriRuntime())void invoke("assistant_view",{open:false}).catch(()=>showBubble(uiText.interactionUnavailable));
-},showBubble, (phase) => voicePet.voiceChanged(phase));
-async function openAssistant(draft?:string):Promise<void>{
-  setPanelOpen(false);
+},showBubble, (phase) => voicePet.voiceChanged(phase),panel);
+type AssistantTarget = "settings" | "appearance" | "voice";
+async function openAssistant(draft?:string,target?:AssistantTarget,quick=false):Promise<void>{
+  setQuickOpen(false);
   if(isTauriRuntime()){
     await invoke("assistant_view",{open:true});
     if(!await runtimeClient.ensureRuntime())throw new Error(uiText.runtimeUnavailable);
   }
   await assistantPanel.open(draft);
-  for(const node of [status,petButton,controls,panel])node.inert=true;
+  app!.dataset.assistantOpen="true";
+  status.inert=true;
+  controls.inert=true;
+  petButton.inert=false;
+  panel.inert=false;
+  if(target==="appearance")assistantPanel.show("appearance");
+  else if(target==="voice")assistantPanel.show("settings","voice");
+  else if(target==="settings")assistantPanel.show("settings");
+  settingsButton.setAttribute("aria-expanded",String(target==="appearance"));
+  if(quick)setQuickOpen(true);
 }
-panel.append(Object.assign(document.createElement("button"),{type:"button",textContent:assistantText.openAssistant,onclick:()=>void openAssistant().catch(()=>showBubble(uiText.runtimeUnavailable))}));
+quickDnd.addEventListener("change",()=>{
+  const enabled=quickDnd.checked;
+  if(!runtimeToken){quickDnd.checked=!enabled;return;}
+  const token=runtimeToken;
+  quickDnd.disabled=true;
+  void (async()=>{
+    try{
+      await runtimeClient.setDnd(token,enabled);
+      voicePet.setDnd(enabled);
+      runtimeDndLine.textContent=`${uiText.dndStateLabel}：${enabled?uiText.dndOn:uiText.dndOff}`;
+      await runtimeClient.syncRuntimeDnd(enabled).catch(()=>undefined);
+    }catch{
+      quickDnd.checked=!enabled;
+      showBubble(uiText.dndSyncFailure);
+    }finally{quickDnd.disabled=false;}
+  })();
+});
+quickVoice.addEventListener("click",()=>{assistantPanel.show("settings","voice");setQuickOpen(false);});
+quickAppearance.addEventListener("click",()=>{assistantPanel.show("appearance");setQuickOpen(false);});
+quickAll.addEventListener("click",()=>{assistantPanel.show("settings");setQuickOpen(false);});
+document.addEventListener("pointerdown",(event)=>{
+  if(quickMenu.hidden||!(event.target instanceof Node))return;
+  if(!quickMenu.contains(event.target)&&!petButton.contains(event.target))setQuickOpen(false);
+});
+panel.append(Object.assign(document.createElement("button"),{type:"button",textContent:assistantText.openAssistant,onclick:()=>void openAssistant().then(()=>assistantPanel.show("chat")).catch(()=>showBubble(uiText.runtimeUnavailable))}));
 window.addEventListener("pagehide",()=>assistantPanel.dispose(),{once:true});
 if(isTauriRuntime()){
   void listen("maneki://assistant-open",()=>void openAssistant().catch(()=>showBubble(uiText.runtimeUnavailable)));
@@ -201,11 +265,6 @@ const refreshControls = (): void => {
   if (hovered || editing || !panel.hidden || forceControls) app.dataset.controlsVisible = "true";
   else hideControlsTimer = window.setTimeout(() => { app.dataset.controlsVisible = "false"; }, 1000);
 };
-const setPanelOpen = (open: boolean): void => {
-  panel.hidden = !open;
-  settingsButton.setAttribute("aria-expanded", String(open));
-  refreshControls();
-};
 const showControls = (): void => {
   clearTimeout(showControlsTimer);
   forceControls = true;
@@ -225,10 +284,10 @@ for (const element of [petButton, controls, panel]) {
 app.addEventListener("focusin", refreshControls);
 app.addEventListener("focusout", () => queueMicrotask(refreshControls));
 window.addEventListener("focus", refreshControls);
-window.addEventListener("blur", () => { setPanelOpen(false); refreshControls(); });
+window.addEventListener("blur", () => { setQuickOpen(false); refreshControls(); });
 app.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    setPanelOpen(false);
+    setQuickOpen(false);
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }
 });
@@ -244,7 +303,16 @@ if (isTauriRuntime()) {
     clearTimeout(showControlsTimer);
     dragHandle?.detach();
   }, { once: true });
-  void attachPetInteraction(petButton, () => !assistantHost.hidden ? [assistantHost] : app.dataset.controlsVisible === "true" ? [controls, ...(!panel.hidden ? [panel] : [])] : [],
+  void attachPetInteraction(petButton, () => {
+    if (!assistantHost.hidden) {
+      const regions: HTMLElement[] = [];
+      const drawer = assistantHost.querySelector<HTMLElement>(".assistant-drawer");
+      if (drawer) regions.push(drawer);
+      if (!quickMenu.hidden) regions.push(quickMenu);
+      return regions;
+    }
+    return app.dataset.controlsVisible === "true" ? [controls] : [];
+  },
     (hover) => {
       nativeHover = !hover.unavailable;
       const next = hover.overPet || hover.overControls;
@@ -257,10 +325,15 @@ if (isTauriRuntime()) {
 }
 
 settingsButton.addEventListener("click", () => {
-  setPanelOpen(panel.hidden);
+  void openAssistant(undefined,"appearance").catch(()=>showBubble(uiText.runtimeUnavailable));
+});
+petButton.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+  void openAssistant(undefined,"settings",true).catch(()=>showBubble(uiText.runtimeUnavailable));
 });
 petButton.addEventListener("click", () => {
   if (dragHandle?.consumeRecentDrag()) return;
+  setQuickOpen(false);
   player.playAction("wave");
 });
 stateSelect.addEventListener("change", () => {
@@ -288,10 +361,49 @@ function updateActions(pack: PetPack): void {
   playActionButton.disabled = empty;
 }
 
+function updatePackCards(selected: string): void {
+  for (const [id, card] of packCards) card.setAttribute("aria-pressed", String(id === selected));
+}
+
+function addPackCard(id: string, pack: ValidatedPetPack): void {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "pack-card";
+  card.dataset.variant = petVariantForPack(id);
+  card.title = pack.pack.name;
+  card.setAttribute("aria-label", pack.pack.name);
+  const variant = petVariantForPack(id);
+  if (variant === "custom") {
+    const placeholder = document.createElement("span");
+    placeholder.className = "pack-card-placeholder";
+    placeholder.textContent = pack.pack.name.slice(0, 1);
+    card.append(placeholder);
+  } else {
+    const image = document.createElement("img");
+    image.src = `/variants/${variant}.png`;
+    image.alt = "";
+    image.draggable = false;
+    card.append(image);
+  }
+  const name = document.createElement("span");
+  name.textContent = pack.pack.name.replace("小招 · ", "");
+  card.append(name);
+  card.addEventListener("click", () => {
+    if (packSelect.value === id) return;
+    packSelect.value = id;
+    packSelect.dispatchEvent(new Event("change"));
+  });
+  packCards.set(id, card);
+  packGallery.append(card);
+  updatePackCards(packSelect.value);
+}
+
 packSelect.addEventListener("change", () => {
   const pack = packs.get(packSelect.value);
   if (!pack) return;
   player.loadPack(pack.pack, packSelect.value);
+  assistantPanel.setPetAppearance(packSelect.value);
+  updatePackCards(packSelect.value);
   updateActions(pack.pack);
   stateSelect.value = "idle";
   localStorage.setItem("maneki.selectedPack", packSelect.value);
@@ -413,16 +525,19 @@ async function start(): Promise<void> {
     for (const id of ordered) {
       let pack: ValidatedPetPack;
       try { pack = await loadPack(id); }
-      catch (error) { errors.push(error); continue; }
+      catch (error) { if (optionalPackIds.includes(id)) continue; errors.push(error); continue; }
       packs.set(id, pack);
       const option = document.createElement("option");
       option.value = id;
       option.textContent = pack.pack.name;
       packSelect.append(option);
+      addPackCard(id, pack);
       if (packs.size === 1) {
         packSelect.value = id;
         packSelect.disabled = false;
         player.loadPack(pack.pack, id);
+        assistantPanel.setPetAppearance(id);
+        updatePackCards(id);
         updateActions(pack.pack);
         status.dataset.visible = "false";
       }
@@ -455,6 +570,8 @@ async function refreshRuntimePanel(token: string): Promise<void> {
       ` · ${uiText.notificationsLabel}：${limits.notifications.usedThisHour}/${limits.notifications.maxPerHour}`;
     const dnd = await runtimeClient.getDnd(token);
     voicePet.setDnd(dnd);
+    quickDnd.checked=dnd;
+    quickDnd.disabled=false;
     runtimeDndLine.textContent = `${uiText.dndStateLabel}：${dnd ? uiText.dndOn : uiText.dndOff}`;
   } catch {
     // 刷新失败保持上次内容，连接状态由事件流回调维护。
@@ -487,6 +604,7 @@ async function connectRuntime(): Promise<void> {
     runtimeStateLine.textContent = `${uiText.runtimePairFailure}：${String(error)}`;
     return;
   }
+  runtimeToken=token;
   runtimeStateLine.textContent = uiText.runtimeConnected;
   void assistantPanel.reuse();
   try {

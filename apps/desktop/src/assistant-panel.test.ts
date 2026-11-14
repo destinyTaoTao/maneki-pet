@@ -34,6 +34,8 @@ class PanelNode extends EventTarget {
     super();
   }
   tagName = "";
+  className = "";
+  dataset: Record<string, string> = {};
   children: PanelNode[] = [];
   hidden = false;
   append(...nodes: PanelNode[]) {
@@ -251,6 +253,13 @@ it("设置分别保存本地/百炼服务和独立密钥，组件检测只查询
     nodes
       .find((node) => node.textContent === assistantText.settings)!
       .dispatchEvent(new Event("click"));
+    expect(nodes.some((node) => node.textContent === assistantText.generalSettings)).toBe(true);
+    expect(nodes.some((node) => node.textContent === assistantText.chatSettings)).toBe(true);
+    const onlineSection = nodes.find((node) =>
+      node.className === "settings-section" &&
+      node.children[0]?.children.some((child) => child.textContent === assistantText.voiceBailian),
+    )!;
+    expect(onlineSection.hidden).toBe(true);
     nodes
       .find((node) => node.textContent === assistantText.voiceCheck)!
       .dispatchEvent(new Event("click"));
@@ -263,17 +272,16 @@ it("设置分别保存本地/百炼服务和独立密钥，组件检测只查询
         node.textContent.includes(assistantText.voiceNoProbe),
       ),
     ).toBe(true);
-    field(assistantText.asrProvider).value = "bailian";
+    const asrField = field(assistantText.asrProvider);
+    asrField.value = "bailian";
+    asrField.dispatchEvent(new Event("change"));
+    expect(onlineSection.hidden).toBe(false);
     field(assistantText.ttsProvider).value = "local";
     field(assistantText.voiceWorkspace).value = "workspace-1";
     const speechKey = field(assistantText.voiceApiKey);
     speechKey.value = "fixture-speech-key";
     const form = nodes.find(
-      (node) =>
-        node.tagName === "form" &&
-        node.children.some(
-          (child) => child.textContent === assistantText.voiceApiKey,
-        ),
+      (node) => node.tagName === "form" && node.className === "settings-form",
     )!;
     form.dispatchEvent(new Event("submit", { cancelable: true }));
     await flush();
@@ -325,6 +333,55 @@ it("面板取消按钮停止当前语音，读取历史不会误取消当前任�
       .find((node) => node.textContent === assistantText.cancel)!
       .dispatchEvent(new Event("click"));
     expect(cancel).toHaveBeenCalledWith(true);
+  } finally {
+    panel.dispose();
+  }
+});
+
+it("形象控件迁入侧栏并随视图显隐，不发起额外个人数据授权", async () => {
+  const nodes: PanelNode[] = [];
+  const doc = new EventTarget();
+  Object.assign(doc, {
+    createElement: () => {
+      const node = new PanelNode();
+      nodes.push(node);
+      return node;
+    },
+  });
+  vi.stubGlobal("document", doc);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("Option", PanelNode);
+  call.mockResolvedValue({ epoch: 0, revision: 0, messages: [], todos: [], reminders: [], activeRequest: null, settings: null });
+  const appearance = new PanelNode();
+  appearance.className = "settings-panel";
+  const existingControl = new PanelNode("点播动作");
+  appearance.append(existingControl);
+  const host = new PanelNode();
+  const panel = createAssistantPanel(
+    host as unknown as HTMLElement,
+    () => undefined,
+    () => undefined,
+    () => undefined,
+    appearance as unknown as HTMLElement,
+  );
+  try {
+    await panel.open();
+    const appearanceView = nodes.find((node) => node.className === "assistant-appearance")!;
+    expect(appearanceView.children).toContain(appearance);
+    expect(appearance.hidden).toBe(true);
+    panel.show("appearance");
+    expect(appearance.hidden).toBe(false);
+    expect(existingControl.textContent).toBe("点播动作");
+    panel.show("settings");
+    expect(appearance.hidden).toBe(true);
+    panel.setPetAppearance("xiaozhao-white");
+    expect(host.dataset.petVariant).toBe("white");
+    const avatar = nodes.find((node) => node.className === "assistant-rail-avatar") as PanelNode & { src: string };
+    expect(avatar.src).toBe("/variants/white.png");
+    panel.setPetAppearance("mint-test");
+    expect(host.dataset.petVariant).toBe("custom");
+    expect(nodes.some((node) => node.textContent === assistantText.railMark)).toBe(true);
+    expect(call.mock.calls.every((args) => args[1] === "/snapshot")).toBe(true);
   } finally {
     panel.dispose();
   }
