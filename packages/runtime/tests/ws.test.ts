@@ -6,7 +6,8 @@ import { connect as connectTcp } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { startRuntime, type StartedRuntime } from "../src/index.js";
+import type { StartedRuntime } from "../src/index.js";
+import { startFetchCompatibleRuntime } from "./fetch-compatible-runtime.js";
 
 const runtimes: StartedRuntime[] = [];
 const tempDirs: string[] = [];
@@ -14,7 +15,7 @@ const tempDirs: string[] = [];
 async function makeRuntime(originAllowlist: string[] = []): Promise<{ runtime: StartedRuntime; clientToken: string; clientId: string }> {
   const dir = mkdtempSync(join(tmpdir(), "maneki-rt-ws-"));
   tempDirs.push(dir);
-  const runtime = await startRuntime({ configDir: dir, originAllowlist, log: () => undefined, wsAuthTimeoutMs: 400 });
+  const runtime = await startFetchCompatibleRuntime({ configDir: dir, originAllowlist, log: () => undefined, wsAuthTimeoutMs: 400 });
   runtimes.push(runtime);
   const pairResponse = await fetch(`http://127.0.0.1:${runtime.port}/v1/pair`, {
     method: "POST",
@@ -138,7 +139,7 @@ describe("WS 一次性票据鉴权", () => {
     const dir = mkdtempSync(join(tmpdir(), "maneki-rt-ws-slow-"));
     tempDirs.push(dir);
     const logs: string[] = [];
-    const runtime = await startRuntime({ configDir: dir, log: (line) => logs.push(line) });
+    const runtime = await startFetchCompatibleRuntime({ configDir: dir, log: (line) => logs.push(line) });
     runtimes.push(runtime);
     const base = `http://127.0.0.1:${runtime.port}`;
     const pairResponse = await fetch(`${base}/v1/pair`, { method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}`, "content-type": "application/json" }, body: JSON.stringify({ name: "slow", scopes: "express" }) });
@@ -234,7 +235,7 @@ describe("WS 一次性票据鉴权", () => {
   it("未认证连接计入连接上限，释放后可再次连接", async () => {
     const dir = mkdtempSync(join(tmpdir(), "maneki-rt-ws-limit-"));
     tempDirs.push(dir);
-    const runtime = await startRuntime({ configDir: dir, log: () => undefined, wsAuthTimeoutMs: 10000 });
+    const runtime = await startFetchCompatibleRuntime({ configDir: dir, log: () => undefined, wsAuthTimeoutMs: 10000 });
     runtimes.push(runtime);
     const clients: WebSocket[] = [];
     try {

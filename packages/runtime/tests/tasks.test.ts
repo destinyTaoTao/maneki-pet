@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { startRuntime, type StartedRuntime } from "../src/index.js";
+import type { StartedRuntime } from "../src/index.js";
+import { startFetchCompatibleRuntime } from "./fetch-compatible-runtime.js";
 
 const runtimes: StartedRuntime[] = [];
 const tempDirs: string[] = [];
@@ -102,7 +103,7 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
   it("恢复和审批未验证时即使配置网关也拒绝任务派发", async () => {
     const dir = makeTempDir();
     const gw = await startStubGateway();
-    const runtime = await startRuntime({
+    const runtime = await startFetchCompatibleRuntime({
       configDir: dir,
       log: () => undefined,
       originAllowlist: [],
@@ -120,7 +121,7 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
       "utf8",
     );
     await runtime.stop();
-    const restarted = await startRuntime({ configDir: dir, log: () => undefined });
+    const restarted = await startFetchCompatibleRuntime({ configDir: dir, log: () => undefined });
     runtimes.push(restarted);
     expect(restarted.tasks).toBeDefined();
     expect((await restarted.tasks!.submit({ clientRequestId: "direct", prompt: "test", workdir: "C:\\tmp" })).outcome).toBe("rejected");
@@ -181,7 +182,7 @@ describe("任务派发经 dsh 网关（M2b 端到端）", () => {
   });
 
   it("未配置 dsh 时任务路由返回 501（经 root 令牌鉴权）", async () => {
-    const runtime = await startRuntime({ configDir: makeTempDir(), log: () => undefined });
+    const runtime = await startFetchCompatibleRuntime({ configDir: makeTempDir(), log: () => undefined });
     runtimes.push(runtime);
     const response = await fetch(`http://127.0.0.1:${runtime.port}/v1/tasks`, {
       method: "POST",

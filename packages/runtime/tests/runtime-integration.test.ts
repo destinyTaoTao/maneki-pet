@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { request } from "node:http";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -16,6 +17,20 @@ function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "maneki-rt-int-"));
   tempDirs.push(dir);
   return dir;
+}
+
+function requestJson(port: number, path: string, method: "GET" | "POST", token?: string): Promise<{ status: number; body: { protocolVersion?: number } }> {
+  return new Promise((resolve, reject) => {
+    const req = request({ host: "127.0.0.1", port, path, method, headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) } }, (res) => {
+      let raw = "";
+      res.on("data", (chunk: Buffer) => { raw += chunk.toString("utf8"); });
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode ?? 0, body: JSON.parse(raw) }); } catch (error) { reject(error); }
+      });
+    });
+    req.on("error", reject);
+    req.end(method === "POST" ? "{}" : undefined);
+  });
 }
 
 afterEach(async () => {
@@ -136,51 +151,45 @@ describe("CLI 启动器（无桌宠窗口、SIGTERM 优雅退出）", () => {
     });
     const stderr: string[] = [];
     child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk.toString("utf8")));
-
-    const readyLine = await new Promise<string>((resolve, reject) => {
-      const timer = setInterval(() => {
-        const line = stderr.join("").split("\n").find((entry) => entry.includes("ready: port="));
-        if (line) {
+    try {
+      const readyLine = await new Promise<string>((resolve, reject) => {
+        const timer = setInterval(() => {
+          const line = stderr.join("").split("\n").find((entry) => entry.includes("ready: port="));
+          if (line) {
+            clearInterval(timer);
+            resolve(line);
+          }
+        }, 50);
+        setTimeout(() => {
           clearInterval(timer);
-          resolve(line);
-        }
-      }, 50);
-      setTimeout(() => {
-        clearInterval(timer);
-        reject(new Error(`cli did not become ready: ${stderr.join("")}`));
-      }, 15_000);
-    });
-    const port = Number(/port=(\d+)/.exec(readyLine)?.[1]);
-    expect(port).toBeGreaterThan(0);
+          reject(new Error(`cli did not become ready: ${stderr.join("")}`));
+        }, 15_000);
+      });
+      const port = Number(/port=(\d+)/.exec(readyLine)?.[1]);
+      expect(port).toBeGreaterThan(0);
 
-    const health = await fetch(`http://127.0.0.1:${port}/v1/health`);
-    expect(health.status).toBe(200);
-    const body = (await health.json()) as { protocolVersion: number };
-    expect(body.protocolVersion).toBe(1);
+      const health = await requestJson(port, "/v1/health", "GET");
+      expect(health.status).toBe(200);
+      expect(health.body.protocolVersion).toBe(1);
 
-    // Windows 上 kill(SIGTERM) 是强制终止；优雅退出经受信管理入口触发。
-    const exited = new Promise<number | null>((resolve) => {
-      child.once("exit", (code) => resolve(code));
-    });
-    const shutdown = await fetch(`http://127.0.0.1:${port}/v1/shutdown`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    // 未带根令牌的管理动作必须被拒绝，然后带令牌执行。
-    expect(shutdown.status).toBe(401);
+      // Windows 上 kill(SIGTERM) 是强制终止；优雅退出经受信管理入口触发。
+      const exited = new Promise<number | null>((resolve) => {
+        child.once("exit", (code) => resolve(code));
+      });
+      expect((await requestJson(port, "/v1/shutdown", "POST")).status).toBe(401);
 
-    const cliDir = dir;
-    const { readFileSync } = await import("node:fs");
-    const rootToken = readFileSync(join(cliDir, "root-token"), "utf8").trim();
-    const authedShutdown = await fetch(`http://127.0.0.1:${port}/v1/shutdown`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${rootToken}`, "content-type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    expect(authedShutdown.status).toBe(200);
+      const { readFileSync } = await import("node:fs");
+      const rootToken = readFileSync(join(dir, "root-token"), "utf8").trim();
+      expect((await requestJson(port, "/v1/shutdown", "POST", rootToken)).status).toBe(200);
 
-    const exitCode = await Promise.race([exited, new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000))]);
-    expect(exitCode).toBe(0);
+      const exitCode = await Promise.race([exited, new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000))]);
+      expect(exitCode).toBe(0);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const stopped = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+        child.kill();
+        await stopped;
+      }
+    }
   }, 30_000);
 });

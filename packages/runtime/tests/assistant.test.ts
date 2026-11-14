@@ -2,10 +2,11 @@ import { mkdtempSync, rmSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
-import { startRuntime, type StartedRuntime } from "../src/runtime.js";
+import type { RuntimeOptions, StartedRuntime } from "../src/runtime.js";
 import { defaultAssistantSettings } from "../src/assistant-settings.js";
 import type { ChatReply } from "@maneki-pet/core";
 import { createServer } from "node:http";
+import { startFetchCompatibleRuntime } from "./fetch-compatible-runtime.js";
 const dirs: string[] = [];
 const runtimes: StartedRuntime[] = [];
 afterEach(async () => {
@@ -14,12 +15,12 @@ afterEach(async () => {
     rmSync(dir, { recursive: true, force: true });
 });
 async function setup(
-  options: Parameters<typeof startRuntime>[0] = { configDir: "" },
+  options: Omit<RuntimeOptions, "port"> = { configDir: "" },
 ) {
   const dir = mkdtempSync(join(tmpdir(), "maneki-assistant-"));
   dirs.push(dir);
   const notifier = vi.fn().mockResolvedValue({ status: "accepted" });
-  const runtime = await startRuntime({
+  const runtime = await startFetchCompatibleRuntime({
     ...options,
     configDir: dir,
     notifier: options.notifier ?? { notify: notifier },

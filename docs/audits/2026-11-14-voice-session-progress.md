@@ -66,3 +66,12 @@ Windows x64，源码构建的独立原生窗口、隔离 Runtime/APPDATA、dsh 0
 基于 `0afd769` 在 Windows x64 执行 `pnpm --filter @maneki-pet/desktop tauri build --no-bundle`，原生 release 构建成功；桌面、Runtime bundle、Node sidecar 和插件被复制到独立临时目录。隔离 APPDATA 已登记该目录内的桌面入口，没有修改现有安装或正式用户数据。dsh `0.2.1-rc.5` 的 SenseVoice int8 模型、词表及 VAD 模型按该版本自带清单校验长度和 SHA-256；这只是完整性核验。测试目录为系统临时目录，可能被系统清理，不是发行包。
 
 独立 DSH_HOME、APPDATA 下启动 dsh Web，源码插件提示需要人工配对；dsh 与 Runtime 仅监听 127.0.0.1，检查后停止了测试进程并确认端口释放。首次启动发现 dsh 默认配置自动打开浏览器并发起模型列表请求；随后在隔离配置中禁用两个 DeepSeek 提供者、启动时清除继承的常见凭证环境变量并增加 `--no-open`。第二次启动日志未观察到模型列表请求或自动打开浏览器。此冒烟未授权 `speech_host`、未录音、未运行 SenseVoice 识别，不能代替真实语音验收；创建真实 A/B 宿主工作仍需另行选择合适的模型配置。
+
+
+## 随机临时端口故障收口（接续开发）
+
+接续后的基线全仓构建成功，但全仓测试在 `assistant.test.ts` 的“无模型也能处理确定性命令”场景中以 `fetch failed / bad port` 失败。此次失败发生在正式 HTTP 请求前的测试初始化阶段；根因是系统分配的临时端口属于 Fetch 标准禁用端口，并非业务断言或语音功能回归。
+
+将既有“仅对 `bad port` 重选”的逻辑提取为共享测试入口，接入本次失败的助理测试、既有 HTTP/WS 测试及 dsh 语音宿主测试。新增两项确定性回归，分别验证禁用端口会停止旧实例后重选，以及其他传输错误清理实例但不重试。正式 Runtime、固定端口配置和业务断言均未改变。
+
+修复后执行 `corepack pnpm -r build && corepack pnpm -r test && corepack pnpm -r typecheck` 全部通过；共 405 项测试通过，2 项真实设备测试按默认跳过。此项只收口自动测试可靠性，不替代 #66 尚缺的真实麦克风、并发轮次、原生恢复和人工体验验收。
