@@ -1,6 +1,6 @@
 # Maneki 架构设计
 
-> v0.6 设计基线，2026-11-13 确认 Windows 首版「陪伴型桌面管家」。现有交付为 0.2.0-alpha.2 预览；逐会话问答、语音动作联动与 EverNook 主会话集成列入[四阶段路线图](./roadmap.md)，各阶段分别实机验收。
+> v0.7 设计基线，2026-11-14 确认模板驱动的轻陪伴增量（§4.3.1），尚未实现。保留 v0.6 的 Windows 首版「陪伴型桌面管家」与[四阶段路线图](./roadmap.md)；封存交付仍为 0.2.0-alpha.2 预览，后续源码及各阶段实机验收分别记录。
 > 本文是架构、契约和安全规则的唯一事实来源。示例是待实现契约，不代表已经支持某个产品或平台；路线图中的验收通过后才可声明支持。
 > 领域用语见 [GLOSSARY.md](../GLOSSARY.md)，历史取舍见 [ADR](./adr/0001-shared-local-runtime.md)，本轮审计与处置见 [审计报告](./audits/2026-11-01-product-architecture-review.md)。术语与 ADR 不另立一份实现规范。
 
@@ -19,6 +19,8 @@ Maneki（小招）是陪伴型桌面管家。dsh 插件是首个入口，独立�
 非目标：云端多用户 SaaS、通用 IM/完整项目管理、移动端、重造 harness 的模型推理与工具执行系统。社区市场和多宠不是首个可用版本的前置条件。
 
 首版依次验收插件入口与主会话续接、逐会话进度、按键语音与动作、EverNook 显式记忆。沿用 [ADR-0005](./adr/0005-dsh-first-personal-assistant.md) 的 dsh 优先、独立主会话和共享 Runtime 决策。2026-11-13 调整其近期排期，把显式长期记忆纳入首版，工程派发移出首版。第二宿主、内嵌浮层、唤醒/连续语音、自动画像与动作市场后置。§5 的工程执行与审批契约供另行立项时使用。
+
+2026-11-14 确认轻陪伴作为可独立验收的增量：先交付无模型、无主动声音的模板碎碎念与“来一句”，再分别设计会话动态提示和个性化表达。第一批不以语音、EverNook 或工程派发验收为前置，也不替代 #66/#67 的剩余出口；见 [§4.3.1](#light-companionship) 与 [ADR-0006](./adr/0006-template-first-companionship.md)。
 
 **跨入口行为约定（待实现与实机验收）**
 
@@ -289,7 +291,7 @@ idle ↔ sleeping
 
 多任务默认展示当前用户关注的项目/任务，后台任务记入列表；待输入/审批只在防打扰规则允许时提示。其他会话的 idle 不覆盖当前任务的 working；庆祝为限时动作，结束后重算状态。
 
-主动性 = `已验证触发器 × 防打扰预算 × 可用通道`。触发器包括提醒、任务完成/需输入、用户明确允许的存在感知和问候；存在感知不默认截屏或监听内容。碎碎念（murmur）与每日简报（daily briefing）是低频轻量类别：触发由确定性规则决定——空闲时长、任务事件、时段，或每日简报由用户配置的时间点；内容可确定性汇总任务状态、到期提醒与会话动态，LLM 只生成话术。两者纳入防打扰预算，默认低频，碎碎念可单独关闭，每日简报默认关闭，勿扰内完全静默；主动内容当日失效、无料不发，没有新内容不硬凑打扰。LLM 失败时用固定文案，不阻止真实提醒。
+主动性 = `已验证触发器 × 防打扰预算 × 可用通道`。触发器包括提醒、任务完成/需输入、用户明确允许的存在感知和问候；存在感知不默认截屏或监听内容。碎碎念（murmur）、会话动态提示与用户安排的提醒是不同类别，不共用会使闲聊阻塞重要事项的预算。触发由确定性规则决定，LLM 只生成话术。碎碎念可包含原创角色日常台词；“无料不发”指没有合适且未重复的候选内容就不发送，不要求每句都有新任务事实，也不能借角色话术编造用户行为。默认低频、可单独关闭、勿扰内完全静默，具体首批规则见 §4.3.1。每日简报默认关闭、后置实施，按用户配置时间汇总有来源的任务状态、到期提醒与会话动态，无新事实不发送。主动轻量内容当日失效，LLM 失败回退模板或跳过，不阻止真实提醒；可靠提醒的过期与恢复遵守 §4.4。
 
 三个偏好独立且不共用“静音”一词：
 
@@ -300,6 +302,278 @@ idle ↔ sleeping
 | 麦克风禁用 | 所有模式禁止采集，立即关闭设备/唤醒与在途录音处理 | 仅文字输入，不能由按键或模型绕过 |
 
 默认勿扰时段高优先级不穿透；用户可单独授权特定类别/通道例外，但例外不能覆盖语音输出关闭或麦克风禁用。外部 MCP 客户端不能通过 `urgency` 绕过规则。勿扰导致审批无人响应时保持阻塞，bridge 超时拒绝，原生审批按 harness 的拒绝/等待规则处理，不能自动放行。Maneki 不承诺控制 harness 自己发出的系统提示。
+
+<a id="light-companionship"></a>
+
+#### 4.3.1 模板驱动的轻陪伴（2026-11-14 已确认，待实现）
+
+**目标与取舍**
+
+让小招在不依赖模型、语音或 harness 存活的情况下，有节制地表达陪伴，且用户能立即体验、暂停和关闭。允许“我先伸个懒腰，陪你慢慢来”这样的角色台词；禁止无依据声称“你连续工作三小时了”“测试已经通过”。首批只使用随应用发行的原创模板和现有动作，不读取项目、完整会话转录、待办内容或长期记忆来编写台词。
+
+选择“确定性规则选时机、模板保底、模型后续可选润色”。纯模板作为首批可交付切片，代价是表达变化有限；固定周期直接调用模型会增加主动消费、延迟和内容不确定性，不采用。共同原因见 ADR-0006，本节是行为与契约的权威规范。
+
+**能力分层**
+
+| 类别 | 首批行为 | 历史与恢复 |
+|---|---|---|
+| 自动碎碎念 | Runtime 按预算调度；短文字气泡与至多一个短动作；不调用 LLM/ASR/TTS，不发送系统通知 | 不自动进入主会话、摘要或长期记忆；错过即丢弃，不积压补发 |
+| 来一句 | 用户明确点击后返回模板回应；不受自动开关、暂停、自动次数和勿扰拒绝分支约束；首批同样无声音 | 重复点击合并在途请求，不产生无界队列；不自动写入主会话 |
+| 会话动态提示 | 后续独立增量，基于可信会话变化、可定位来源 | 首批不接入观察事件触发；§6.9 的“不主动触发完成提醒”保持有效 |
+| 用户设定的提醒 | 沿用 §4.4/§6.3/§6.6 的到点调度、预算和投递状态 | 不因闲聊消耗预算、展示失败或关闭桌宠而丢失 |
+
+首批不提供主动朗读、梦话、每日简报、自动画像、屏幕感知、多宠或第三方话术包安装。现有聊天/语音不被此范围关闭。未来模型与主动 TTS 各自经过授权、用量和设备验收，不能因为聊天 Provider 已开启就自动启用。
+
+**默认节奏与内容**
+
+两小时间隔、每日四次与功能范围来自已确认方案；初次观察窗口、展示租约时长和保守滚动上限是本轮工程细化的默认选择，实施时通过下述场景验证，不代表已取得体验或性能证据。
+
+- 自动碎碎念默认低频开启，独立开关；两次自动展示尝试至少间隔 2 小时，每个助手时区的自然日最多 4 次。首批不提供频率滑杆或“活泼”档位；数值是产品默认值，不是性能保证。
+- 初次取得可用展示端后先经过 2 小时观察窗口，避免启动即打扰。后续只在存在合格展示端且预算到期时尝试；没展示端时不生成候选、不消耗预算。达到间隔不是必须开口，仍须通过内容和交互门禁。
+- “45 分钟没有操作小招”不等于用户空闲。首批不采集系统键盘、屏幕内容或全局应用活动，不宣称用户正在工作、休息或离开；旧 Core 的 idle 阈值和任意新任务事件不能直接成为首批调度依据。
+- 模板有稳定 ID、主题、适用时段和可选动作 ID。时段问候只使用助手配置时区；常规台词在任何适用时段可选。模板与 UI 文案集中管理，内置台词保持小招身份；不执行自定义 persona 中的指令，也不声称首批会自动把任意 persona 改写成模板。
+- 同一自然日不重复相同模板或等价文案；相邻两次自动台词避免同一主题。手动展示过的台词也进入当日自动候选排除集，但不占自动次数；手动请求可在无新候选时复用模板，避免连续相同一句。
+- 没有合适候选就跳过，直到内容条件变化或下一自然日再评估，不进行高频重试。模板集合、去重集合均有界；不能以换模板 ID 规避同一句去重。
+- 提供“来一句”“暂停碎碎念两小时”“关闭碎碎念”。暂停只影响自动陪伴，使用 Runtime 时钟计算期限并持久化；反复点击暂停以最后一次请求时间向后延长两小时。重新开启独立开关不隐式清除尚未到期的暂停，界面显示剩余暂停状态。
+
+**调度、预算与单端展示**
+
+Core 提供准入、候选筛选和预算决策；Runtime 拥有配置、时钟、存储和单一调度器；Desktop 只报告自身展示条件并渲染。复用现有事件和鉴权机制，不建设通用消息平台或插件内核。
+
+1. 仅已配对且有 assistant 权限的支持客户端登记展示实例；express 凭证不能登记、领取或确认。旧桌面没有登记时，自动碎碎念保持静默。只使用桌宠自身可见性、连接状态和交互状态，不能把“在线”宣传为“用户在场”。
+2. 展示实例采用有期限的租约和周期续租；关闭、隐藏、断线、撤销、租约过期或实例重建即失去展示资格。首批采用 15 秒租约、5 秒续租；客户端按单调时钟保守计算本地截止时间（从续租请求发出时起算），不能因延迟响应延长真实租期。Runtime 重启不恢复旧实例资格。
+3. 输入框聚焦/编辑、录音及转写提交、语音播放、拖拽或操作面板期间，客户端报告不可自动展示，并在本地再次门控。Runtime 在候选认领时复查勿扰、独立开关、暂停、租约及预算。更新设置立即失效尚未展示的候选；勿扰开启时收起自动气泡并停止其短动作，保留用户主动交互。
+4. 多个合格实例中选择最近在小招内发生明确用户交互的实例；没有交互时按登记次序选择。每个候选只绑定一个实例及租约，不广播让客户端抢显；该次失败不转投另一个实例。一个实例同一时刻至多一条自动候选，用户主动点播使其失效。
+5. 在同一存储事务中占用预算并写入 §4.3.2 的 Attempt（含稳定表达 ID、时间和模板去重信息）；目标实例、期限与候选正文只在有界内存绑定，提交成功后发送，崩溃后不重建候选。预算按“展示尝试”保守记账，不以送达确认作为占用前置；发送失败、ACK 丢失、进程崩溃都不返还或重发这一条，允许少说，不允许靠重试多说。ACK 只记录客户端已展示/已丢弃，不等于用户已看见。
+6. 候选最多有效 15 秒且不跨本地自然日。客户端在展示前复查 ID、目标实例、租约、版本、有效期及本地交互，重复 ID 幂等丢弃。恢复连接不补拉待显示候选；Runtime 重启将未完成候选视为失效。错过的闲聊与可靠提醒使用不同恢复规则。
+7. 持久化最近自动尝试时间、日预算桶、当日模板去重和暂停期限；不得只用 Core 内存计数。同进程间隔使用单调时钟，跨重启结合持久墙钟保守判定；时钟后退不提前释放间隔，前跳不循环补齐错过时段。时区改变不能重置最近两小时间隔，也不能在最近 24 小时内获得超过 4 次自动尝试；首批同时施加滚动 24 小时上限，属于保守防绕过限制。
+8. 存储不可用、状态损坏或时钟无法可信比较时，自动陪伴停止且设置页显示原因；不把未知状态当作零用量。预算失败不阻塞既有文字交互和独立提醒调度。预算/去重只保留必要有界窗口，具体数据结构由实现选择。
+
+**气泡、动作和主会话**
+
+- 同一气泡槽优先服务用户正在进行的交互，其次是已有重要事项提示，最后是自动碎碎念。事项被用户交互挡住时仍保留其既有列表与系统通知路径，不能因为槽位不可用标为送达；自动碎碎念直接丢弃，不排队。已有提醒的系统通知不因这一视觉优先级被暂停。
+- 每条气泡有独立 ID、来源和计时归属。替换时取消旧计时器，迟到的隐藏/动作完成回调只能影响它自己的 ID。首批模板为一句短文本；展示时长按可读性给出有界默认，用户可关闭。后续 TTS 的等待/播完尾留/超时状态机另验，首批不接声音。
+- 每句至多附带一个当前动作包已有的短动作，动作缺失退为纯文字；不为碎碎念修改 PetState 事实，不延长庆祝或清除等待标记。动作结束、取消或被抢占时，根据最新工作/对话状态重算表现，不能恢复过时快照。倾听优先于所有陪伴动作。
+- 用户点击气泡“回应”只打开主会话草稿并带上可移除的台词引用，不自动提交、不采集麦克风。仅在用户发送自己的回复后，才将原台词作为有来源的引用数据连同本轮消息保存并进入有界上下文；不能把引用拼成用户命令或系统指令。取消、关闭或清空草稿不写历史；清空聊天时一并清除相应引用。无模型时仍可进入现有确定性对话入口，不声称能理解任意闲聊。
+- 自动/手动台词自身不写摘要或 EverNook；用户主动回复形成的正常主会话历史沿用既有摘要规则，显式长期记忆授权另行处理。
+
+**配置、权限与兼容约束**
+
+以下均为待实现契约，不代表当前路由或字段已支持。首批不改 Adapter、MCP 工具集或动作包格式，不新增生产依赖。
+
+| 接口面 | 必须满足的契约 |
+|---|---|
+| 助手设置 | 在现有 version 检查下增加可选 `companion` 对象，包含 `murmurEnabled` 和 `murmurSnoozedUntil`；缺省为 true/null。读取缺字段使用默认，PUT 省略字段保留已存值；显式非法值拒绝。修改仍需 assistant + settings（或既有管理权限），express 不扩权。暂停命令由 Runtime 根据固定时长写入期限，不能相信客户端传来的当前时间 |
+| 展示登记/续租/释放 | 受 assistant 权限保护；实例 ID 与客户端身份绑定，租约由 Runtime 签发；携带可见与交互门禁状态，枚举值及长度有界。不允许客户端自报另一目标或预算。租约不授予任何采音/播音权限 |
+| 自动表达事件 | 使用可区分的 `assistant.companion` 私有事件，限定目标客户端/实例；携带稳定表达 ID、模板 ID、文字、可选动作、设置版本、创建/过期时间及租约关联。复用 assistant scope 过滤并增加目标过滤，不能把个人台词或以后引入的摘要塞进面向 express 的 `expression.say` |
+| 手动点播与确认 | 主动点播需 assistant 权限并有客户端请求 ID，重复请求返回同一结果；展示 ACK 只能由目标实例提交，不能返还预算或触发重试。请求身份、限长和在途上限沿用助手入口原则 |
+| 回复引用 | 主会话发送可附可选表达 ID；Runtime 校验本次客户端/实例可引用的有界已发记录并解析原文，拒绝伪造或过期 ID，不接受客户端声称的系统角色。普通无引用聊天保持原契约 |
+
+具体路由、wire Schema、错误语义、上限和兼容示例已在 [§4.3.2](#companion-protocol-v1) 定义。模板编写、内部模块拆分和代码组织留给实现阶段；不能改变上述行为、权限和默认值来迁就现有局部实现。
+
+首批固定复用 SQLite v6 与独立、带格式版本的 KV 键，不新增表或数据库迁移。companion 偏好独立持久化，在设置响应中合并呈现，避免旧 Runtime 保存普通设置时删除偏好。降级到同样支持 v6 的旧 Runtime 时保留当前数据库，不用整库或整份 settings 恢复陪伴功能；否则会回滚后续待办、提醒与投递状态。新旧客户端组合、孤儿引用清理和更旧数据库版本的边界见 §4.3.2。旧桌面没有展示登记时保持原行为；新桌面连接不支持能力的旧 Runtime 时显示不可用，不使用本地自动计时器兜底。
+
+**后续范围与验收**
+
+会话动态提示另行定义首次快照、重连、事件版本、合并、失联与来源定位，不能把快照中的 completed 当作新完成事件；不重放庆祝，不清掉其他会话的等待。先定位到小招会话页，dsh 原生跳转另验。其提醒预算与碎碎念独立，不能无限提示。个性化阶段再接显式偏好、可选模型润色、主动朗读和每日简报；仅对已授权的最小事实操作，模型不能决定触发时机，费用不可控时不调用。
+
+首批验收矩阵见 [roadmap 轻陪伴增量](./roadmap.md#light-companionship)。需要规则/跨包测试与 Windows 实机体验证据；模型关闭、语音关闭、dsh 退出时仍可用，勿扰零主动打扰，重启/时区/时钟变化不突破预算，多端不重复，旧气泡不误关新气泡，倾听与可靠提醒不被覆盖。沿用 §8 全进程树 ≤ 300 MiB、Runtime ≤ 75 MiB 和提醒调用 p95 < 1s；macOS/Linux 未在本机验证。此次只确认设计，不勾选实现或运行验收。
+
+<a id="companion-protocol-v1"></a>
+
+#### 4.3.2 轻陪伴协议 v1 与兼容矩阵（设计已闭环，待实现）
+
+本节是 §4.3.1 第一批的协议细化，所有新增字段、路由和行为均尚未实现；不改变 Adapter、MCP 或动作包格式。基线为现有 `/v1/assistant`、SQLite v6、主会话请求幂等与一次性 WS 票据。协议版本 `protocolVersion=1`、设置 `schemaVersion=1`、数据库 v6 是三个不同版本，不能互相代替。
+
+**通用类型、校验与权限**
+
+- 下表 `U` 为标准小写 UUID 字符串；`N` 为 0 至 `Number.MAX_SAFE_INTEGER` 的整数；`T` 为 UTC Unix 毫秒整数（0 至 253402300799999）。`R` 为现有 `/^[A-Za-z0-9_-]{1,80}$/` 请求 ID。字符串长度按 JS UTF-16 code unit 计算。请求字段除明确标为可选外均必填，JSON 对象不允许未知键、不强制类型转换，null 仅在声明允许时使用；无效 JSON、数组、非有限数和不安全整数拒绝。
+- 新 companion HTTP 请求体上限 8 KiB UTF-8，响应及单条 companion WS 消息上限 16 KiB；原 `/settings`、`/chat` 和 `/mutations` 沿用既有总包上限，再校验新增子对象。沿用回环、Bearer token、Host/Origin、读取请求体后复查鉴权、脱敏日志与不跟随重定向的规则。
+- 状态读取可用 assistant 或 admin；登记展示、点播、ACK 和新增聊天引用必须具有 assistant scope，admin 单独持有者不能假冒展示端。设置写入和暂停需 `assistant + settings` 或 admin。express 无新增权限；无 assistant 凭证时使用既有显式打开助手/配对流程，不在后台静默签发。
+- 新路由错误体统一为 `{"error":"稳定错误码"}`；限流可附 `retryAfterMs:N`，其余不得含原始异常、台词正文、凭证或其他客户端标识。通用入口既有 401/403/413 错误仍保留，不借此重写旧协议。客户端必须按 HTTP 状态处理，不能把所有失败当作旧版本不支持。
+- 同 v1 响应允许将来添加可选字段，客户端忽略未知响应字段；遇到未知消息种类可忽略。未知协议版本禁止解析成 v1。请求增加新语义必须显式协商，不能利用“忽略未知字段”静默丢弃用户指令。
+
+**状态与能力发现**
+
+`GET /v1/assistant/companion/status` 无请求体，200 返回以下完整对象；其他端的 lease/实例/台词不在其中：
+
+| 字段 | Schema / 含义 |
+|---|---|
+| protocolVersion | 字面量 1 |
+| runtimeEpoch | U，每次 Runtime 进程启动重新生成；不是持久 instanceId，也不是主会话 epoch |
+| serverNow | T，仅用于展示与相对时间换算，不能代替客户端单调时钟 |
+| policyRevision | N，进程内单调递增，设置提交、勿扰变化、历史清除和 companion 健康状态改变时推进 |
+| settingsVersion / historyEpoch | N，分别引用现有 settings.version 与主会话 epoch |
+| dnd | boolean |
+| companion | `{murmurEnabled:boolean,murmurSnoozedUntil:T|null}` 或 null；唯一持久来源见后文，无法读取时为 null 且 automaticBlock=storage_unavailable，不伪造默认值 |
+| automaticBlock | null 或 `disabled / snoozed / dnd / storage_unavailable / clock_untrusted / no_display / warming_up / budget / no_content` |
+| nextEligibleAt | T 或 null；只表示已知时间门槛，不承诺到点一定显示，不返回其他端的活动数据 |
+| limits | 固定对象 `{minIntervalMs:7200000,maxPerLocalDay:4,maxPerRolling24h:4,leaseMs:15000,renewEveryMs:5000,candidateTtlMs:15000,replyTtlMs:600000}` |
+
+多个阻塞同时存在时优先级为 storage_unavailable、clock_untrusted、disabled、snoozed、dnd、no_display、warming_up、budget、no_content。能力存在但 KV 损坏时仍可返回 200 与健康阻塞原因；无法鉴权或读取必要身份时按相应错误返回，不能伪造空状态。
+
+仅此探测路由的 404 `not_found` 表示旧 Runtime 不支持；200 且版本不是 1 表示不兼容；401/403 要求处理凭证，5xx/超时显示暂不可用。每次建立新 Runtime 连接重新探测，不能永久缓存 404，也不能根据应用版本字符串猜测支持。初次暖机时间在首次合格展示登记时持久化，重启/隐藏后不重新起算；数据缺失且无法证明首次安装时进入健康阻塞，不重置已用预算。
+
+**设置读写与固定暂停**
+
+现有 `GET /v1/assistant/settings` 和 snapshot.settings 增加上述 `companion` 只读投影；仅 companion 数据损坏时省略该可选投影，status 返回对应阻塞和 null，不破坏仍可读取的普通设置。新客户端必须先检查 status 健康再编辑此项，不把字段缺失当作重置授权。现有 `PUT /v1/assistant/settings` 的必填顶层字段仍为 version/timeZone/persona/cloudEnabled/chat；voice 等原字段保持原契约。新增可选 `companion:{murmurEnabled:boolean}`：
+
+- 省略整个对象保留两个偏好；对象存在时必须且只能包含 murmurEnabled。`companion:null`、`{}`、未知键、非布尔值均 400 `settings_invalid`。`murmurSnoozedUntil` 是只读字段，哪怕值相同或为 null 也不能 PUT；暂停只经下述固定命令。
+- 全量设置 PUT 仍不是 PATCH；GET 返回的 schemaVersion、apiKeyConfigured 等也不是写入字段。version 冲突仍 409 `settings_conflict`，不自动读新版本覆盖用户其他修改。
+- 设置和 companion 偏好在同一 SQLite 事务保存，version 只推进一次；失败全部回滚。旧客户端忽略新增响应对象并按原字段保存时，companion 保留。关闭/重新开启仍不清除暂停期限；到期时保留原期限值供显示，准入按 `now >= deadline` 判断，续租不写设置。
+- 暂停复用 `POST /v1/assistant/mutations`，新增唯一 action `companion.snooze`，请求严格为 `{requestId:R,action:"companion.snooze",version:N}`；返回 `{murmurSnoozedUntil:T,settingsVersion:N}`。Runtime 在事务内设置自身当前时间 + 7200000，更新 settings.version，并将结果写入既有 assistant_mutations。相同客户端/ID/内容先返回持久原结果，不重新延长暂停；同 ID 不同内容 409 `request_id_conflict`。首次请求才检查 version。重复点击形成新 ID 与新 version，才算新的暂停操作。
+- snooze 的权限检查在幂等读取前执行。响应丢失可原样重试；得到历史缓存结果后重新 GET 设置，不用旧响应回滚 UI。历史清除不删除该 mutation 记录，暂停不会因此重新执行。暂停在预算异常时可保存安全偏好，但不修复或清零预算。
+
+**WS 连接绑定与展示租约**
+
+保留 `/v1/ws-ticket` 的一次性票据和首帧 `{type:"auth",ticket}`。支持协议的新 Runtime 在成功鉴权后返回 `{type:"ready",connectionId:U,runtimeEpoch:U}`，旧客户端可忽略两个新增字段。connectionId 由服务端生成并绑定这一条已鉴权 socket 与 clientId；不能由客户端在 WS auth 内自报。关闭后即作废，新连接永不复用 ID。
+
+所有下述路径前缀为 `/v1/assistant/companion`。展示状态 `S` 为 `{visible:boolean,busyReasons:string[],activitySeq:N}`；busyReasons 至多 5 个不重复成员，枚举 input/voice/drag/panel/important。activitySeq 只在小招内真实用户交互时增加；Runtime 以收到递增值的顺序确定最近交互，不接受客户端墙钟。visible=false 或 busyReasons 非空即不允许自动展示。
+
+| 方法与路径 | 请求 Schema | 成功响应 |
+|---|---|---|
+| POST `/display/acquire` | `{protocolVersion:1,runtimeEpoch:U,connectionId:U,displayInstanceId:U,state:S}` | 200，租约对象 L |
+| POST `/display/renew` | `{protocolVersion:1,runtimeEpoch:U,leaseId:U,stateSeq:N,state:S}`，stateSeq 从 1 开始 | 200，更新后的 L |
+| POST `/display/release` | `{protocolVersion:1,runtimeEpoch:U,leaseId:U}` | 200，`{released:true}` |
+
+L 为 `{runtimeEpoch:U,connectionId:U,displayInstanceId:U,leaseId:U,stateSeq:N,serverNow:T,expiresAt:T,leaseMs:15000,policyRevision:N}`；首次 stateSeq=0。登记仅绑定 HTTP 鉴权客户端自己的、具备 assistant 权限的当前 WS；不存在或不属于自身的 connectionId 统一 404 `companion_display_not_found`，不得自动借用同凭证其他 socket。
+
+每个 socket 只登记一个实例；重复同 acquire 正文返回原 L，不续期；换正文或实例 409 `companion_display_conflict`。过期/释放后不能在同一 socket 复活，须重新连接、取得新 connectionId 并使用新 displayInstanceId。每客户端最多 4 条活动展示租约，全 Runtime 最多 32 条；达到上限 429，不驱逐活动实例。
+
+续租每次使用紧邻的下一 stateSeq（即使状态未变也递增），一个实例最多一个在途续租。重复最新 seq/相同状态返回缓存响应，不再次延长；相同 seq 不同状态或跳号/倒退为 409 `companion_sequence_conflict`。客户端只有在该 seq 的成功响应到达后才采纳延长，迟到响应不能覆盖更新状态；本地截止时间从该次请求首次发出时的单调时钟 + 15000 算起，重试不重设起点。休眠恢复先使本地租约失效再重连，不依赖平台单调时钟是否计入休眠。
+
+隐藏/忙碌立即在本地阻止自动气泡，并更新状态；可保持租约续租但不具备自动展示资格。释放、socket 关闭、权限撤销、Runtime 停止或过期为终态，未展示候选失效；同一活动连接的重复 release 返回 released=true，迟到 renew 不能复活。过期和未知 lease 均 410 `companion_lease_expired`，另一客户端的 lease 统一 404。所有租约的客户端、连接绑定仅由服务端身份确定。
+
+**表达对象、单端路由与回执**
+
+表达对象 E 的字段如下，首批不包含图片、任意 URL 或可执行动作：
+
+| 字段 | Schema |
+|---|---|
+| runtimeEpoch / displayInstanceId / leaseId / utteranceId | U；utteranceId 是 Runtime 生成的稳定表达 ID，不使用会在进程重启后重复的 evt-N |
+| protocolVersion / mode | 1；mode 为 automatic 或 manual |
+| templateId / theme | `/^[a-z0-9_-]{1,64}$/`；均来自内置目录 |
+| text / actionId | text 为非空纯文本，最多 80 code units；actionId 为相同 ID 规则的字符串或 null，仅播放当前包已验证动作 |
+| createdAt / expiresAt / replyExpiresAt | T；expiresAt ≤ createdAt+15000 且不跨配置时区当日；replyExpiresAt=createdAt+600000，引用期限可跨午夜 |
+| displayStateSeq / policyRevision / settingsVersion / historyEpoch | N，生成时对应版本 |
+| displayDurationMs | 固定 6000；仅控制已展示气泡停留，不延长候选/引用期限 |
+
+自动表达使用原 `RuntimeEvent {eventId,occurredAt,kind,payload}` 信封，kind=`assistant.companion`，payload=E，外层仍为 `{type:"event",event:RuntimeEvent}`。EventFeed/WS 发送侧必须保存不由 payload 自报的目标 clientId+connectionId，并检查相应实例/租约；**仅在 payload 写目标 ID 或仅按 assistant scope 广播不满足本契约**。旧连接、同凭证其他 socket、express 连接均不接收这条表达。普通既有事件路由不变。
+
+新增 `assistant.companion.policy` 控制事件，payload 严格为 `{runtimeEpoch:U,policyRevision:N,settingsVersion:N,historyEpoch:N,dnd:boolean,companion:{murmurEnabled:boolean,murmurSnoozedUntil:T|null}|null,healthy:boolean}`；向具有 assistant scope 的已鉴权连接广播，无台词/租约 ID。companion=null 时 healthy 必为 false；不得以默认开启值代替读取失败。设置、勿扰、清历史或健康状态改变时先推进 policyRevision、废弃未展示候选，再发布控制事件；healthy=false 收起自动气泡，用户主动文字能力不由此禁用。客户端收初始 status 后按最大 policyRevision 合并事件，旧 HTTP 响应不能倒退策略。连线建立到初始同步完成前不展示。
+
+客户端仅在 E 的 runtimeEpoch/lease/instance/当前 stateSeq/policyRevision 均匹配、历史 epoch 未变、未超时及本地交互允许时展示；无从核实或期间有新续租序号时可丢弃，不等待旧状态恢复。超时判定同时使用当前 UTC 与由 L.serverNow/请求起点推导的保守单调截止时间，取较早者；时钟异常时丢弃。自动候选过期不重发、不因未 ACK 退还预算。
+
+`POST /ack` 请求 `{protocolVersion:1,runtimeEpoch:U,leaseId:U,utteranceId:U,result:"displayed"|"discarded"}`，成功 200 `{recorded:true}`。限定目标客户端/实例/lease；同 ID 相同结果幂等，已终结却换结果返回 409 `companion_ack_conflict`。ACK 是客户端呈现报告，不证明人已阅读，不刷新预算/期限。ACK 在候选创建后 60 秒内、同一仍活动的连接接受，过期 410 `companion_utterance_expired`；丢失或失败不自动重试。已报告 displayed 的记录随后关闭气泡仍保持 displayed，不改报 discarded。
+
+**手动来一句与有界幂等**
+
+`POST /say` 请求 `{protocolVersion:1,runtimeEpoch:U,leaseId:U,requestId:R,requestSeq:N}`，requestSeq 为该 lease 的点播序号，从 1 逐个增加。200 返回 `{utterance:E,supersedes:U[]}`，mode=manual，supersedes 至多一项，为该端尚未展示的自动候选；客户端将其永久丢弃。手动结果仅经 HTTP 返回，不再经 WS 发送一份。Runtime 在模板选择前使该端待发自动候选失效；客户端发起点播时已在本地抑制自动气泡。
+
+点播必须来自可见的活动展示端，允许 input/panel/important 状态，由用户显式操作和气泡优先级处理；voice 或 drag 期间拒绝 409 `companion_display_busy`，不抢麦/中断拖动。自动开关、暂停、勿扰、日预算不拦手动点播；既有语音总开关不因点播改变，v1 永远不触发声音。自动/手动产生表达时均在发送前保守更新模板排除记录，不等 ACK；手动不增加自动次数，丢失响应可以少一条自动候选，但不能因 ACK 丢失反复推荐刚选过的台词。只有预算数据异常且无法安全更新排除记录时，手动点播报状态不可用，普通文字聊天仍可用。
+
+幂等键为 `(runtimeEpoch,leaseId,requestSeq)`，requestId 参与该键的正文一致性校验，不与主会话 requestId 共用空间。相同 seq/正文返回原结果；换正文或跳号 409 `companion_sequence_conflict`。每 lease 保存最后 16 次已受理结果，最多保留 10 分钟；序号高水位保留至 lease 终结，已淘汰序号返回 410 `companion_request_expired`，不能重新生成。进程重启使旧 runtimeEpoch 失效，旧请求返回 409，不为它生成新一句。
+
+每个 lease 最多一个在途点播；同客户端相邻新点播至少 3 秒，429 可携 retryAfterMs。校验/限流失败不推进序号，不影响自动次数；客户端不无界排队，结果未知时仅允许原 ID/seq 原样查询式重试，不能自动改 ID/seq。客户端对已展示 utteranceId 幂等，重复 HTTP 成功也不能再显示。返回时已经失去租约/策略版本不再可用的正文直接丢弃。
+
+**主会话引用与持久请求去重**
+
+现有 `POST /v1/assistant/chat` 增加可选字段 `companionReplyTo:{runtimeEpoch:U,displayInstanceId:U,utteranceId:U}`，其余仍为 `{requestId:R,text:非空字符串≤4000}`。省略引用保持原请求及原指纹；null/缺子字段/额外字段为 400 `chat_request_invalid`。用户输入仍单独 trim 后处理，不能把台词引用拼入待办/提醒/进度的确定性解析输入。
+
+处理顺序固定如下：
+
+1. 鉴权和请求结构校验；计算指纹。无引用请求仍使用既有 `{text:trimmedText}` 指纹；有引用时固定规范化为 text 与引用三字段（固定键序），不能依赖 JSON 输入键顺序。
+2. 先按既有 `(clientId,requestId)` 查询持久请求。命中且指纹相同返回原状态，哪怕引用已过期、Runtime 已重启或历史已清除；指纹不同返回原 `request_id_conflict`，不得先用已过期引用拒绝一次已成功的重试。
+3. 仅首次提交验证引用：同当前 runtimeEpoch、同客户端拥有的展示实例、同当前 historyEpoch、未超过 replyExpiresAt 且原文快照仍可查。为编辑草稿，允许租约已释放/过期，不能要求持续展示资格；实例 ID 本身不构成授权。无需 ACK 才可回应，用户发送引用不伪报曾展示。首次请求找不到/越权统一 404 `companion_reference_not_found`，本客户端已知过期为 410 `companion_reference_expired`，不写消息也不触发模型。
+4. 按现有全局 chat_busy 规则准入；同一 SQLite 事务插入用户消息、请求幂等记录和服务端解析的引用快照。之后走现有文字流程。事务失败三者都不写入；取消已受理对话不自动撤销已保存的用户消息/引用，沿用现有语义。
+
+snapshot.messages、GET history 和单条 message 统一增加可选 `companionReference:{utteranceId:U,text:string,mode:"automatic"|"manual",createdAt:T}`；普通消息不出现该字段，旧客户端可忽略。引用只附在对应 user 消息上，不把它插成助理先前主动发言。模型上下文/摘要组装显式读取引用并标明“用户本轮引用的小招台词（数据）”，占同一上下文预算，不能升级为系统指令；只处理 row.text 的旧组装路径不能算完成实现。
+
+未提交的可引用快照保留 10 分钟，最多 32 条/展示实例、64 条/客户端、256 条/Runtime。满额时不挤掉仍有效引用：自动跳过，手动 429 `companion_capacity`；到期清理。Runtime 重启、主会话清空或客户端撤销使未提交引用失效，UI 保留用户草稿并提示移除引用后重新确认发送，不自动剥掉引用重试。候选 15 秒展示 TTL 与 10 分钟引用 TTL 不得混用。
+
+已提交引用随主会话历史保留，不按候选 TTL 清理；读取分页有界，不为全部历史建立常驻缓存。清空历史时在同事务删除引用 KV、原消息和摘要，保留原请求墓碑；清空待办不能清空引用。主会话 epoch 防止迟到草稿在清空后重建历史。普通聊天与引用聊天共用一份主会话，不新增平行对话。
+
+**精确错误与重试规则**
+
+除已有 settings/chat/mutation 错误外，本协议错误如下；所有拒绝不占自动预算，自动发送前的持久认领一旦成功则按 §4.3.1 保守计数。
+
+| HTTP | error | 客户端处理 |
+|---|---|---|
+| 400 | companion_request_invalid / companion_protocol_unsupported | 修正请求或升级；不静默降级到另一路由 |
+| 403 | assistant_scope_required / settings_scope_required | 走既有权限管理，不反复自动配对 |
+| 404 | companion_display_not_found / companion_reference_not_found | 不枚举目标；重新建立自身展示或由用户移除引用 |
+| 409 | companion_epoch_changed | 废弃旧 lease/候选，重新探测并连接；已提交 chat 仍先按原请求查询 |
+| 409 | companion_display_conflict / companion_sequence_conflict / companion_ack_conflict | 停止该操作，刷新自身状态；不改 ID 猜测重试 |
+| 409 | companion_display_busy | 等用户交互结束后由用户重新点播 |
+| 410 | companion_lease_expired / companion_utterance_expired / companion_request_expired / companion_reference_expired | 不重放过期内容；重连或让用户决定是否重新发送 |
+| 429 | companion_capacity / companion_rate_limited | 有界退避，手动请求不后台排队；原重试保持相同身份 |
+| 503 | companion_state_unavailable / companion_clock_untrusted / companion_content_unavailable | 显示清晰原因、保持真实提醒独立；无模型或 Provider 回退 |
+
+重试顺序：身份/结构校验在先；手动点播只在同 runtimeEpoch 下查幂等缓存，再检验首次提交的活动 lease 与序号；chat 与暂停的持久幂等记录先于引用/版本有效期检查。ACK 和续租不是付费调用，允许同身份的有限网络重试，但不得延长原期限；ACK 默认不重试。返回错误不能生成“成功”气泡。大包/未知字段等参数错误不会改变任何状态。
+
+**存储格式、升级与降级**
+
+继续使用当前 SQLite v6 的 runtime_kv，不新增表、列或 user_version；新增 KV 及合并逻辑是待实现代码，不能声称现有读取自动支持。实际键名与格式固定如下：
+
+| KV 键（实际全名） | 格式与生命周期 |
+|---|---|
+| `assistant.companion.preferences` | `{formatVersion:1,murmurEnabled:boolean,murmurSnoozedUntil:T|null}`；偏好的唯一来源。`assistant.settings` 不存重复 companion 字段，GET 时合并，所有设置更改仍推进其既有 version |
+| `assistant.companion.budget` | `{formatVersion:1,initializedAt:T,firstEligibleAt:T|null,lastTrustedWallAt:T,lastAutomaticAttemptAt:T|null,attempts:Attempt[],usedTemplates:Used[],lastAutomaticTheme:string|null}`；Attempt=`{utteranceId:U,at:T,dayKey:"YYYY-MM-DD",timeZone:string,templateId:string,contentHash:string}`，Used=`{templateId:string,contentHash:string,lastUsedAt:T}`；timeZone 为既有 IANA 时区，contentHash 为规范化文本 SHA-256 小写 hex |
+| `assistant.companion.reference.<epoch>.<userSeq>` | `{formatVersion:1,epoch:N,userSeq:N,utteranceId:U,text:string,mode:"automatic"|"manual",createdAt:T}`；与用户消息同事务创建；寿命随该消息，不含凭证/lease/项目内容 |
+
+目录最多 128 个模板；contentHash 使用模板正文 trim + Unicode NFC 后的 UTF-8 SHA-256，等价台词的人工主题归类仍需内容检查，哈希不声称能检测语义重复。预算 attempts 仅保留最近 72 小时且最多 16 条，usedTemplates 按目录与内容去重最多 256 条；每条最后使用时间保留至不再涉及当日/最近 24 小时排除。越界或未知 formatVersion 返回状态异常并禁止自动表达，不能截断掉有效预算来制造可用额度。
+
+自动事务先持久化 attempt（稳定 utteranceId）再发布，完整正文/目标/ACK/租约/未提交引用只在有界内存保存；崩溃后不会据 attempt 重建待发消息。初始化 preferences 与 budget 必须同事务建立；initializedAt 为初始化时刻，firstEligibleAt 初始 null，首次合格登记时持久化为该时刻并作为暖机起点，之后不重置。有 preferences 却没有 budget、版本损坏或部分写入不能当作首次安装。
+
+预算使用助手时区自然日及滚动 24 小时双上限。已运行时以单调时钟算间隔；重启后若墙钟早于 lastTrustedWallAt，自动表达保持 clock_untrusted，直到时钟追平并再次满足保守门槛。前跳不补发，并在检测到墙钟跳变与单调增量不一致时进入相同保守阻塞；重新建立可信基线至少等待单调 2 小时，预算仍保留，不提供“清零额度”按钮。重启无法证明关机期间墙钟是否被修改，不宣称对恶意改系统时间绝对防绕过；初次观察、持久记录和异常保守停发作为本机可验证边界。
+
+首次安装/升级只在 companion 两个独立键都缺失时原子初始化默认值；先备份是故障恢复措施，正常升级不替换旧业务数据。引用 KV 在启动和历史清除时按当前 epoch/消息存在性清理孤儿；旧 Runtime 曾清空历史后留下的未知键不重新展示，也不凭引用键恢复消息。未知未来格式保留原始值、停用该功能并报告，不自动重置。
+
+| Runtime / Desktop 组合 | 行为与数据边界 |
+|---|---|
+| 新 Runtime + 新 Desktop，均支持协议 1 | 先探测 → 取得现有 assistant 凭证 → WS ready → 登记/同步策略 → 展示；协议字段不等于配对授权 |
+| 新 Runtime + 旧 Desktop | 普通助手接口保留；旧 PUT 省略 companion 保留偏好，新增消息引用字段可忽略；旧 socket 无展示登记，不会收到 companion 表达 |
+| 旧 Runtime（SQLite v6）+ 新 Desktop | status 返回 404 后禁用轻陪伴入口；仅发送旧 settings/chat 形状，不能发送 companion/null 或引用字段；已有草稿引用须提示用户移除，不静默丢语义 |
+| 协议版本不兼容 | 普通能力独立可用；轻陪伴显示版本不兼容，不猜测字段、不改用 expression.say 或本地计时器 |
+| 降级到旧 v6 Runtime | 先停服务，保留当前数据库；旧程序忽略独立 companion 键且不改预算，普通设置更新不会覆盖偏好。旧 UI 不展示引用，旧模型上下文不会使用引用，不能声称理解其上下文 |
+| 再升级到新 Runtime | 保留偏好与预算，校验格式并清除孤儿引用；所有展示连接重新登记，不补发降级期间闲聊。已有引用请求的持久幂等结果仍可查询 |
+| 降至只能读 v5 或更旧库的程序 | 沿用既有 schema 拒绝，不把 v6 交给它写入；这是数据库历史迁移问题，与本次 KV 扩展分开处理 |
+
+不得为了回退 companion 恢复升级前整库或整份 settings：这会回滚提醒状态、用户后续事项、version 或密钥引用。常规降级无需恢复数据；只有明确的数据损坏恢复才从备份恢复，须明确用户接受的业务数据回退范围，并检查可能重投的提醒。清除 companion 偏好或预算不是无损降级，也不是自动恢复手段。
+
+**请求/响应示例与兼容判据**
+
+以下是完整的待实现请求/响应示例，ID 和时间是演示值，不是本机数据；version 必须用实际 GET 值替换。
+
+旧客户端可继续按原形状保存（voice 与 companion 都保留，不能把 GET 原样 PUT）：
+
+```json
+{"version":7,"timeZone":"Asia/Shanghai","persona":"你是小招，一位简洁、可靠的个人助理。","cloudEnabled":false,"chat":{"enabled":false,"locality":"local","baseUrl":"","model":"","maxInputTokens":4096,"maxOutputTokens":1024}}
+```
+
+新客户端只关闭自动碎碎念（其他必填字段仍必须提供，暂停期限不清除）：
+
+```json
+{"version":7,"timeZone":"Asia/Shanghai","persona":"你是小招，一位简洁、可靠的个人助理。","cloudEnabled":false,"chat":{"enabled":false,"locality":"local","baseUrl":"","model":"","maxInputTokens":4096,"maxOutputTokens":1024},"companion":{"murmurEnabled":false}}
+```
+
+固定暂停请求及响应（重复此 requestId 返回同一截止时间，不再加两小时）：
+
+```json
+{"requestId":"snooze-demo-1","action":"companion.snooze","version":8}
+```
+
+```json
+{"murmurSnoozedUntil":1794657600000,"settingsVersion":9}
+```
+
+用户回应引用的聊天请求（普通聊天省略 companionReplyTo；引用正文由 Runtime 解析）：
+
+```json
+{"requestId":"reply-demo-1","text":"那我也休息一会儿。","companionReplyTo":{"runtimeEpoch":"11111111-1111-4111-8111-111111111111","displayInstanceId":"22222222-2222-4222-8222-222222222222","utteranceId":"33333333-3333-4333-8333-333333333333"}}
+```
+
+设计验证必须覆盖：新增JSON示例可解析、必填/未知/只读/null的边界；同凭证双 socket 定向隔离；过期续租和同序号冲突；首次引用过期与已提交引用重试的不同结果；清历史保留幂等墓碑；旧设置保存保留偏好；v6 降级/再升级及旧版清历史后的孤儿清理。运行验证仍待实现，不能以文档检查代替上述测试。
 
 ### 4.4 个人待办、记忆与提醒可靠性
 
@@ -829,6 +1103,8 @@ v0.2 → v0.3：Runtime 改为可由插件独立启动的共享本地进程；�
 2026-11-07 v0.5（grill-with-docs Q1–Q11）：独立助理先行、近期仅 dsh，确认主会话与模型独立于宿主、个人待办与提醒分离、按住录音松开自动提交、低风险明确单项直接办理、聊天历史主动清除、Runtime 拥有全局配置。取代 v0.4 的“工程派发优先、pi 随后”近期安排；执行审批和完整恢复 gate 保留。见 ADR-0005。本次只同步设计，不修改现有配置格式、API、数据库或运行代码；后续实现先定义版本化契约及迁移，再逐项验收，不把本次确认视为功能交付。
 
 2026-11-13 v0.6：首版以主会话、只读会话进度、语音动作和显式长期记忆为验收范围。旧版通用记忆写回粒度与 M5 会话介入安排不适用于首版主会话；既有版本化协议与已发布预览的行为仍按各自版本记录。
+
+2026-11-14 v0.7（grill-with-docs，用户确认按推荐方案）：允许无任务信息的原创陪伴台词，首批采用模板、文字和短动作，将自动碎碎念、用户点播与事项提示分开。细化 §4.3 的“无料不发”和轻量内容过期语义，可靠提醒恢复规则保持不变；新增 §4.3.1 的节奏、历史、权限、兼容与验收设计。后续文档续作在 §4.3.2 补齐协议 v1、连接身份、租约/引用幂等、KV 格式及兼容矩阵；修正为 v6 同版本降级保留当前数据库，不恢复整库。只更新文档，不表示配置、协议或运行能力已交付；本次仅单独提交和推送设计，代码实施另行授权。
 
 ## 10. 扩展功能域：技能包体系与平台对接（EverNook 共建，2026-10-31 定稿）
 
