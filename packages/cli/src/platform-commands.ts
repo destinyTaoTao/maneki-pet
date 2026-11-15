@@ -183,8 +183,13 @@ export function captureOpsData(
   if (!checked.ok) {
     throw new Error(`ops data failed contract validation: ${checked.reason}`);
   }
+  const attachmentBytes = JSON.stringify(checked.value);
+  if (Buffer.byteLength(attachmentBytes, "utf8") > 1024 * 1024) {
+    throw new Error("ops data attachment exceeds the 1 MiB limit");
+  }
   const receipt = runShimCommand(shim, "capture-tool", ["--kind", "tool_result", "--tool-name", "manual-ops-data-bilibili", "--input-id", input.inputId], {
     event: { source: { entry: "maneki", session: "platform-bilibili", branch: "main", event: `o-${Date.now()}` }, role: "assistant", sequence: 4, occurred_at: new Date().toISOString(), completion: "complete", text: `运营数据（人工导出，source=manual-export）：${input.opsFile}` },
+    attachments: [{ attachment_id: "ops-data", label: "ops-data.json", mime_type: "application/json", bytes: attachmentBytes }],
   });
   if (!receipt.ok) throw new Error(`ops capture failed: ${receipt.raw}`);
   const output = receipt.output as { message_id: string };
