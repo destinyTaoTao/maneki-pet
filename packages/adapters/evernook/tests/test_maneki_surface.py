@@ -16,7 +16,7 @@ class ManekiSurfaceTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="maneki-evernook-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.config, _ = initialize(self.root / "ordinary", client_id="owner", entry="owner")
+        self.config, self.owner = initialize(self.root / "ordinary", client_id="owner", entry="owner")
 
     def _paired(self, **kwargs) -> ManekiSurface:
         surface = ManekiSurface(self.config, **kwargs)
@@ -34,10 +34,16 @@ class ManekiSurfaceTests(unittest.TestCase):
 
     def test_full_conformance_suite_passes(self) -> None:
         surface = self._paired()
-        report = ConformanceSuite(surface).run()
+        # 画像准备由独立测试 owner 完成；适配器仍只持 recall/capture 身份。
+        report = ConformanceSuite(
+            surface,
+            profile_runtime=MemoryRuntime(self.config),
+            profile_access=self.owner,
+        ).run()
         for result in report.results:
             self.assertTrue(result.passed, f"{result.name}: {result.detail}")
         self.assertTrue(report.passed)
+        self.assertEqual(sorted(HARNESS_DEFAULT_SCOPES), self._scopes(surface))
 
     def test_gaps_disclose_uncovered_host_events(self) -> None:
         surface = self._paired()

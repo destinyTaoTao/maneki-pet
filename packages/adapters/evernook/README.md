@@ -19,7 +19,9 @@ C:\maneki-lab\venv-py314\Scripts\python.exe -m pip install -e C:\myProject\manek
 C:\maneki-lab\venv-py314\Scripts\python.exe -m pytest C:\myProject\maneki-pet\packages\adapters\evernook\tests -v
 ```
 
-conformance 全套件（新外壳验收标准，adapter-conformance-v1 §5）：
+测试使用临时合成库，独立 owner 通过 `profile_runtime/profile_access` 为当前 EverNook 符合性套件准备画像 fixture；适配器自身仍仅持有 recall/capture。该结果验证 Python `AdapterSurface`，不代表 JSON CLI `inject` 或主会话集成已经可用。
+
+conformance CLI（adapter-conformance-v1 §5；当前命令尚未提供独立可信画像 fixture，直接运行会在相应检查中明确失败，不能冒充全套通过）：
 
 ```powershell
 C:\maneki-lab\venv-py314\Scripts\python.exe -m maneki_evernook_adapter conformance --config <runtime.json> --access <access.json>
