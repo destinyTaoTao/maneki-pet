@@ -258,6 +258,8 @@ Provider 的本地/云端声明由受信实现与实际端点配置共同核验�
 
 **用量与上下文限额三层配置化**：① 单次调用限额——交互调用与主动调用都有默认保守的输入/输出 token 上限，可按 Provider 覆盖；② 会话上下文预算——主/子会话历史维护滚动窗口，超限按配置摘要压缩、截断或拒绝，默认摘要压缩；③ 周期总额——每日 token/费用上限默认约束主动收费调用，交互调用总额可显式开启。到达限额即停止后续调用并提示，不能切换账号/Provider 绕过；剩余额度、降额与停用状态在界面如实呈现，不隐藏降级。
 
+摘要压缩必须覆盖所有未保留的历史前缀；为摘要本身腾出的历史也应纳入摘要输入，不能静默按截断处理。重算摘要时仅单调扩大前缀，最多历史条数加一次尝试；所有历史纳入后仍超预算则明确拒绝，不无限调用摘要器。
+
 ### 4.2 对话与主动语音交互
 
 ```text
@@ -857,6 +859,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 - 2026-11-04（#8）：配对支持 `express` / `notify` / `tasks` / `settings`；修改勿扰需 `settings`，原有 `express` 凭证不自动提权，由受信管理入口重新配对。读取勿扰仍为已鉴权客户端的共享只读状态。WS 票据保留签发客户端、原始 Origin（含无 Origin）与 scope；兑换时精确匹配 Origin 并重新检查客户端未撤销及 `express` 权限，客户端不能在认证消息里自报身份。撤销同步作废其未用票据、移除其表现租约并断开其已认证连接，其他客户端保持可用。
 - 桌面首次配对由 native 调用已安装 sidecar 的固定 `--desktop-credential` 管理模式：该模式只访问固定回环端口，验证协议版本与配置目录中的 Runtime 身份，root 凭证只在管理进程内使用。WebView 仅取得 `express,notify,settings` 客户端凭证；凭证保存在用户配置目录 `desktop-client.json`，不再保存于 localStorage。已有客户端被撤销时明确失败，不静默重配提权；管理员显式移除该文件才重新配对。旧 WebView localStorage 客户端凭证退出使用，不自动扩大原授权；旧 root IPC 删除。没有相容 Runtime 时不另建数据库、不下载或安装。
 - 发送任何凭证前，管理模式从本配置目录读取 root，生成随机 32 字节 base64url challenge，经 `GET /v1/health` 的 `x-maneki-challenge` header 请求身份证明。Runtime 对合法 challenge 返回 `identityProof = HMAC-SHA256(root, JSON.stringify(["maneki-runtime-identity-v1", challenge, protocolVersion, instanceId, boundPort]))`（hex）；boundPort 必须取服务实际监听端口，管理模式使用预期连接端口和标准库恒时比较，防止把 challenge 转发到其他端口的真实 Runtime 后窃取凭证；验证失败不发送 root 或客户端 token。不带 challenge 的发现响应不变。此证明只验证持有本地密钥，不替代安装来源校验。管理模式失败输出无敏感数据的 `{error: code}`，native 将缺安装、超时、不可用、协议/身份不符、配置损坏与凭证撤销映射为明确提示；不输出原响应或密钥。
+- 管理请求逐次以新的 challenge 核验同一 Runtime 实例，并只在完成核验的同一 TCP socket 上发送 root、客户端 token 与正文；连接关闭、替换或实例变化时拒绝，不在新连接上自动重放凭证请求。每次请求结束释放专用连接；既有 HTTP/CLI 形状及错误码不变，无数据库迁移。
 - 本地 WS 最多同时保留 64 个连接（包括未认证连接）；单帧负载最多 64 KiB，每连接待发送缓冲最多 1 MiB。超限关闭当前连接，不影响其他连接；限制适用于分片到达和慢客户端。
 - 浏览器 WS 不在 URL/query 放 token；用已鉴权 HTTP 换取一次性短期连接票据，绑定客户端、Origin 与 scope；用后失效，票据与 header 不进入日志。无 Origin 的本地工具仍须 token 与 Host 校验。
 - 控制请求 Schema 限制未知字段、长度、枚举、消息/音频大小与并发；所有入口共享 Core 校验，不能只在 UI 禁用按钮。
@@ -1132,6 +1135,7 @@ v0.2 → v0.3：Runtime 改为可由插件独立启动的共享本地进程；�
 
 ### 10.3 EverNook 集成形态（零 EverNook 改动）
 
+- 既有通用 stdio MCP 记忆客户端的 JSON-RPC 行帧上限为 4 MiB UTF-8（不含换行），完整帧与未结束帧同样受限。超限立即断开该记忆子进程、释放缓冲并使在途调用降级；已发出的写入仍报告结果未知，不重放。连续合法小帧按各自大小检查，不按整个流累计拒绝。本限制不改变 Python shim 的 JSON 输入契约或 v6 数据格式；超大响应服务需在来源侧减少单次返回内容。
 - **Python shim**：`packages/adapters/evernook/`（模块 `maneki_evernook_adapter`，运行于 EverNook venv）实现 `evernook.adapters.surface.AdapterSurface`：pair（`HARNESS_DEFAULT_SCOPES=(recall,capture)`，独立调用端身份，不复用其他外壳 access）、capture（整轮缓冲后发布、原文保真、幂等、敏感分流原样呈现）、inject（ContextBuilder + 注入清单 experience_ids，真实 tokenizer 计数、超预算显式 omitted）、attempt_out_of_scope（维护作用域必须 permission_denied）、covered/gaps 结构化披露（covered ∩ gaps = ∅ 且 gaps 非空）。
 - **验收**：`evernook.adapters.conformance.ConformanceSuite` 全套件通过 = 新外壳验收标准（§5 七项检查）。
 - **TS 侧调用**：Runtime/CLI 以 JSON stdin/stdout 子进程调用 shim（沿用 EverNook CLI 惯例），EverNook 侧操作全部经配对身份进入，未配对/越权以核心回执原样失败。
