@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
-const { cancel, call, events } = vi.hoisted(() => ({
+const { cancel, call, credential, events } = vi.hoisted(() => ({
   cancel: vi.fn().mockResolvedValue(undefined),
   call: vi.fn(),
+  credential: vi.fn().mockResolvedValue("fixture-token"),
   events: { onEvent: undefined as undefined | ((event:any)=>void) },
 }));
 vi.mock("./voice-controller.js", () => ({
@@ -17,7 +18,7 @@ vi.mock("./voice-controller.js", () => ({
 }));
 vi.mock("./assistant-client.js", async (original) => ({
   ...(await original<typeof import("./assistant-client.js")>()),
-  assistantToken: async () => "fixture-token",
+  assistantToken: credential,
   assistantCall: call,
 }));
 vi.mock("./runtime-client.js", () => ({
@@ -51,6 +52,69 @@ class PanelNode extends EventTarget {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  credential.mockReset().mockResolvedValue("fixture-token");
+});
+it("未配对的设置视图仅复用凭证，后续显式打开助手仍可授权", async () => {
+  const nodes: PanelNode[] = [], doc = new EventTarget();
+  Object.assign(doc, { createElement: () => { const node = new PanelNode(); nodes.push(node); return node; } });
+  vi.stubGlobal("document", doc);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("Option", PanelNode);
+  const { AssistantClientError } = await import("./assistant-client.js");
+  credential.mockImplementation(async (create: boolean) => {
+    if (!create) throw new AssistantClientError("assistant_credential_pairing_required");
+    return "fixture-token";
+  });
+  call.mockResolvedValue({ epoch: 0, revision: 0, messages: [], todos: [], reminders: [], activeRequest: null, settings: null });
+  const host = new PanelNode(), appearance = new PanelNode();
+  const panel = createAssistantPanel(host as unknown as HTMLElement, () => undefined, () => undefined, undefined, appearance as unknown as HTMLElement);
+  try {
+    await panel.open(undefined, false);
+    panel.show("appearance");
+    expect(credential.mock.calls).toEqual([[false]]);
+    expect(call).not.toHaveBeenCalled();
+    expect(host.hidden).toBe(false);
+    expect(appearance.hidden).toBe(false);
+    await panel.open();
+    expect(credential.mock.calls).toEqual([[false], [true]]);
+    expect(call).toHaveBeenCalledWith("fixture-token", "/snapshot");
+  } finally { panel.dispose(); }
+});
+
+it("已配对的设置视图复用原凭证正常读取设置", async () => {
+  const doc = new EventTarget();
+  Object.assign(doc, { createElement: () => new PanelNode() });
+  vi.stubGlobal("document", doc);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("Option", PanelNode);
+  call.mockResolvedValue({ epoch: 0, revision: 0, messages: [], todos: [], reminders: [], activeRequest: null, settings: null });
+  const panel = createAssistantPanel(new PanelNode() as unknown as HTMLElement, () => undefined, () => undefined);
+  try {
+    await panel.open(undefined, false);
+    expect(credential).toHaveBeenCalledWith(false);
+    expect(call).toHaveBeenCalledWith("fixture-token", "/snapshot");
+  } finally { panel.dispose(); }
+});
+
+it("复用凭证尚未完成时显式打开助手仍能建立首次授权", async () => {
+  const doc = new EventTarget();
+  Object.assign(doc, { createElement: () => new PanelNode() });
+  vi.stubGlobal("document", doc);
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("Option", PanelNode);
+  const { AssistantClientError } = await import("./assistant-client.js");
+  let rejectExisting: (reason: Error) => void = () => undefined;
+  credential.mockImplementation((create: boolean) => create ? Promise.resolve("fixture-token") : new Promise((_resolve, reject) => { rejectExisting = reject; }));
+  call.mockResolvedValue({ epoch: 0, revision: 0, messages: [], todos: [], reminders: [], activeRequest: null, settings: null });
+  const panel = createAssistantPanel(new PanelNode() as unknown as HTMLElement, () => undefined, () => undefined);
+  try {
+    const view = panel.open(undefined, false);
+    const explicit = panel.open();
+    rejectExisting(new AssistantClientError("assistant_credential_pairing_required"));
+    await Promise.all([view, explicit]);
+    expect(credential.mock.calls).toEqual([[false], [true]]);
+    expect(call).toHaveBeenCalledWith("fixture-token", "/snapshot");
+  } finally { panel.dispose(); }
 });
 it("会话面板分别显示等待、完成和失联后的最后事实，来源标签按纯文本呈现", async () => {
   const nodes: PanelNode[] = [];

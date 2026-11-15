@@ -1154,7 +1154,14 @@ export function createAssistantPanel(
     return refreshing;
   }
   async function connect(create: boolean, reloadOlder = false) {
-    if (connecting) { await connecting; if (reloadOlder) await refresh(true); return; }
+    if (connecting) {
+      try { await connecting; }
+      catch (error) { if (!create || token) throw error; }
+      // 视图入口的复用失败不应吞掉随后明确打开助手的首次授权。
+      if (create && !token) return connect(true, reloadOlder);
+      if (reloadOlder) await refresh(true);
+      return;
+    }
     connecting = (async () => {
       token = await assistantToken(create);
       if (!stopEvents) {
@@ -1226,13 +1233,13 @@ export function createAssistantPanel(
       quote.replaceChildren(el("span",`${t.companionQuote}${utterance.text}`),button(t.removeCompanionReply,clearReply));
       selectTab("chat");composer.focus();
     },
-    async open(draft?: string) {
+    async open(draft?: string, create = true) {
       host.hidden = false;
       if (appearance && tab === "appearance") appearance.hidden = false;
       if (draft) composer.value = draft;
       notice.textContent = t.loading;
       await perform(async () => {
-        await connect(true, true);
+        await connect(create, true);
         notice.textContent = "";
         composer.focus();
       });

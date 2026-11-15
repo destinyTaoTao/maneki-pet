@@ -211,7 +211,8 @@ async function openAssistant(draft?:string,target?:AssistantTarget,quick=false):
     if(!await runtimeClient.ensureRuntime())throw new Error(uiText.runtimeUnavailable);
   }
   companionPresence?.setBusy("panel",true);
-  await assistantPanel.open(draft);
+  // 设置/形象仅切换视图；首次个人数据授权由明确打开助手的入口触发。
+  await assistantPanel.open(draft,target===undefined&&!quick);
   app!.dataset.assistantOpen="true";
   status.inert=true;
   controls.inert=true;
@@ -481,7 +482,6 @@ packSelect.addEventListener("change", () => {
   assistantPanel.setPetAppearance(packSelect.value);
   updatePackCards(packSelect.value);
   updateActions(pack.pack);
-  stateSelect.value = "idle";
   localStorage.setItem("maneki.selectedPack", packSelect.value);
 });
 
