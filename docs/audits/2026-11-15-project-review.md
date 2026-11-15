@@ -166,3 +166,30 @@
 - 用户新增希望用 DeepSeek 与 Qwen 完整验收记忆。**两者真实 tokenizer 支持尚未实现**：当前代码仍仅接受 gpt-4o / mini 及既有快照；本阶段只读取了现有实现与测试，没有改 tokenizer、增加依赖或下载词表。后续须确定 Qwen 具体模型/服务、DeepSeek 实际版本及官方词表映射，完成离线实现、回归、独立复核并更新测试版，再验成功召回。不能把当前聊天成功算作记忆验收通过。
 
 本次收口只更新审计与 roadmap，检查 Diff/既有文件哈希，不因文档追加重复全套运行测试；源码门禁仍为上表的 621 通过/3 跳过、Python 30 通过、桌面 Rust 8 通过/1 忽略。临时测试构建也完成 `tauri build --no-bundle`，未安装或发布。独立测试进程和私有凭证保留本机，不纳入提交；下一次应复用本次实验会话记录并核对存活状态，不能直接双击缺少隔离环境的可执行文件。
+
+## DeepSeek / Qwen tokenizer 阶段交付（2026-11-15 续接）
+
+用户恢复实施并选择按推荐的小模型尽快阶段收尾；范围为 DeepSeek 实际模型匹配、Qwen3-0.6B 本地 tokenizer、独立身份保存/召回证据。先行架构与计划提交 `5c6dcae`，实现提交 `9837a12`，本记录另作收尾提交。沿用已授权的 main 提交/推送流程。保护既有许可文件及 `.playwright-cli/`；不安装替换或发布三色预览。
+
+- `deepseek-flash` 固定到当日官方映射的 DeepSeek-V4.1-Flash-1017，HF revision `08c8657f02291e11b6f6b63e0e16014f8e748518`；`Qwen/Qwen3-0.6B` 固定到 `c1899de289a04d12100db370d81485cdf75e47ca`。文件/hash/许可见[适配器说明](../../packages/adapters/evernook/README.md#deepseek--小-qwen固定版本)。DeepSeek 官方文档的旧 V4 CDN ZIP 与 1017 的 9 个 added tokens 不同，未将其冒充当前匹配。在线别名后续换模型时仍需重新核验，不承诺供应商未来不变。
+- 新增可选 `tokenizers==0.22.2` extra。只读取固定本地 JSON、各限 16 MiB；同批字节校验哈希后解析，关闭填充/截断。无运行期下载、Hub 或 remote code。Runtime 逐请求匹配 model→counter，反例覆盖两 HF 互换、OpenAI 配 HF、未知模型配已知 counter。原有 tiktoken、协议 v1、设置和 SQLite v6 保留。
+- 实际先红后绿：Python 新正向 4 项失败、Runtime 新正向 2 项失败，均为旧白名单拒绝；实现后最终 Python **40 通过**，全仓 **625 通过、3 跳过**（Runtime 302、Desktop 145，其余分包与上一阶段相同），`pnpm -r build` / `pnpm -r typecheck` 全通过。三个真实 shim/tokenizer 跨包集成分别覆盖 OpenAI、DeepSeek、Qwen，均保存、清历史/摘要、重启召回且有来源、关闭对照；模型为替身。Windows 自带 Node / native 锁 bundle 布局回归通过，四包完整校验通过。Rust/UI 源码无变化，本阶段不重复 Rust 单测或原生壳编译；测试 Runtime bundle 已更新至此次源码，沿用原独立原生测试壳。
+- 独立 Spec/Quality 评审及矩阵补充后的复核通过，无确认阻断。README 首段补 OpenAI 路径限定；没有用结构检查冒充实际模型效果。
+
+### 独立身份真实 DeepSeek 验收
+
+在既有实验身份 `19b1e87a` 下新增专属 Python venv、词表目录与全新 EverNook 普通库；owner fixture 与小招 recall/capture 配对文件分离。未修改共享 venv、EverNook owning repo、正式个人库/凭证；可信源码通过本地路径复用，未下载模型权重。测试原生壳继续运行，受信更新的 Runtime bundle 只在实验目录替换并重启，始终核验测试 root 身份，未操作正式 Runtime。
+
+真实验收结果：
+
+| 场景 | 实际结果 |
+|---|---|
+| 显式配对与保存合成偏好 | 通过；原文保存回执，使用已配对 read-back 读回内容一致 |
+| 清本地历史/摘要并重启，唯一代号召回 | 通过；真实 DeepSeek 回答包含保存的稀有合成饮品及数量，Runtime 追加实际来源 ID |
+| 关闭召回，再清本地历史并问同一代号 | 通过；回答不含该合成偏好或来源 |
+| 自然语言长问句 | **未通过**；首次返回不知道且提示降级。直接 shim 同问句无 sources，`index_not_built` / `semantic_disabled`；同库唯一代号有正确 source 和正文。未修改查询策略或 owner 索引/语义配置来掩盖结果，属于后续阶段四检索与部署限制 |
+| Qwen 真实推理、真实次日 | **未执行**；本机 Ollama API 无服务，仅完成真实 Qwen tokenizer / 记忆链的替身模型联验；不将当日重启算次日 |
+
+此次真实 DeepSeek 共 3 次普通模型请求：1 次自然长问句未命中，2 次唯一代号开/关召回对照通过；保存本身走确定性路径。验收脚本最初有 Windows ESM 路径与 PUT 方法接线错误，发生于模型调用前；已修正实验脚本，不是工程缺陷，也没有把它们计作模型通过。结束时记忆保存/召回均关闭，保留独立库和回执供后续验收；DeepSeek 模型配置与用户密钥保留在该实验身份，不读取或输出密钥内容。
+
+日志：`%TEMP%/maneki-hf-{build,full-test,typecheck,python}.log`。实验的 `tokenizer-phase/acceptance-result.json` 保留自然问句失败，`acceptance-keyword-result.json` 保留代号验收通过；本机会话记录存于原实验目录 `session.json`，不纳入 Git。下一阶段应先配置同一 checkpoint 的 Qwen 实际服务，并处理词法索引/语义检索的部署与长问句命中，再验证真实次日跨项目；不提前关闭 #67 或勾选整体出口。

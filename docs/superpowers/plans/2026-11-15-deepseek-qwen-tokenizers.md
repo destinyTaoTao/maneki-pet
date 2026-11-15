@@ -24,13 +24,13 @@
 
 **Interfaces:** create_counter(model) 保留 count(text)/counter_id；checkedRecall(raw, model?) 新增可选消费模型，实际 recall 必传。
 
-- [ ] 写真实词表计数、特殊 token/Unicode、缺包/错哈希/未知模型及跨模型 counter 红测并确认失败。
-- [ ] 实现固定本地加载与精确模型/counter 匹配，复跑 Python 与 Runtime 定向回归。
+- [x] 写真实词表计数、特殊 token/Unicode、缺包/错哈希/未知模型及跨模型 counter 红测并确认失败。
+- [x] 实现固定本地加载与精确模型/counter 匹配，复跑 Python 与 Runtime 定向回归。
 
 ### Task 2: 独立验收与收尾
 
 **Files:** 既有 real integration test、适配器 README、审计与 roadmap；实验目录不入 Git。
 
-- [ ] 同一真实 shim/tokenizer 链分别覆盖两模型：显式配对/保存、清小招历史与摘要、重启后召回/来源、关闭召回对照。
-- [ ] 新库及专属 Python 部署到独立测试身份；只对可用实际模型做有限真实调用并核对来源，无服务则保留实机项。
-- [ ] 全仓 build/test/typecheck、Python suite、必要 Windows bundle；独立全变更只读复核，修复后本地 main 提交，最终列范围与剩余项。
+- [x] 同一真实 shim/tokenizer 链分别覆盖两模型：显式配对/保存、清小招历史与摘要、重启后召回/来源、关闭召回对照。
+- [x] 新库及专属 Python 部署到独立测试身份；DeepSeek 3 次真实请求，唯一代号开关对照通过，自然长问句未命中如实保留；Qwen 无服务保留实机项。
+- [x] 全仓 build/test/typecheck、Python suite、Windows bundle 布局；独立全变更复核通过，本地 main 提交，范围与剩余项记录于审计。
