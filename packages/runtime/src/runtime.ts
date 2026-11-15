@@ -284,12 +284,14 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
           return;
         }
         lifecycle.transition("stopping");
+        // 先停止 HTTP 接入，避免 Provider/调度清理期间再接受新的业务写入。
+        const stoppingHttp = api.stop();
         stopAssistantEvents();
         await assistant.stop();
         expressions.close();
         observations.close();
         hub.detach();
-        await api.stop();
+        await stoppingHttp;
         await bridge.close();
         try {
           await memoryClient?.stop();

@@ -65,6 +65,8 @@ interface AuthedClient {
 
 export class LocalHttpApi {
   private server: Server | undefined;
+  private stopping = false;
+  private stopPromise: Promise<void> | undefined;
   private readonly deps: LocalHttpApiDeps;
 
   constructor(deps: LocalHttpApiDeps) {
@@ -92,17 +94,30 @@ export class LocalHttpApi {
   }
 
   async stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
     const server = this.server;
     if (!server) {
       return;
     }
-    this.server = undefined;
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
+    this.stopping = true;
+    this.stopPromise = new Promise<void>((resolve) => {
+      // 给已开始的响应有限排空时间，未传完的 body 不能无限阻止退出。
+      const timer = setTimeout(() => server.closeAllConnections(), 1000);
+      timer.unref();
+      server.close(() => {
+        clearTimeout(timer);
+        this.server = undefined;
+        resolve();
+      });
     });
+    await this.stopPromise;
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (this.stopping) {
+      this.sendJson(res, 503, { error: "runtime_stopping" });
+      return;
+    }
     const expectedHost = `${this.deps.host}:${(this.server?.address() as { port: number }).port}`;
     const hostCheck = checkHost(req.headers.host, expectedHost);
     if (!hostCheck.ok) {
@@ -499,6 +514,10 @@ export class LocalHttpApi {
       }
       chunks.push(chunk as Buffer);
     }
+    if (this.stopping) {
+      this.sendJson(res, 503, { error: "runtime_stopping" });
+      return undefined;
+    }
     // 读取请求体会让出事件循环；期间撤销的凭证不能继续完成写操作。
     const auth = this.authenticate(req);
     if (!auth.ok) {
@@ -529,6 +548,8 @@ export class LocalHttpApi {
   }
 
   private sendJson(res: ServerResponse, status: number, body: unknown): void {
+    if (res.destroyed || res.writableEnded) return;
+    if (res.headersSent) { res.end(); return; }
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(body));
   }
