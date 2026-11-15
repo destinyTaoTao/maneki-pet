@@ -31,6 +31,8 @@ interface PendingRequest {
   cleanup: () => void;
 }
 
+const MAX_FRAME_BYTES = 4 * 1024 * 1024;
+
 /**
  * stdio MCP 记忆客户端（票据 #46）：实现 Core 的 ExternalMemoryProvider 端口，
  * 连接用户自建记忆服务（initialize → tools/list → tools/call，行分帧 JSON-RPC 2.0）。
@@ -43,6 +45,7 @@ export class McpMemoryClient implements ExternalMemoryProvider {
   private child: ChildProcessWithoutNullStreams | undefined;
   private readonly terminating = new Map<ChildProcessWithoutNullStreams, Promise<void>>();
   private buffer = "";
+  private bufferBytes = 0;
   private readonly pending = new Map<number, PendingRequest>();
   private nextId = 1;
   private initialized = false;
@@ -80,6 +83,8 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     const child = this.child;
     this.child = undefined;
     this.initialized = false;
+    this.buffer = "";
+    this.bufferBytes = 0;
     this.failPending("memory client stopped");
     if (child) this.terminate(child);
     await Promise.all(this.terminating.values());
@@ -183,6 +188,7 @@ export class McpMemoryClient implements ExternalMemoryProvider {
     this.child = undefined;
     this.initialized = false;
     this.buffer = "";
+    this.bufferBytes = 0;
     this.terminate(child);
     this.failPending(reason);
   }
@@ -215,15 +221,23 @@ export class McpMemoryClient implements ExternalMemoryProvider {
   }
 
   private onData(chunk: string): void {
-    this.buffer += chunk;
-    let newlineIndex = this.buffer.indexOf("\n");
-    while (newlineIndex >= 0) {
-      const line = this.buffer.slice(0, newlineIndex).trim();
-      this.buffer = this.buffer.slice(newlineIndex + 1);
-      if (line.length > 0) {
-        this.dispatch(line);
+    let start = 0;
+    while (start < chunk.length) {
+      const newline = chunk.indexOf("\n", start);
+      const part = chunk.slice(start, newline < 0 ? chunk.length : newline);
+      this.bufferBytes += Buffer.byteLength(part, "utf8");
+      // 在拼接/解析前检查，包括永远不发送换行的故障服务。
+      if (this.bufferBytes > MAX_FRAME_BYTES) {
+        if (this.child) this.failChild(this.child, "memory response frame too large");
+        return;
       }
-      newlineIndex = this.buffer.indexOf("\n");
+      this.buffer += part;
+      if (newline < 0) return;
+      const line = this.buffer.trim();
+      this.buffer = "";
+      this.bufferBytes = 0;
+      if (line.length > 0) this.dispatch(line);
+      start = newline + 1;
     }
   }
 
@@ -264,8 +278,11 @@ function parseItems(result: unknown): MemoryItem[] {
   }
   try {
     const parsed = JSON.parse(text) as { items?: MemoryItem[] };
-    return Array.isArray(parsed.items) ? parsed.items : [];
+    if (!parsed || !Array.isArray(parsed.items) || parsed.items.some(item =>
+      !item || typeof item !== "object" || typeof item.id !== "string" || typeof item.text !== "string" ||
+      (item.source !== "explicit" && item.source !== "implicit"))) throw new Error();
+    return parsed.items;
   } catch {
-    return [];
+    throw new Error("invalid memory response");
   }
 }

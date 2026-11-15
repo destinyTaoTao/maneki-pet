@@ -44,6 +44,27 @@ afterEach(async () => {
 });
 
 describe("MCP 记忆客户端 × 替身契约", () => {
+  it.each([[null], [{ id: "x", text: "错误来源", source: "unknown" }], [{ id: "x", text: 42, source: "explicit" }]].map(items => ({ items })))("非法记忆条目降级而非抛出或冒充隐式来源：$items", async ({ items }) => {
+    const client = makeClient({ MEMORY_STUB_ITEMS_JSON: JSON.stringify(items) });
+    const service = new MemoryContextService({ provider: client });
+    await expect(service.retrieveContext({ text: "x" }, makeCtx(5000))).resolves.toMatchObject({ outcome: "degraded", reason: expect.stringContaining("invalid memory response") });
+  });
+  it.each(["partial", "complete", "utf8"])("拒绝超大 %s 帧，包含没有换行的输出和 UTF-8 字节超限", async (mode) => {
+    const client = makeClient({ MEMORY_STUB_OVERSIZED_FRAME: mode });
+    await expect(client.retrieve({ text: "x" }, makeCtx(1500))).rejects.toThrow(/response frame too large/);
+  });
+  it("超大写入回执报告结果未知且不重放", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maneki-mem-frame-"));
+    tempDirs.push(dir);
+    const log = join(dir, "calls.log");
+    const client = makeClient({ MEMORY_STUB_OVERSIZED_FRAME: "partial", MEMORY_STUB_TOOL_LOG: log });
+    await expect(client.write(record, makeCtx(1500))).rejects.toThrow(/response frame too large; write result unknown/);
+    expect(readFileSync(log, "utf8")).toBe("call\n");
+  });
+  it("连续合法小帧总量超过 4 MiB 仍可处理最终响应", async () => {
+    const client = makeClient({ MEMORY_STUB_MANY_SMALL_FRAMES: "1" });
+    await expect(client.retrieve({ text: "x" }, makeCtx(5000))).resolves.toEqual({ items: [] });
+  });
   it("取消在途读取后丢弃迟到响应，后续请求仍可完成", async () => {
     const dir = mkdtempSync(join(tmpdir(), "maneki-mem-cancel-"));
     tempDirs.push(dir);

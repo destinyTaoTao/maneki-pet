@@ -97,20 +97,23 @@ export class MemoryContextService {
     if (!provider) {
       return { outcome: "degraded", reason: "no external memory provider configured" };
     }
-    let items: MemoryItem[];
     try {
       const response = await provider.retrieve(query, ctx);
       if (this.isLate(ctx)) {
         return { outcome: "degraded", reason: "late retrieval result dropped after deadline" };
       }
-      items = response.items;
+      if (!response || !Array.isArray(response.items) || response.items.some(item =>
+        !item || typeof item !== "object" || typeof item.id !== "string" || typeof item.text !== "string" ||
+        (item.source !== "explicit" && item.source !== "implicit"))) {
+        throw new Error("invalid memory response");
+      }
+      const filtered = response.items.filter((item) =>
+        item.source === "explicit" ? this.config.explicitMemoryEnabled : this.config.implicitReferenceEnabled,
+      );
+      return { outcome: "ok", items: filtered };
     } catch (error) {
       return { outcome: "degraded", reason: `external memory retrieve failed: ${describe(error)}` };
     }
-    const filtered = items.filter((item) =>
-      item.source === "explicit" ? this.config.explicitMemoryEnabled : this.config.implicitReferenceEnabled,
-    );
-    return { outcome: "ok", items: filtered };
   }
 
   async writeback(record: AssistantMemoryRecord, ctx: CallContext): Promise<MemoryWriteResult> {

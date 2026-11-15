@@ -37,6 +37,17 @@ async function respond(message) {
   if (message.method === "tools/call" && process.env.MEMORY_STUB_TOOL_DELAY_MS) {
     await sleep(Number(process.env.MEMORY_STUB_TOOL_DELAY_MS));
   }
+  if (message.method === "tools/call" && process.env.MEMORY_STUB_OVERSIZED_FRAME) {
+    const mode = process.env.MEMORY_STUB_OVERSIZED_FRAME;
+    const text = mode === "utf8" ? "界".repeat(1_400_000) : "x".repeat(4 * 1024 * 1024 + 1);
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text }] } }) + (mode === "partial" ? "" : "\n"));
+    return;
+  }
+  if (message.method === "tools/call" && process.env.MEMORY_STUB_MANY_SMALL_FRAMES) {
+    for (let index = 0; index < 300; index++) {
+      process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/message", params: { text: "x".repeat(16_384) } })}\n`);
+    }
+  }
   responses += 1;
   const { id, method, params } = message;
   const exitWhenDone = exitAfter > 0 && responses >= exitAfter;
@@ -50,7 +61,7 @@ async function respond(message) {
       if (fail === "retrieve") return sendError(id, -32000, "stub retrieve failure");
       const query = String(params.arguments?.query ?? "").toLowerCase();
       const items = store.filter((item) => item.text.toLowerCase().includes(query));
-      result = text({ items });
+      result = text({ items: process.env.MEMORY_STUB_ITEMS_JSON ? JSON.parse(process.env.MEMORY_STUB_ITEMS_JSON) : items });
     } else if (method === "tools/call" && params?.name === "memory_write") {
       if (fail === "write") return sendError(id, -32000, "stub write failure");
       if (process.env.MEMORY_STUB_WRITE_LOG) {

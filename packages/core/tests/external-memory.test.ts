@@ -41,6 +41,15 @@ class FakeMemoryProvider implements ExternalMemoryProvider {
 }
 
 describe("MemoryContextService 检索注入", () => {
+  it.each(["null", "{}", '{"items":null}', '{"items":[null]}', '{"items":[{"id":"x","text":"x","source":"unknown"}]}'])("Provider 非法响应保持降级：%s", async (raw) => {
+    const provider: ExternalMemoryProvider = {
+      info: providerInfo,
+      retrieve: async () => JSON.parse(raw),
+      write: async () => undefined,
+    };
+    const service = new MemoryContextService({ provider });
+    await expect(service.retrieveContext({ text: "x" }, callContext)).resolves.toMatchObject({ outcome: "degraded", reason: expect.stringContaining("invalid memory response") });
+  });
   it("正常检索返回条目", async () => {
     const service = new MemoryContextService({ provider: new FakeMemoryProvider() });
     const result = await service.retrieveContext({ text: "偏好" }, callContext);
