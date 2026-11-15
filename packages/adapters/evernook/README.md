@@ -10,7 +10,7 @@ Maneki 桌宠的 EverNook 适配器 shim：实现官方 `evernook.adapters.surfa
 ```powershell
 py -V:Astral/CPython3.14.4 -m venv C:\maneki-lab\venv-py314
 C:\maneki-lab\venv-py314\Scripts\python.exe -m pip install -e C:\myProject\evernook pytest
-C:\maneki-lab\venv-py314\Scripts\python.exe -m pip install -e 'C:\myProject\maneki-pet\packages\adapters\evernook[openai-tokenizer]'
+C:\maneki-lab\venv-py314\Scripts\python.exe -m pip install -e 'C:\myProject\maneki-pet\packages\adapters\evernook[openai-tokenizer,hf-tokenizer]'
 ```
 
 ## 测试与验收
@@ -51,8 +51,23 @@ C:\maneki-lab\venv-py314\Scripts\python.exe -m maneki_evernook_adapter conforman
 
 ## 离线 tokenizer（需显式安装与准备）
 
-默认 shim 无 tokenizer 依赖；召回需要可选 extra `openai-tokenizer`（固定 `tiktoken==0.12.0`）。只支持 `gpt-4o`、`gpt-4o-mini`、`gpt-4o-2024-05-13`、`gpt-4o-2024-08-06`、`gpt-4o-mini-2024-07-18`，按官方 o200k_base 映射计数。计数针对记忆 payload 文本，不是供应商整条请求的账单保证。
+默认 shim 无 tokenizer 依赖；OpenAI 模型召回使用可选 extra `openai-tokenizer`（固定 `tiktoken==0.12.0`）。该组合只支持 `gpt-4o`、`gpt-4o-mini`、`gpt-4o-2024-05-13`、`gpt-4o-2024-08-06`、`gpt-4o-mini-2024-07-18`，按官方 o200k_base 映射计数。计数针对记忆 payload 文本，不是供应商整条请求的账单保证。
 
 将公开 [o200k_base.tiktoken 词表](https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken) 显式保存到用户选择的本地目录，并设置 `MANEKI_TOKENIZER_DATA_DIR`。未设置时查找包内 `tokenizer_data/o200k_base.tiktoken`，仓库不捆绑大词表。文件上限 8 MiB，SHA-256 必须为 `446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d`。目录来自受信进程环境；JSON 不接受路径、类或模块名。缺包、版本不符、词表缺失/哈希错误、未知模型统一 `tokenizer_unavailable`，不回退字符估算、不调用网络、不自动下载。
 
 实现直接用本地 BPE ranks 构造 `tiktoken.core.Encoding`，不调用可能加载插件或下载的 `get_encoding`/`encoding_for_model`。pattern/special tokens 与白名单映射依据 [OpenAI tiktoken 0.12.0 openai_public.py](https://github.com/openai/tiktoken/blob/0.12.0/tiktoken_ext/openai_public.py) 和 [model.py](https://github.com/openai/tiktoken/blob/0.12.0/tiktoken/model.py)，衍生定义许可保存在 `maneki_evernook_adapter/LICENSE.tiktoken`。词表仅完整性校验不证明分发者身份，应从官方来源准备。
+
+### DeepSeek / 小 Qwen（固定版本）
+
+安装可选 extra `hf-tokenizer`（`tokenizers==0.22.2`）；与 OpenAI extra 可并存。将下表官方 JSON 显式保存到同一受信词表目录，按规定重命名，运行时不联网下载、不加载模型权重或 remote code。
+
+| 消费模型 ID | 固定模型 revision / 本地文件 | SHA-256 |
+|---|---|---|
+| `deepseek-flash` | [DeepSeek-V4.1-Flash-1017@08c8657f](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/resolve/08c8657f02291e11b6f6b63e0e16014f8e748518/tokenizer.json)；`deepseek-v4.1-flash-1017.tokenizer.json` | `c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b` |
+| `Qwen/Qwen3-0.6B` | [Qwen3-0.6B@c1899de2](https://huggingface.co/Qwen/Qwen3-0.6B/resolve/c1899de289a04d12100db370d81485cdf75e47ca/tokenizer.json)；`qwen3-0.6b.tokenizer.json` | `aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4` |
+
+每份 JSON ≤16 MiB，校验同一批字节再解析，关闭截断/填充。Runtime 要求返回的 counter_id 与本次消费模型一致，不能拿另一已支持 counter 冒充。现有 JSON v1、设置和数据格式不变；没有正确环境/词表时保持明确降级，显式保存仍独立可用。
+
+DeepSeek 在线别名按 [2026-11-15 官方映射](https://api-docs.deepseek.com/)确认；官方 token_usage 页的旧 V4 ZIP 与 1017 的 added tokens 不同，不接受替代。供应商未来更换别名模型时须重新核验本地映射。Qwen 的本机推理服务须实际加载此 checkpoint，并以该模型 ID 提供服务；不把 `qwen-plus`、Ollama 别名或其他商业/本地模型自动视为等价。
+
+许可见固定 revision 的 [DeepSeek MIT](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/LICENSE)、[Qwen Apache-2.0](https://huggingface.co/Qwen/Qwen3-0.6B/blob/c1899de289a04d12100db370d81485cdf75e47ca/LICENSE) 和 [Tokenizers Apache-2.0](https://github.com/huggingface/tokenizers/blob/v0.22.2/LICENSE)。仓库不分发模型词表。这里只统计 memory payload，包含角色/思考/工具模板的完整请求与实际账单另计。

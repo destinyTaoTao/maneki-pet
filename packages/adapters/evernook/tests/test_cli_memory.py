@@ -122,6 +122,63 @@ def test_real_tokenizer_cli_budget_sources_and_receipt(library):
     assert (datetime.now(timezone.utc) - datetime.fromisoformat(bundle["as_of"])).total_seconds() < 30
 
 
+@pytest.mark.parametrize("model,filename,counter_id", [
+    ("deepseek-flash", "deepseek-v4.1-flash-1017.tokenizer.json", "hf-tokenizers-0.22.2-deepseek-v4.1-flash-1017-08c8657f"),
+    ("Qwen/Qwen3-0.6B", "qwen3-0.6b.tokenizer.json", "hf-tokenizers-0.22.2-qwen3-0.6b-c1899de2"),
+])
+def test_pinned_hf_counter_matches_official_local_data_without_network(model, filename, counter_id):
+    from tokenizers import Tokenizer
+    from maneki_evernook_adapter.tokenizer import create_counter
+    official = Tokenizer.from_file(str(Path(os.environ["MANEKI_TOKENIZER_DATA_DIR"]) / filename))
+    samples = ["Hello!", "合成偏好：柚子茶🙂", "<｜System｜> <|im_start|>", "123456789\n中文 English", ""]
+    with patch("socket.socket", side_effect=AssertionError("network forbidden")):
+        counter = create_counter(model)
+        assert counter.counter_id == counter_id
+        assert [counter.count(text) for text in samples] == [len(official.encode(text, add_special_tokens=False).ids) for text in samples]
+        assert counter.count("汉字🙂 " * 5000) > 2048  # 不允许加载器截断或填充掩盖超限。
+        from evernook.models import MemoryFailure
+        with patch("maneki_evernook_adapter.tokenizer.version", return_value="0.0.0"):
+            with pytest.raises(MemoryFailure, match="tokenizer_unavailable"):
+                create_counter(model)
+
+
+@pytest.mark.parametrize("model", ["deepseek-flash", "Qwen/Qwen3-0.6B"])
+def test_hf_counter_missing_or_tampered_data_and_wrong_package_fail_closed(model, tmp_path, monkeypatch):
+    from maneki_evernook_adapter.tokenizer import create_counter
+    from evernook.models import MemoryFailure
+    monkeypatch.setenv("MANEKI_TOKENIZER_DATA_DIR", str(tmp_path))
+    with patch("socket.socket", side_effect=AssertionError("network forbidden")):
+        with pytest.raises(MemoryFailure, match="tokenizer_unavailable"):
+            create_counter(model)
+        for name in ("deepseek-v4.1-flash-1017.tokenizer.json", "qwen3-0.6b.tokenizer.json"):
+            (tmp_path / name).write_text('{"model": "untrusted"}', encoding="utf-8")
+        with pytest.raises(MemoryFailure, match="tokenizer_unavailable"):
+            create_counter(model)
+        with patch("maneki_evernook_adapter.tokenizer.version", return_value="0.0.0"):
+            with pytest.raises(MemoryFailure, match="tokenizer_unavailable"):
+                create_counter(model)
+
+
+@pytest.mark.parametrize("model", ["deepseek-flash", "Qwen/Qwen3-0.6B"])
+def test_hf_real_cli_receipt_and_budgeted_recall(library, model):
+    from maneki_evernook_adapter.tokenizer import create_counter
+    config, _ = library
+    assert cli(config, "pair")[0] == 0
+    code, saved = cli(config, "capture-message", event())
+    assert code == 0 and saved["original_saved"] is True
+    code, bundle = cli(config, "inject", {"protocolVersion": 1, "query": "柚子", "model": model, "tokenLimit": 2048})
+    assert code == 0 and saved["message_id"] in bundle["sources"]
+    assert create_counter(model).count(bundle["payload"]) == bundle["used_tokens"] <= 2048
+
+
+@pytest.mark.parametrize("model", ["qwen-plus", "qwen3:0.6b", "deepseek-v3", "deepseek-flash-latest"])
+def test_unverified_model_aliases_are_not_inferred(model):
+    from maneki_evernook_adapter.tokenizer import create_counter
+    from evernook.models import MemoryFailure
+    with pytest.raises(MemoryFailure, match="tokenizer_unavailable"):
+        create_counter(model)
+
+
 def test_missing_vocabulary_never_calls_network(tmp_path, monkeypatch):
     monkeypatch.setenv("MANEKI_TOKENIZER_DATA_DIR", str(tmp_path))
     from maneki_evernook_adapter.tokenizer import create_counter

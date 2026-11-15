@@ -13,12 +13,11 @@ const python = process.env.MANEKI_MEMORY_TEST_PYTHON;
 const tokenizerDataDir = process.env.MANEKI_MEMORY_TEST_TOKENIZER_DIR;
 
 // 显式启用；只初始化本测试新建的临时库，不读取任何正式记忆配置。
-it.skipIf(!python || !tokenizerDataDir)("真实 shim 保存后清本地历史并重启，只有授权召回才把来源带给模型，故障不阻塞提醒", async () => {
+it.skipIf(!python || !tokenizerDataDir).each(["gpt-4o-mini","deepseek-flash","Qwen/Qwen3-0.6B"])("%s 真实 shim 保存后清本地历史并重启，只有授权召回才把来源带给模型，故障不阻塞提醒", async (model) => {
   const directory = mkdtempSync(join(tmpdir(), "maneki-memory-chain-"));
   let runtime: StartedRuntime | undefined;
   const notify = vi.fn(async () => ({ status: "accepted" as const }));
   const reply = vi.fn(async (_input: unknown) => ({ text: "合成模型回答", usage: { inputTokens: 1, outputTokens: 1 } }));
-  const model = "gpt-4o-mini";
   const runtimeDir = join(directory, "assistant");
   let token = "";
   try {

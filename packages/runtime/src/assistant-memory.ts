@@ -16,14 +16,20 @@ export interface AssistantMemoryPort {
 export type MemorySpawn = (command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams;
 const object = (raw:unknown): raw is Record<string,unknown> => Boolean(raw && typeof raw === "object" && !Array.isArray(raw));
 const sourceId = (raw:unknown): raw is string => typeof raw === "string" && /^[A-Za-z0-9_.:/-]{1,200}$/.test(raw);
-export function checkedRecall(raw:unknown):MemoryRecall {
-  if (!object(raw) || Object.keys(raw).some(k=>!["payload","sources","used_tokens","token_limit","omitted","degraded","complete","counter_id","as_of"].includes(k)) ||
+const modelCounters = new Map([
+  ...["gpt-4o","gpt-4o-mini","gpt-4o-2024-05-13","gpt-4o-2024-08-06","gpt-4o-mini-2024-07-18"].map(model=>[model,"tiktoken-0.12.0-o200k_base"] as const),
+  ["deepseek-flash","hf-tokenizers-0.22.2-deepseek-v4.1-flash-1017-08c8657f"],
+  ["Qwen/Qwen3-0.6B","hf-tokenizers-0.22.2-qwen3-0.6b-c1899de2"],
+]);
+export function checkedRecall(raw:unknown,model="gpt-4o-mini"):MemoryRecall {
+  const expectedCounter=modelCounters.get(model);
+  if (!expectedCounter || !object(raw) || Object.keys(raw).some(k=>!["payload","sources","used_tokens","token_limit","omitted","degraded","complete","counter_id","as_of"].includes(k)) ||
       typeof raw.payload !== "string" || Buffer.byteLength(raw.payload,"utf8") > 128*1024 ||
       !Array.isArray(raw.sources) || raw.sources.length > 8 || !raw.sources.every(sourceId) || new Set(raw.sources).size !== raw.sources.length ||
       !Number.isSafeInteger(raw.used_tokens) || Number(raw.used_tokens)<0 || !Number.isSafeInteger(raw.token_limit) || Number(raw.token_limit)<128 || Number(raw.token_limit)>2048 || Number(raw.used_tokens)>Number(raw.token_limit) ||
       !Array.isArray(raw.omitted) || raw.omitted.length>256 || !raw.omitted.every(v=>typeof v === "string" && v.length<=200) ||
       !Array.isArray(raw.degraded) || raw.degraded.length>64 || !raw.degraded.every(v=>typeof v === "string" && v.length<=200) || typeof raw.complete !== "boolean" ||
-      raw.counter_id !== "tiktoken-0.12.0-o200k_base" || typeof raw.as_of !== "string" || raw.as_of.length>80 || !Number.isFinite(Date.parse(raw.as_of)))
+      raw.counter_id !== expectedCounter || typeof raw.as_of !== "string" || raw.as_of.length>80 || !Number.isFinite(Date.parse(raw.as_of)))
     throw new AssistantError(502,"memory_unavailable");
   let payload:unknown;try { payload=JSON.parse(raw.payload); } catch { throw new AssistantError(502,"memory_unavailable"); }
   if (!object(payload) || payload.kind !== "untrusted_memory_context" || !Array.isArray(payload.items) || payload.items.length>256 ||
@@ -110,7 +116,7 @@ export class PythonAssistantMemory implements AssistantMemoryPort {
     if(!input.query.trim()||input.query.length>4000||!input.model||input.model.length>120||!Number.isInteger(input.tokenLimit)||input.tokenLimit<128||input.tokenLimit>2048)throw new AssistantError(400,"memory_request_invalid");
     const raw=await this.call(settings,"inject",{protocolVersion:1,...input},signal);
     if(!object(raw)||raw.token_limit!==input.tokenLimit)throw new AssistantError(502,"memory_unavailable");
-    return checkedRecall(raw);
+    return checkedRecall(raw,input.model);
   }
   invalidate():void {for(const cancel of this.cancellations.values())cancel();}
   async stop():Promise<void> {

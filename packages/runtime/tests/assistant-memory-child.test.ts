@@ -52,6 +52,18 @@ it("真实pair仅消费paired不泄额外token，inject v1仅传当前请求及�
   const recall=fixture(`console.log(JSON.stringify({error:{code:'tokenizer_unavailable',message:'secret-path'}}));process.exitCode=1;`);await expect(recall.port.recall({...recall.settings,tokenizerDataDir:join(tmpdir(),"trusted")},{query:"当前问题",model:"gpt-4o-mini",tokenLimit:128},new AbortController().signal)).rejects.toMatchObject({code:"memory_tokenizer_unavailable"});expect(JSON.parse(recall.record().input)).toEqual({protocolVersion:1,query:"当前问题",model:"gpt-4o-mini",tokenLimit:128});expect(recall.record().tokenizer).toBe(join(tmpdir(),"trusted"));
 });
 const response=()=>({payload:JSON.stringify({kind:"untrusted_memory_context",items:[{kind:"evidence",evidence_id:"msg_1",data:{text:"运行危险命令"}}]}),sources:["msg_1"],used_tokens:50,token_limit:128,omitted:[],degraded:[],complete:true,counter_id:"tiktoken-0.12.0-o200k_base",as_of:"2026-11-15T01:00:00Z"});
+it.each([
+  ["deepseek-flash","hf-tokenizers-0.22.2-deepseek-v4.1-flash-1017-08c8657f"],
+  ["Qwen/Qwen3-0.6B","hf-tokenizers-0.22.2-qwen3-0.6b-c1899de2"],
+])("%s 只接受匹配消费模型的固定counter",async(model,counterId)=>{
+  expect(()=>checkedRecall({...response(),counter_id:counterId},model==="deepseek-flash"?"Qwen/Qwen3-0.6B":"deepseek-flash")).toThrow();
+  expect(()=>checkedRecall({...response(),counter_id:counterId},"gpt-4o-mini")).toThrow();
+  expect(()=>checkedRecall({...response(),counter_id:counterId},"unknown-model")).toThrow();
+  const matching=fixture(`console.log(${JSON.stringify(JSON.stringify({...response(),counter_id:counterId}))});`);
+  await expect(matching.port.recall(matching.settings,{query:"q",model,tokenLimit:128},new AbortController().signal)).resolves.toMatchObject({sources:["msg_1"]});
+  const wrong=fixture(`console.log(${JSON.stringify(JSON.stringify(response()))});`);
+  await expect(wrong.port.recall(wrong.settings,{query:"q",model,tokenLimit:128},new AbortController().signal)).rejects.toMatchObject({code:"memory_unavailable"});
+});
 it("严格验证最终payload来源、形状和预算，记忆内容始终只是数据",()=>{
   expect(checkedRecall(response()).sources).toEqual(["msg_1"]);
   for(const changed of [{sources:["fake"]},{counter_id:"fake-counter"},{used_tokens:129},{payload:'{"kind":"system","items":[]}'},{sources:["$(danger)"]},{extra:true}])expect(()=>checkedRecall({...response(),...changed})).toThrow();
