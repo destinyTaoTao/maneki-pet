@@ -87,34 +87,39 @@ export class ConversationContextAssembler {
       };
     }
 
-    const dropped = history.slice(0, history.length - keepCount);
-    let summaryText: string;
-    try {
-      summaryText = await summarizer.summarize(dropped);
-    } catch {
-      return {
-        outcome: "rejected",
-        reason: `context budget exceeded and summarizer failed for ${sessionKind} session: ${totalTokens} > ${config.maxTokens} tokens`,
-      };
-    }
+    let droppedCount = history.length - keepCount;
+    // 每次为摘要腾位后都重做扩大后的前缀摘要；前缀只会增长，最多覆盖全部历史。
+    for (;;) {
+      let summaryText: string;
+      try {
+        summaryText = await summarizer.summarize(history.slice(0, droppedCount));
+      } catch {
+        return {
+          outcome: "rejected",
+          reason: `context budget exceeded and summarizer failed for ${sessionKind} session: ${totalTokens} > ${config.maxTokens} tokens`,
+        };
+      }
 
-    const summaryMessage: ChatMessage = { role: "system", text: `[conversation summary] ${summaryText}` };
-    let kept = history.slice(history.length - keepCount);
-    while (kept.length > 0 && estimate([summaryMessage, ...kept, ...incoming]) > config.maxTokens) {
-      kept = kept.slice(1);
+      const summaryMessage: ChatMessage = { role: "system", text: `[conversation summary] ${summaryText}` };
+      const kept = history.slice(droppedCount);
+      const finalMessages = [summaryMessage, ...kept, ...incoming];
+      const finalTokens = estimate(finalMessages);
+      if (finalTokens <= config.maxTokens) {
+        return {
+          outcome: "assembled",
+          assembly: withNotice(finalMessages, "oldest history summarized to fit context budget"),
+        };
+      }
+      if (kept.length === 0) {
+        return {
+          outcome: "rejected",
+          reason: `context budget still exceeded after summarization for ${sessionKind} session: ${finalTokens} > ${config.maxTokens} tokens`,
+        };
+      }
+      const remainingBudget = config.maxTokens - estimate([summaryMessage, ...incoming]);
+      const remainingCount = this.maxSuffixCount(kept, remainingBudget);
+      droppedCount += kept.length - remainingCount;
     }
-
-    const finalMessages = [summaryMessage, ...kept, ...incoming];
-    if (estimate(finalMessages) > config.maxTokens) {
-      return {
-        outcome: "rejected",
-        reason: `context budget still exceeded after summarization for ${sessionKind} session: ${estimate(finalMessages)} > ${config.maxTokens} tokens`,
-      };
-    }
-    return {
-      outcome: "assembled",
-      assembly: withNotice(finalMessages, "oldest history summarized to fit context budget"),
-    };
   }
 
   private maxSuffixCount(messages: ChatMessage[], budgetTokens: number): number {

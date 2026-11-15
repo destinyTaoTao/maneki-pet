@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ConversationContextAssembler,
@@ -104,6 +104,38 @@ describe("ConversationContextAssembler 会话上下文预算", () => {
       const totalTokens = result.assembly.messages.reduce((sum, message) => sum + message.text.length, 0);
       expect(totalTokens).toBeLessThanOrEqual(40);
     }
+  });
+
+  it("摘要挤占窗口时，额外移走的历史也必须纳入摘要", async () => {
+    const summarize = vi.fn(async (_messages: ChatMessage[]) => "ab");
+    const assembler = new ConversationContextAssembler({
+      estimator: perCharEstimator,
+      summarizer: { summarize },
+      config,
+    });
+
+    const result = await assembler.assemble("main", history, incoming);
+
+    expect(result.outcome).toBe("assembled");
+    expect(summarize.mock.calls.at(-1)?.[0]).toEqual(history.slice(0, 2));
+    if (result.outcome === "assembled") {
+      expect(result.assembly.messages.slice(1)).toEqual([history[2], ...incoming]);
+    }
+  });
+
+  it("摘要持续增大且已覆盖全部历史时，有界拒绝而非循环或静默截断", async () => {
+    const summarize = vi.fn(async (messages: ChatMessage[]) => "s".repeat(messages.length * 15));
+    const assembler = new ConversationContextAssembler({
+      estimator: perCharEstimator,
+      summarizer: { summarize },
+      config,
+    });
+
+    const result = await assembler.assemble("main", history, incoming);
+
+    expect(result.outcome).toBe("rejected");
+    expect(summarize.mock.calls.at(-1)?.[0]).toEqual(history);
+    expect(summarize.mock.calls.length).toBeLessThanOrEqual(history.length + 1);
   });
 
   it("summarize 策略：无 summarizer 时诚实拒绝", async () => {
