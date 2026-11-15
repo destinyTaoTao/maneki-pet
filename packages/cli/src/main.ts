@@ -112,9 +112,11 @@ async function main(): Promise<void> {
         const adapter2 = new BilibiliPlatformAdapter();
         const parsedDraftFile = JSON.parse(
           (await import("node:fs")).readFileSync(draftFile, "utf8"),
-        ) as { draft: Parameters<typeof adapter2.exportPackage>[0]["flow"]["draft"] };
-        const flow = { complete: true, draft: parsedDraftFile.draft };
-        process.stderr.write(`[trace] package: title=${JSON.stringify(parsedDraftFile.draft?.title)}\n`);
+        ) as { draft: Parameters<typeof adapter2.exportPackage>[0]["flow"]["draft"] } | Parameters<typeof adapter2.exportPackage>[0]["flow"]["draft"];
+        // 文件模式输出带 draft 信封；旧交互模式输出裸草稿，两者均可继续导出。
+        const draft = "draft" in parsedDraftFile ? parsedDraftFile.draft : parsedDraftFile;
+        const flow = { complete: true, draft };
+        process.stderr.write(`[trace] package: title=${JSON.stringify(draft?.title)}\n`);
         const result = adapter2.exportPackage({
           outDir: requireValue(values.out, "out"),
           videoSource: requireValue(values.video, "video"),
