@@ -36,7 +36,9 @@
 
 安全/资源边界先行文档提交：`31a5ac7`；有界 HTTP 退出约束先行提交：`07c8239`。无新增生产依赖、数据库迁移或已发布请求格式变更。超大 MCP 响应服务需在来源侧减少单次返回内容；正常消息及 JSON shim 契约保持兼容。
 
-## 需要用户决定
+## 初次审查的待决快照
+
+以下 C1/C2 的“未修”针对 `295f54b` 初次审查结束时。用户随后已确认三项方向并授权连续实施、本地 main 提交；后续实施与验收状态见文末，不再重复请求确认。
 
 ### C1 · P1 崩溃锁并发回收（已确认，未修）
 
@@ -106,3 +108,49 @@
 ## 隔离探针清理限制
 
 自动审批拒绝了删除 `%TEMP%\maneki-review-admin-7B4r9a` 的动作，返回原因仅为 `blocked by policy`。已停止该清理，没有换方式绕过；目录仅含本轮探针的合成测试凭证，不含正式用户数据。仓库修复及验证不依赖删除它；残留明确交由用户后续处置。
+
+## 用户确认后的实施增量（2026-11-15）
+
+范围基线为 `295f54b`。用户批准：Windows 优先、Runtime 自身持有 OS 锁并保留崩溃恢复；显式记忆最小主会话闭环、真实模型匹配 tokenizer、当前 UTC；三色先验收后随下一 Windows 预览晋升。只提交本地 main，不推送、发布或替换安装。先行契约提交为 `1e62ffb`、`9307d46`。
+
+### 单实例锁
+
+`f9edd10` 引入受信 Node-API 原生桥：Windows 文件句柄直接位于 Runtime 进程，不依赖辅助进程存活。取得排他权限后读取元数据；正常关闭在持句柄时标记删除，异常终止由内核释放。未取得所有权的对象释放不影响真正 owner；旧版仍存活 PID 保守拒绝，新版残留不以回收 PID 判所有权。真实多进程竞争、强杀恢复、独立目录、失败释放、旧 PID 与无窗口发行布局均有回归。真实八启动者探针只有一个 owner。
+
+源码组合构建新增 Rust ≥ 1.88 / MSVC 要求，napi-rs/windows-sys 版本与许可锁定；生成 `.node` 纳入 Runtime bundle 和桌面资源。缺少模块拒绝启动，不回退有竞态的 unlink 锁。**本轮仅 Windows x64 原生实现，macOS/Linux 不提供可用锁实现，启动明确拒绝**。空残留和完整新版记录可自动恢复；非空损坏/半 JSON 仍保守拒绝，不宣称任意掉电损坏恢复。
+
+### 显式记忆
+
+新增默认关闭的独立保存/召回设置及空 body 显式配对路由。普通读取、启动和聊天均不创建配对或恢复撤销的权限；保存仅认当前输入的“记住：…”前缀，以 EverNook 原文回执及来源为准，敏感投影不声称原文保存。主会话持久请求 ID 去重，未知结果不换 ID 重放。Python CLI 旧 JSON `{policy,counter}` 改为严格 v1 `{protocolVersion,query,model,tokenLimit}`，内部 Python 对象 API 保留；迁移细节见[适配器说明](../../packages/adapters/evernook/README.md)。SQLite v6 无迁移；旧客户端省略 memory 保留，新字段被旧 Runtime 丢弃后再升级默认关闭。
+
+真实 tokenizer 使用显式安装的 tiktoken 0.12.0 与哈希核验的本地 o200k_base 词表，仅接受已列白名单的 gpt-4o / mini 及快照。不自动选模型、下载词表、联网回退或用字符数冒充；无模型/缺词表/未知模型跳过召回并提示。召回只查当前输入、使用当前 UTC，结果作为不可信 user 数据纳入同一输入预算，来源只取实际注入项。保存不依赖模型/tokenizer；设置变更、清历史、撤销及停止中止在途子进程，丢弃迟到结果。错误不回显 stderr、凭证、路径或记忆正文。
+
+隔离真实库联验：显式配对→保存唯一合成偏好→清小招历史与摘要→停止/重启 Runtime→真实 shim/tokenizer 召回并带来源；关闭召回且再次清历史时不注入；缺 Python 时普通聊天及 100ms 合成提醒仍工作。对话与通知为本地替身，不使用正式个人库或计费 Provider。测试依赖仅放本仓忽略的 `dist/memory-python` / `dist/memory-tokenizer-data`，未改变共享 venv 或 EverNook owning repo。
+
+独立全变更评审发现 1 个 P2：取消/重启覆盖已发出保存的未知状态，且仅保留 code 时新窗口无法感知。已按同一根因修复：发起前持久标记，取消先事务记录未知再 abort；当前历史中的在途保存恢复时生成固定核实提示并绑定原请求，新窗口沿用历史展示，不增加快照字段或新确认流程。清历史保留请求去重/未知 code，但不重建提示；重复恢复和迟到回执不追加历史。六种路径及真实 SQLite 重开先红后绿，另验证新 panel 无内存 ownRequest 仍展示恢复提示。取舍是复用现有持久消息；若遗漏会误导用户重发或复活已清历史，回归覆盖了这两项风险。
+
+最终独立定向复核通过：上述唯一 P2 已闭环，未发现新的阻断问题。单实例锁已有独立 Spec/Quality 复核；全变更只读评审除该 P2 外未确认其他缺陷。reviewer 未代跑门禁，根任务实际执行如下（Node 24.12.0、pnpm 11.25.0、Python 3.14.4、Rust 1.99.1，Windows）：
+
+| 最终检查 | 实际结果 |
+|---|---|
+| `pnpm -r build` / `pnpm -r typecheck` | 全 workspace 通过，最终修复后重跑 |
+| `pnpm -r test` | **621 通过、3 跳过**；Core 116、platform-core 8、dsh adapter 22、Bilibili 5、插件 19、CLI 8、Runtime 298、Desktop 145；四个本地动作包校验通过 |
+| 真实记忆跨包联验 | 显式设置 `MANEKI_MEMORY_TEST_PYTHON` 与 `MANEKI_MEMORY_TEST_TOKENIZER_DIR` 后纳入上述 Runtime 门禁，**1 通过**，未跳过；同进程继承隔离 tokenizer/shim `PYTHONPATH` |
+| Python pytest | **30 通过**（41.35s），禁用字节码及 pytest 缓存；使用本仓隔离 tiktoken/词表，未操作正式库 |
+| `conformance --isolated` | **7 检查通过**，输出 `isolated:true` / `synthetic_contract_only`；该 counter 不冒充真实模型 tokenizer |
+| native instance-lock Cargo test | 编译/执行通过；Rust 单测为 **0**，真实锁行为由 TS 多进程与 bundle 测试覆盖，不将 0 项说成行为验收 |
+| 桌面 Cargo test | **8 通过、1 忽略**；真实睡眠探针未运行 |
+| `pnpm --filter @maneki-pet/desktop tauri build --no-bundle` | 最终修复后通过；输出 `apps/desktop/src-tauri/target/release/maneki-desktop.exe`，附带 Runtime bundle 与原生锁资源，未运行、安装或封装新发行包 |
+| 最终 Diff / 既有改动 | staged/工作区 `diff --check` 通过；既有 ASSET-LICENSE.txt SHA-256 仍为 `722303A6FB57F52AB738B3C9FF0F1D987543AF4DE4B3652095B74FA6DAF4EB06`；该文件及 `.playwright-cli/` 不纳入提交，发行脚本/批准素材指纹未改 |
+
+3 项跳过仍为真实 Windows 通知、语音设备与两小时暖机观察；真实休眠、计费模型、跨天效果、原生观感、长期资源、其他平台未运行。日志保留在 `%TEMP%/maneki-final-{build,test,typecheck,tauri}.log`、`maneki-memory-python-final.log`、`maneki-{lock,desktop}-cargo-final.log` 与 `maneki-conformance-final.log`。
+
+后续实施按意图提交本地 main：`f9edd10`（OS 锁）、`7a5445b`（Python 协议/权限/离线 tokenizer）、`bdca6ed`（Runtime 记忆接入与未知写入恢复）、`f5ace30`（桌面授权/配对与提示）。本审计、计划状态及配置说明另作收尾文档提交；不推送。未新增未处置的确认缺陷或暂缓小项，实机范围保留如下。
+
+### 最后需要实机确认
+
+- 在新构建的原生助手设置中配置受信 Python、独立 EverNook 测试库与配对路径，显式配对；按所选真实对话模型准备受支持的本地 tokenizer。当前默认安装未选择模型，本轮未替用户选择或调用付费服务。
+- 独立身份保存唯一偏好并核对回执；清本地历史/摘要后，真实次日换项目召回，对照关闭召回并核对来源、实际回答及未知结果提示。清小招历史不会删除 EverNook 副本；删除长期记录须在 EverNook 处理。
+- Windows 原生配对、配置保存、取消/退出、原生权限及实际通知展示；#66 真麦克风/扬声器与并行会话组合；轻陪伴真实休眠/恢复、两小时暖机、双端/提醒/语音互让。
+- 橘默认、白黑可选的 27 段动画/20 项点播动作：透明边缘、动作衔接、控制条/气泡、多屏 DPI 与真实资源采样；全树 Private Bytes ≤300 MiB、Runtime ≤75 MiB，事件到动画 p95<300ms、提醒到通知调用 p95<1s。自动结构检查不替代此验收。
+- 三色通过后才更新下一预览的发行版本与批准指纹；本轮不运行 release/安装替换，alpha.2 封存包不改。跨平台、长期性能、真实模型行为与所有阶段整体出口均未验收。
