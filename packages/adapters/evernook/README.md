@@ -10,21 +10,22 @@ Maneki 桌宠的 EverNook 适配器 shim：实现官方 `evernook.adapters.surfa
 ```powershell
 py -V:Astral/CPython3.14.4 -m venv C:\maneki-lab\venv-py314
 C:\maneki-lab\venv-py314\Scripts\python.exe -m pip install -e C:\myProject\evernook pytest
-C:\maneki-lab\venv-py314\Scripts\python.exe -m pip install -e C:\myProject\maneki-pet\packages\adapters\evernook
+C:\maneki-lab\venv-py314\Scripts\python.exe -m pip install -e 'C:\myProject\maneki-pet\packages\adapters\evernook[openai-tokenizer]'
 ```
 
 ## 测试与验收
 
 ```powershell
+$env:MANEKI_TOKENIZER_DATA_DIR = '<已显式准备词表的绝对目录>'
 C:\maneki-lab\venv-py314\Scripts\python.exe -m pytest C:\myProject\maneki-pet\packages\adapters\evernook\tests -v
 ```
 
-测试使用临时合成库，独立 owner 通过 `profile_runtime/profile_access` 为当前 EverNook 符合性套件准备画像 fixture；适配器自身仍仅持有 recall/capture。该结果验证 Python `AdapterSurface`，不代表 JSON CLI `inject` 或主会话集成已经可用。
+测试使用临时合成库，独立 owner 通过 `profile_runtime/profile_access` 为当前 EverNook 符合性套件准备画像 fixture；适配器自身仍仅持有 recall/capture。真实 tokenizer 回归需先按下文显式准备词表；符合性套件的合成 counter 只验证对象接口契约，不代表模型计数。
 
-conformance CLI（adapter-conformance-v1 §5；当前命令尚未提供独立可信画像 fixture，直接运行会在相应检查中明确失败，不能冒充全套通过）：
+conformance CLI 只接受隔离模式，创建临时合成库与独立 owner/profile fixture；不接受 `--config`/`--access`，避免诊断读写个人库：
 
 ```powershell
-C:\maneki-lab\venv-py314\Scripts\python.exe -m maneki_evernook_adapter conformance --config <runtime.json> --access <access.json>
+C:\maneki-lab\venv-py314\Scripts\python.exe -m maneki_evernook_adapter conformance --isolated
 ```
 
 ## CLI（供 Maneki TS 运行时以 JSON stdin/stdout 子进程调用）
@@ -35,9 +36,23 @@ C:\maneki-lab\venv-py314\Scripts\python.exe -m maneki_evernook_adapter conforman
 | `capture-message` | Event JSON | 消息回执 |
 | `capture-tool --kind tool_call\|tool_result --tool-name --input-id` | `{event, attachments?}` | 工具事件回执（含缺口） |
 | `read-back --message-id` | — | 原文/状态 |
-| `inject` | `{query, policy, counter}` | ContextBundle（untrusted_memory_context 信封） |
+| `inject` | `{protocolVersion:1,query,model,tokenLimit}` | 有界 ContextBundle（untrusted_memory_context 信封）及最终来源 |
 | `covered` / `gaps` | — | 覆盖与缺口披露 |
 | `experience-span --message-id --start --end` | — | EvidenceSpan（经验草案来源） |
-| `conformance` | — | 全套件报告（不通过退出码 1） |
+| `conformance --isolated` | — | `isolated:true`、`counter_scope:synthetic_contract_only` 的全套件报告 |
 
 覆盖范围：文本轮次与工具事件；gaps 披露语音/ASR、视觉、Live2D、平台写操作执行过程、运营数据导出原件。
+
+普通命令必须显式提供 `--config`，可提供同库内的 `--access`。首次部署必须主动执行 `pair`；其他命令只通过 owning `access_from_file`/`handshake` 读取既有身份，校验 client_id、entry 与 scope，不创建身份或恢复已撤销权限。默认身份为 `maneki-desktop`/`maneki`；可选 CLI 身份必须与 access 匹配，不能借用管理员身份。配对文件中的 token 不写入 stdout。
+
+`inject` 拒绝未知字段及旧 `{policy,counter}` 形状；query 最长 4000 字符，tokenLimit 为 128..2048 整数。生产时间取当前 UTC；内部 Python `inject(query, policy, counter)` 继续接受 TokenCounter 对象，构造器的 clock 仅为测试 seam。固定策略 recent_days=30、recent_target_chars=4000、pinned/persona/profile/topic 预算为 0，不自动生成画像。返回 `payload/used_tokens/token_limit/omitted/degraded/complete/counter_id/as_of/sources`；sources 只提取最终 payload.items 的 evidence_id，去重且最多 8 个，不含被预算淘汰的候选。写入回执保留 owning 的 message_id、original_saved 与 status，敏感投影不能伪报原文已保存。
+
+输入最多 64 KiB UTF-8，输出最多 128 KiB；超限、参数或库错误均返回结构化 JSON 和退出码 1，不输出原始异常、stderr、路径或 token。执行中断后的写入结果须由调用端视为未知，不能换 ID 重放。
+
+## 离线 tokenizer（需显式安装与准备）
+
+默认 shim 无 tokenizer 依赖；召回需要可选 extra `openai-tokenizer`（固定 `tiktoken==0.12.0`）。只支持 `gpt-4o`、`gpt-4o-mini`、`gpt-4o-2024-05-13`、`gpt-4o-2024-08-06`、`gpt-4o-mini-2024-07-18`，按官方 o200k_base 映射计数。计数针对记忆 payload 文本，不是供应商整条请求的账单保证。
+
+将公开 [o200k_base.tiktoken 词表](https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken) 显式保存到用户选择的本地目录，并设置 `MANEKI_TOKENIZER_DATA_DIR`。未设置时查找包内 `tokenizer_data/o200k_base.tiktoken`，仓库不捆绑大词表。文件上限 8 MiB，SHA-256 必须为 `446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d`。目录来自受信进程环境；JSON 不接受路径、类或模块名。缺包、版本不符、词表缺失/哈希错误、未知模型统一 `tokenizer_unavailable`，不回退字符估算、不调用网络、不自动下载。
+
+实现直接用本地 BPE ranks 构造 `tiktoken.core.Encoding`，不调用可能加载插件或下载的 `get_encoding`/`encoding_for_model`。pattern/special tokens 与白名单映射依据 [OpenAI tiktoken 0.12.0 openai_public.py](https://github.com/openai/tiktoken/blob/0.12.0/tiktoken_ext/openai_public.py) 和 [model.py](https://github.com/openai/tiktoken/blob/0.12.0/tiktoken/model.py)，衍生定义许可保存在 `maneki_evernook_adapter/LICENSE.tiktoken`。词表仅完整性校验不证明分发者身份，应从官方来源准备。

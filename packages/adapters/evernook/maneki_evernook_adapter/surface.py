@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from evernook import Capture
 from evernook.adapters import AdapterGap, AdapterSurface
@@ -48,6 +50,7 @@ class ManekiSurface(AdapterSurface):
         client_id: str = "maneki-desktop",
         entry: str = "maneki",
         experience_ids: tuple[str, ...] = (),
+        clock: Callable[[], datetime] | None = None,
     ):
         self.runtime = MemoryRuntime(config_path)
         self.access_path = access_path or (self.runtime.root / "mcp-access-maneki.json")
@@ -56,7 +59,21 @@ class ManekiSurface(AdapterSurface):
         self._access: Access | None = None
         self._entry: str | None = None
         self._experience_ids = tuple(experience_ids)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self.recall = SemanticRecall(self.runtime)
+
+    def connect(self) -> Access:
+        """仅加载既有身份；连接不能恢复被撤销的 scope 或创建配对文件。"""
+        access = self.runtime.access_from_file(self.access_path)
+        handshake = self.runtime.handshake(access)
+        scopes = handshake.get("scopes")
+        if (handshake.get("client_id") != self._client_id
+                or handshake.get("entry") != self._entry_name):
+            raise MemoryFailure("unauthorized")
+        if not isinstance(scopes, list) or not set(scopes).issubset(HARNESS_DEFAULT_SCOPES):
+            raise MemoryFailure("permission_denied")
+        self._access, self._entry = access, self._entry_name
+        return access
 
     def pair(self, client_id: str, entry: str) -> Access:
         self._access = pair_client(
@@ -117,7 +134,8 @@ class ManekiSurface(AdapterSurface):
             else policy
         )
         builder = ContextBuilder(self.runtime, self.recall, merged, counter)  # type: ignore[arg-type]
-        return builder.build(self._require_access(), query, as_of="2026-10-30T12:00:00+08:00", mode="normal", timeout=20)
+        as_of = self._clock().astimezone(timezone.utc).isoformat()
+        return builder.build(self._require_access(), query, as_of=as_of, mode="normal", timeout=4)
 
     def attempt_out_of_scope(self) -> str:
         try:
