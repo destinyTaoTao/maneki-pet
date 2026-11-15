@@ -26,6 +26,7 @@ import { WsHub } from "./ws.js";
 import { SpeechHostBroker } from "./speech-host.js";
 
 export interface RuntimeOptions {
+  assistantMemory?: AssistantServiceOptions["memory"];
   speech?: AssistantServiceOptions["speech"];
   notifier?: SystemNotifier;
   chatProvider?: AssistantServiceOptions["provider"];
@@ -128,6 +129,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       expressionState: () => expressions.current(),
       observations: () => observations.snapshot(),
       ...(options.chatProvider ? { provider: options.chatProvider } : {}),
+      ...(options.assistantMemory ? { memory: options.assistantMemory } : {}),
       speech: { ...options.speech, host: speechHost },
     });
     openedAssistant = assistant;

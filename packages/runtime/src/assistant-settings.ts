@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import {
   validTimeZone,
   defaultVoiceSettings,
@@ -26,6 +26,7 @@ export class AssistantError extends Error {
   }
 }
 export interface AssistantSettings {
+  memory: AssistantMemorySettings;
   schemaVersion: 1;
   version: number;
   timeZone: string;
@@ -43,8 +44,34 @@ export interface AssistantSettings {
     apiKeyRef?: string;
   };
 }
+export interface AssistantMemorySettings {
+  recallEnabled: boolean;
+  writeEnabled: boolean;
+  pythonPath: string;
+  configPath: string;
+  accessPath: string;
+  tokenizerDataDir: string;
+}
+export const defaultMemorySettings = (): AssistantMemorySettings => ({ recallEnabled:false, writeEnabled:false, pythonPath:"",configPath:"",accessPath:"",tokenizerDataDir:"" });
+export function checkedMemory(raw: unknown): AssistantMemorySettings {
+  const fields=["recallEnabled","writeEnabled","pythonPath","configPath","accessPath","tokenizerDataDir"];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).length!==fields.length || Object.keys(raw).some(key=>!fields.includes(key))) throw new AssistantError(400,"memory_settings_invalid");
+  const checked = validateObject(raw, {
+    recallEnabled:{type:"boolean",required:true}, writeEnabled:{type:"boolean",required:true},
+    pythonPath:{type:"string",required:true,maxLength:4096},configPath:{type:"string",required:true,maxLength:4096},accessPath:{type:"string",required:true,maxLength:4096},tokenizerDataDir:{type:"string",required:true,maxLength:4096},
+  });
+  if (!checked.ok) throw new AssistantError(400,"memory_settings_invalid");
+  const value = checked.value as unknown as AssistantMemorySettings;
+  for (const path of [value.pythonPath,value.configPath,value.accessPath,value.tokenizerDataDir]) {
+    if (path && (!isAbsolute(path) || /[\0\r\n]/.test(path) || /^[\\/]{2}/.test(path) || (process.platform === "win32" && !/^[A-Za-z]:[\\/]/.test(path))))
+      throw new AssistantError(400,"memory_settings_invalid");
+  }
+  if ((value.recallEnabled || value.writeEnabled) && (!value.pythonPath || !value.configPath || !value.accessPath)) throw new AssistantError(400,"memory_settings_invalid");
+  return value;
+}
 export function defaultAssistantSettings(): AssistantSettings {
   return {
+    memory: defaultMemorySettings(),
     voice: defaultVoiceSettings(),
     schemaVersion: 1,
     version: 0,
@@ -89,6 +116,7 @@ export function readAssistantSettings(
     )
       throw new Error();
     value.voice = checkedVoice(value.voice ?? defaultVoiceSettings());
+    value.memory = value.memory === undefined ? defaultMemorySettings() : checkedMemory(value.memory);
     if (
       value.speechApiKeyRef !== undefined &&
       !/^assistant-speech-key-[0-9a-f-]{36}$/.test(value.speechApiKeyRef)
@@ -195,7 +223,7 @@ export function saveAssistantSettings(
   dir: string,
   raw: Record<string, unknown>,
 ): AssistantSettings {
-  const { chat: rawChat, voice: rawVoice, companion: rawCompanion, ...flat } = raw;
+  const { chat: rawChat, voice: rawVoice, companion: rawCompanion, memory:rawMemory, ...flat } = raw;
   if (Object.hasOwn(raw,"companion") && !validateObject(rawCompanion, {murmurEnabled:{type:"boolean",required:true}}).ok)
     throw new AssistantError(400,"settings_invalid");
   const checked = validateObject(flat, {
@@ -224,6 +252,7 @@ export function saveAssistantSettings(
   if (!Number.isSafeInteger(raw.version) || raw.version !== old.version)
     throw new AssistantError(409, "settings_conflict");
   const settings: AssistantSettings = {
+    memory: Object.hasOwn(raw,"memory") ? checkedMemory(rawMemory) : old.memory,
     voice:
       rawVoice === undefined ? old.voice : checkedVoice(rawVoice, old.voice),
     schemaVersion: 1,

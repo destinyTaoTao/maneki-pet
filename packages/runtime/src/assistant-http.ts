@@ -72,6 +72,12 @@ export async function handleAssistantHttp(
     }
     const body = await readBody();
     if (!body) return;
+    if (req.method === "POST" && path === "/memory/pair") {
+      if (!client.scopes.includes("settings") && !client.scopes.includes("admin")) throw new AssistantError(403,"settings_scope_required");
+      if (Object.keys(body).length) throw new AssistantError(400,"request_invalid");
+      send(200,await service.pairMemory(client.clientId));
+      return;
+    }
     if (req.method === "POST" && path.startsWith("/voice/")) {
       const action = path.slice("/voice/".length),
         voice = service.voice;

@@ -4,6 +4,8 @@ import type { CompanionReference } from "@maneki-pet/core";
 import { CompanionReferences } from "./companion-references.js";
 import { AssistantError } from "./assistant-settings.js";
 
+export const MEMORY_WRITE_UNKNOWN_NOTICE = "此次保存结果未知，请到 EverNook 核实；不会自动重试。";
+
 export const ASSISTANT_SCHEMA = `
 CREATE TABLE assistant_todos(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,due_date TEXT,completed INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE assistant_reminders(id TEXT PRIMARY KEY,todo_id TEXT UNIQUE REFERENCES assistant_todos(id) ON DELETE CASCADE,message TEXT NOT NULL,remind_at INTEGER NOT NULL,time_zone TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,code TEXT,version INTEGER NOT NULL DEFAULT 1,delivery_id TEXT);
@@ -283,9 +285,20 @@ export class AssistantStore {
         "UPDATE assistant_reminders SET status='pending' WHERE status='sending'",
       )
       .run();
+    this.transaction(() => {
+      // 只恢复当前历史中的在途保存；清过历史的请求不能重建正文或提示。
+      const pending = this.db.prepare(
+        "SELECT client_id,request_id FROM assistant_requests WHERE status='pending' AND epoch=? AND code IN ('memory_write_pending','memory_write_unknown')",
+      ).all(this.epoch()) as Array<{client_id:string;request_id:string}>;
+      for (const request of pending) {
+        const seq = this.append("assistant", MEMORY_WRITE_UNKNOWN_NOTICE);
+        this.settleRequest(request.client_id, request.request_id, "failed", seq, "memory_write_unknown");
+      }
+      if (pending.length) this.changed();
+    });
     this.db
       .prepare(
-        "UPDATE assistant_requests SET status='failed',code='runtime_restarted' WHERE status='pending'",
+        "UPDATE assistant_requests SET status='failed',code=CASE WHEN code IN ('memory_write_pending','memory_write_unknown') THEN 'memory_write_unknown' ELSE 'runtime_restarted' END WHERE status='pending'",
       )
       .run();
   }
@@ -360,6 +373,13 @@ export class AssistantStore {
       )
       .run(status, replySeq, code, client, id, this.epoch());
   }
+  /** 调用外部保存前持久化；进程中断后不能把未获回执误当作未写入。 */
+  markMemoryWritePending(client: string, id: string): void {
+    const result = this.db.prepare(
+      "UPDATE assistant_requests SET code='memory_write_pending' WHERE client_id=? AND request_id=? AND status='pending' AND epoch=?",
+    ).run(client, id, this.epoch());
+    if (result.changes !== 1) throw new AssistantError(409, "request_not_pending");
+  }
   mutation(
     client: string,
     id: string,
@@ -384,7 +404,7 @@ export class AssistantStore {
     this.clearCompanionReferences();
     this.set("epoch", String(this.epoch() + 1));
     this.db.exec(
-      "DELETE FROM assistant_messages; UPDATE assistant_requests SET status='cleared',user_seq=NULL,reply_seq=NULL,code='history_cleared'; UPDATE assistant_voice_requests SET status='cleared',code='history_cleared'; DELETE FROM runtime_kv WHERE key='assistant.summary';",
+      "DELETE FROM assistant_messages; UPDATE assistant_requests SET status='cleared',user_seq=NULL,reply_seq=NULL,code=CASE WHEN code IN ('memory_write_pending','memory_write_unknown') THEN 'memory_write_unknown' ELSE 'history_cleared' END; UPDATE assistant_voice_requests SET status='cleared',code='history_cleared'; DELETE FROM runtime_kv WHERE key='assistant.summary';",
     );
     this.changed();
   }
