@@ -57,3 +57,5 @@ apps/desktop/public/variants/
 output/settings-design/
 __pycache__/
 *.pyc
+packages/runtime/native/instance-lock/target/
+packages/runtime/native/instance-lock/*.node

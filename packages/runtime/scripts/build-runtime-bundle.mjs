@@ -17,6 +17,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
+import "./build-instance-lock.mjs";
 
 const runtimeRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const desktopTauri = join(
@@ -42,6 +43,7 @@ const binariesDir = join(desktopTauri, "binaries");
 
 mkdirSync(resourcesDir, { recursive: true });
 mkdirSync(binariesDir, { recursive: true });
+copyFileSync(join(runtimeRoot, "native/instance-lock/maneki-instance-lock.node"), join(resourcesDir, "maneki-instance-lock.node"));
 
 const result = await build({
   entryPoints: [join(runtimeRoot, "src", "cli.ts")],
@@ -87,7 +89,7 @@ const notices = [...roots].sort().map((root) => {
     throw new Error(`Missing redistribution notice for ${pkg.name}`);
   return `\n===== ${pkg.name}@${pkg.version} (${pkg.license ?? "see notice"}) =====\n${files.map((name) => readFileSync(join(root, name), "utf8")).join("\n")}`;
 });
-writeFileSync(join(licenses, "Runtime-THIRD-PARTY.txt"), notices.join("\n"));
+writeFileSync(join(licenses, "Runtime-THIRD-PARTY.txt"), notices.join("\n") + "\n" + readFileSync(join(runtimeRoot, "notices/Instance-lock-THIRD-PARTY.txt"), "utf8"));
 
 copyFileSync(
   process.execPath,

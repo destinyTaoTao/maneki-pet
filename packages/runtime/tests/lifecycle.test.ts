@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InstanceLock, LockBusyError, RuntimeLifecycle } from "../src/index.js";
 
@@ -15,16 +15,19 @@ function makeTempDir(): string {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe("InstanceLock 单实例锁", () => {
-  it("刚创建或损坏的锁不能在未核实持有者时被另一个入口删除", () => {
+  it("已取得 OS 排他权限时可恢复空文件，其他损坏记录仍保守拒绝", () => {
     const path = join(makeTempDir(), "runtime.lock");
     writeFileSync(path, "");
-    expect(() => new InstanceLock(path).acquire()).toThrow("unverified owner");
+    const lock = new InstanceLock(path);
+    expect(() => lock.acquire()).not.toThrow();
+    lock.release();
     writeFileSync(path, JSON.stringify({ pid: "invalid", heldSince: "now" }));
     expect(() => new InstanceLock(path).acquire()).toThrow("unverified owner");
   });
@@ -55,6 +58,31 @@ describe("InstanceLock 单实例锁", () => {
     expect(() => lock.acquire()).not.toThrow();
     lock.release();
   });
+  it.each(["EPERM", "EIO", undefined])("旧 PID 检查出现 %s 时保守拒绝且保留原记录", (code) => {
+    const path = join(makeTempDir(), "runtime.lock");
+    const legacy = JSON.stringify({ pid: process.pid, heldSince: "2026-01-01T00:00:00Z" });
+    writeFileSync(path, legacy);
+    // 仅验证旧版 PID 兼容分支的异常语义；OS 原子性另由真实多进程测试证明。
+    vi.spyOn(process, "kill").mockImplementation(() => { throw Object.assign(new Error("probe failed"), { code }); });
+    const lock = new InstanceLock(path);
+    expect(() => lock.acquire()).toThrow(LockBusyError);
+    lock.release();
+    expect(readFileSync(path, "utf8")).toBe(legacy);
+  });
+  it("旧 PID 仅在 ESRCH 明确不存在时回收", () => {
+    const path = join(makeTempDir(), "runtime.lock");
+    writeFileSync(path, JSON.stringify({ pid: process.pid, heldSince: "2026-01-01T00:00:00Z" }));
+    vi.spyOn(process, "kill").mockImplementation(() => { throw Object.assign(new Error("missing"), { code: "ESRCH" }); });
+    const lock = new InstanceLock(path);
+    expect(() => lock.acquire()).not.toThrow();
+    lock.release();
+  });
+  it("超过 4 KiB 的元数据拒绝，失败释放保留原记录", () => {
+    const path = join(makeTempDir(), "runtime.lock"); const raw = "x".repeat(4097); writeFileSync(path, raw);
+    const lock = new InstanceLock(path);
+    expect(() => lock.acquire()).toThrow("exceeds 4 KiB");
+    lock.release(); expect(readFileSync(path, "utf8")).toBe(raw);
+  });
 
   it("release 后锁文件移除", () => {
     const dir = makeTempDir();
@@ -62,7 +90,9 @@ describe("InstanceLock 单实例锁", () => {
     const lock = new InstanceLock(lockPath);
     lock.acquire();
     lock.release();
-    expect(() => new InstanceLock(lockPath).acquire()).not.toThrow();
+    const second = new InstanceLock(lockPath);
+    expect(() => second.acquire()).not.toThrow();
+    second.release();
   });
 });
 

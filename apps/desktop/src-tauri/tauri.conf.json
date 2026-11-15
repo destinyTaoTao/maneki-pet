@@ -53,6 +53,7 @@
     ],
     "resources": [
       "resources/maneki-runtime-bundle.js",
+      "resources/maneki-instance-lock.node",
       "resources/licenses/Node-LICENSE.txt",
       "resources/licenses/Runtime-THIRD-PARTY.txt"
     ]

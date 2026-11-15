@@ -10,10 +10,13 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "native/instance-lock/*.node"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build:native": "node scripts/build-instance-lock.mjs",
+    "build": "pnpm build:native && tsc -p tsconfig.build.json",
+    "pretest": "pnpm build:native",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
