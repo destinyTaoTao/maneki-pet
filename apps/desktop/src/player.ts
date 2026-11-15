@@ -17,6 +17,7 @@ export class PetPlayer {
   private chain: AnimationChain | undefined;
   private pack: PetPack | undefined;
   private packId = "";
+  private latestState: PetState = "idle";
   private cancelCurrent: () => void = () => {};
   private readonly cache: AssetCache;
   private readonly video = document.createElement("video");
@@ -55,10 +56,11 @@ export class PetPlayer {
     this.pack = pack;
     this.packId = packId;
     this.chain = new AnimationChain(pack, Math.random);
-    this.render(this.chain.current);
+    this.render(this.latestState === "idle" ? this.chain.current : this.chain.setState(this.latestState));
   }
 
   setState(state: PetState): void {
+    this.latestState = state;
     if (this.chain) {
       this.render(this.chain.setState(state));
     }
