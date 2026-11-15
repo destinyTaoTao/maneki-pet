@@ -753,6 +753,14 @@ export function createAssistantPanel(
       timeZone = input(t.timeZone, "text", settings.timeZone),
       persona = input(t.persona, "text", settings.persona);
     const companionEnabled = settings.companion ? check(t.companionEnabled,settings.companion.murmurEnabled) : undefined;
+    const memory = settings.memory ? {
+      write: check(t.memoryWrite, settings.memory.writeEnabled),
+      recall: check(t.memoryRecall, settings.memory.recallEnabled),
+      python: input(t.memoryPython, "text", settings.memory.pythonPath),
+      config: input(t.memoryConfig, "text", settings.memory.configPath),
+      access: input(t.memoryAccess, "text", settings.memory.accessPath),
+      tokenizer: input(t.memoryTokenizer, "text", settings.memory.tokenizerDataDir),
+    } : undefined;
     const enabled = check(t.enableModel, settings.chat.enabled),
       cloud = check(t.cloud, settings.cloudEnabled),
       locality = el("select"),
@@ -967,6 +975,24 @@ export function createAssistantPanel(
         grid(inputLimit.label, outputLimit.label),
         note(t.usage),
       ),
+      ...(memory ? [section(t.memorySettings, t.memoryHint,
+        memory.write.label, memory.recall.label,
+        memory.python.label, memory.config.label, memory.access.label, memory.tokenizer.label,
+        note(t.memoryPrivacy),
+        button(t.memoryPair, () => {
+          // focusin 只保护编辑中的表单；配对只需判断记忆配置是否真的有未保存修改。
+          const saved = settings.memory!;
+          if (memory.write.input.checked !== saved.writeEnabled || memory.recall.input.checked !== saved.recallEnabled ||
+              memory.python.input.value !== saved.pythonPath || memory.config.input.value !== saved.configPath ||
+              memory.access.input.value !== saved.accessPath || memory.tokenizer.input.value !== saved.tokenizerDataDir) {
+            notice.textContent = t.memorySaveFirst; return;
+          }
+          void perform(async () => {
+            await assistantCall(token!, "/memory/pair", {});
+            notice.textContent = t.memoryPaired;
+          });
+        }),
+      )] : []),
       voiceSection,
       onlineSection,
       actions,
@@ -996,6 +1022,14 @@ export function createAssistantPanel(
           timeZone: timeZone.input.value,
           persona: persona.input.value,
           cloudEnabled: cloud.input.checked,
+          ...(memory ? { memory: {
+            writeEnabled: memory.write.input.checked,
+            recallEnabled: memory.recall.input.checked,
+            pythonPath: memory.python.input.value,
+            configPath: memory.config.input.value,
+            accessPath: memory.access.input.value,
+            tokenizerDataDir: memory.tokenizer.input.value,
+          } } : {}),
           ...(companionEnabled ? {companion:{murmurEnabled:companionEnabled.input.checked}} : {}),
           voice: {
             microphoneEnabled: microphone.input.checked,

@@ -23,6 +23,14 @@ export interface AssistantSettingsView {
   timeZone: string;
   persona: string;
   cloudEnabled: boolean;
+  memory?: {
+    recallEnabled: boolean;
+    writeEnabled: boolean;
+    pythonPath: string;
+    configPath: string;
+    accessPath: string;
+    tokenizerDataDir: string;
+  };
   companion?: CompanionPreferences;
   voice?: VoiceSettings & { apiKeyConfigured?: boolean };
   chat: {

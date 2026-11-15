@@ -54,6 +54,53 @@ afterEach(() => {
   vi.clearAllMocks();
   credential.mockReset().mockResolvedValue("fixture-token");
 });
+it("新窗口无在途请求时仍从恢复历史展示记忆保存结果未知提示", async () => {
+  const nodes: PanelNode[] = [], doc = new EventTarget();
+  Object.assign(doc, { createElement: () => { const node = new PanelNode(); nodes.push(node); return node; } });
+  vi.stubGlobal("document", doc); vi.stubGlobal("window", new EventTarget()); vi.stubGlobal("Option", PanelNode);
+  const warning = "此次保存结果未知，请到 EverNook 核实；不会自动重试。";
+  call.mockResolvedValue({ epoch: 0, revision: 1, messages: [
+    { seq: 1, role: "user", text: "记住：合成偏好", createdAt: "2026-11-15T00:00:00Z" },
+    { seq: 2, role: "assistant", text: warning, createdAt: "2026-11-15T00:00:01Z" },
+  ], todos: [], reminders: [], activeRequest: null, settings: null });
+  const panel = createAssistantPanel(new PanelNode() as unknown as HTMLElement, () => undefined, () => undefined);
+  try {
+    await panel.open();
+    expect(nodes.some(n => n.textContent === warning)).toBe(true);
+    expect(call.mock.calls.every(args => args[1] === "/snapshot")).toBe(true);
+  } finally { panel.dispose(); }
+});
+it("长期记忆独立保存授权与本地路径，打开设置不隐式配对", async () => {
+  const nodes: PanelNode[] = [], doc = new EventTarget();
+  Object.assign(doc, { createElement: (tag: string) => { const node = new PanelNode(); node.tagName = tag; nodes.push(node); return node; } });
+  vi.stubGlobal("document", doc); vi.stubGlobal("window", new EventTarget()); vi.stubGlobal("Option", PanelNode);
+  const memory = { recallEnabled: false, writeEnabled: false, pythonPath: "C:\\lab\\python.exe", configPath: "C:\\lab\\runtime.json", accessPath: "C:\\lab\\mcp-access-maneki.json", tokenizerDataDir: "C:\\lab\\tokenizer" };
+  const settings = { version: 0, timeZone: "Asia/Shanghai", persona: "小招", cloudEnabled: false, memory,
+    chat: { enabled: false, locality: "local", baseUrl: "", model: "", maxInputTokens: 4096, maxOutputTokens: 1024, apiKeyConfigured: false } };
+  call.mockImplementation(async (_token, path) => path === "/snapshot" ? { epoch: 0, revision: 0, messages: [], todos: [], reminders: [], activeRequest: null, settings } : { paired: true });
+  const panel = createAssistantPanel(new PanelNode() as unknown as HTMLElement, () => undefined, () => undefined);
+  const field = (text: string) => nodes.find(n => n.textContent === text)!.children[0]!;
+  const flush = async () => { for (let i=0;i<40;i++) await Promise.resolve(); };
+  try {
+    await panel.open(); panel.show("settings");
+    expect(nodes.some(n => n.textContent === "长期记忆 · EverNook")).toBe(true);
+    expect(call.mock.calls.some(args => args[1] === "/memory/pair")).toBe(false);
+    (field("允许通过“记住：…”保存") as PanelNode & {checked:boolean}).checked = true;
+    field("EverNook Python 程序").value = "C:\\new\\python.exe";
+    nodes.filter(n => n.textContent === "配对 EverNook").at(-1)!.dispatchEvent(new Event("click"));
+    await flush();
+    expect(call.mock.calls.some(args => args[1] === "/memory/pair")).toBe(false);
+    expect(nodes.some(n => n.textContent === assistantText.memorySaveFirst)).toBe(true);
+    nodes.find(n => n.className === "settings-form")!.dispatchEvent(new Event("submit", {cancelable:true}));
+    await flush();
+    expect(call.mock.calls.find(args => args[1] === "/settings")?.[2].memory).toEqual({ ...memory, writeEnabled: true, pythonPath: "C:\\new\\python.exe" });
+    // 浏览器会先聚焦按钮，focusin 不能被误判成路径已修改而永久阻止配对。
+    nodes.filter(n => n.className === "settings-form").at(-1)!.dispatchEvent(new Event("focusin"));
+    nodes.filter(n => n.textContent === "配对 EverNook").at(-1)!.dispatchEvent(new Event("click"));
+    await flush();
+    expect(call.mock.calls.filter(args => args[1] === "/memory/pair")).toEqual([["fixture-token", "/memory/pair", {}]]);
+  } finally { panel.dispose(); }
+});
 it("未配对的设置视图仅复用凭证，后续显式打开助手仍可授权", async () => {
   const nodes: PanelNode[] = [], doc = new EventTarget();
   Object.assign(doc, { createElement: () => { const node = new PanelNode(); nodes.push(node); return node; } });
@@ -368,6 +415,7 @@ it("设置分别保存本地/百炼服务和独立密钥，组件检测只查询
       },
     });
     expect(save[2]).not.toHaveProperty("apiKey");
+    expect(save[2]).not.toHaveProperty("memory");
     expect(speechKey.value).toBe("");
   } finally {
     panel.dispose();
