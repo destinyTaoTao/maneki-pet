@@ -141,6 +141,7 @@ Windows 阶段出口：
 - [ ] HTTP/WS 127.0.0.1 + token/scope + Host/Origin 校验，受信客户端配对、凭证撤销、短期 WS 票据
 - [ ] `/v1` OpenAPI/消息 Schema 与输入/并发上限；SQLite 迁移与当前需要的最小任务/审计记录
 - [x] 2026-11-21 源码状态接入：Node SDK、CLI 与独立 stdio MCP 的 `maneki_set_state` 共用回环状态租约。验证配对、撤销、跨进程仲裁与桥退出后后台继续服务。[审查与验收](./audits/2026-11-21-assistant-integration-review.md)
+- [x] 2026-11-21 开工简报：具名 agent 经单独授权，从 SDK、HTTP、CLI 或 stdio MCP 查询到期待办和在线等待会话。Windows 隔离 dsh 配置验证了真实宿主工具读取、会话结束后移除和撤销后拒绝。[简报契约与验收](./audits/2026-11-21-work-briefing.md)
 - [ ] stdio MCP 表达桥：`maneki_say / maneki_set_state / maneki_play / maneki_notify`；stdout 仅协议消息
 - [ ] 近期唯一目标 dsh 的真实事件 Adapter；归一来源/会话/任务、去重、乱序保护、快照恢复；其他宿主对照暂缓
 - [ ] 最小确定性防打扰规则：勿扰、通道开关、主动次数限制；此时即约束 MCP 与任务通知
