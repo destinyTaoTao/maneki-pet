@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
   createBriefingClient, createExpressionClient, createReminderCancelClient, createReminderClient, createReminderReadClient,
-  type AgentReminderCancelInput, type AgentReminderInput, type ReminderClientOptions,
+  createReminderRescheduleClient, type AgentReminderCancelInput, type AgentReminderInput,
+  type AgentReminderRescheduleInput, type ReminderClientOptions,
 } from "../src/index.js";
 
 let dir: string;
@@ -29,6 +30,7 @@ afterEach(async () => {
 const proofFields = {
   expression: "expressionProof", briefing: "briefingProof", reminder: "reminderProof",
   "reminder-read": "reminderReadProof", "reminder-cancel": "reminderCancelProof",
+  "reminder-reschedule": "reminderRescheduleProof",
 } as const;
 type Capability = keyof typeof proofFields;
 
@@ -281,10 +283,14 @@ it("在已验证的同一连接提交规范化参数，仅接受 200 和对应�
 const summary = { reminderId: receipt.reminderId, message: reminderMessage, remindAt: receipt.remindAt, version: 2 };
 const cancellation = { requestId: "cancel-1", reminderId: summary.reminderId, version: summary.version };
 const cancelled = { requestId: cancellation.requestId, reminderId: cancellation.reminderId, cancelled: true };
+const reschedule = { ...cancellation, requestId: "reschedule-1", afterSeconds: 3600 };
+const rescheduled = { requestId: reschedule.requestId, reminderId: reschedule.reminderId,
+  remindAt: summary.remindAt + 3600000, version: reschedule.version + 1 };
 
 it.each([
   ["reminder-read", (options: ReminderClientOptions) => createReminderReadClient(options).listReminders()],
   ["reminder-cancel", (options: ReminderClientOptions) => createReminderCancelClient(options).cancelReminder(cancellation)],
+  ["reminder-reschedule", (options: ReminderClientOptions) => createReminderRescheduleClient(options).rescheduleReminder(reschedule)],
 ] as const)("%s 只在同一连接收到对应证明后发送凭证", async (purpose, invoke) => {
   const requests: Array<[string | undefined, string | undefined]> = [];
   let reason = "缺少证明";
@@ -306,6 +312,41 @@ it.each([
     await expect(invoke({ baseUrl, tokenFile })).rejects.toThrow("无法验证 Runtime");
   }
   expect(requests).toEqual(Array(3).fill(["/v1/health", undefined]));
+});
+
+it("提醒改期只发送明确的目标、原版本和有效延时，只接受匹配的新版本回执", async () => {
+  const requests: unknown[] = [];
+  let body = JSON.stringify(rescheduled);
+  let status = 200;
+  const baseUrl = await serveVerified(async (req, res) => {
+    expect([req.method, req.url]).toEqual(["POST", "/v1/reminders/reschedule"]);
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    res.writeHead(status).end(body);
+  }, "reminder-reschedule");
+  const client = createReminderRescheduleClient({ baseUrl, tokenFile });
+  expect(Object.keys(client)).toEqual(["rescheduleReminder"]);
+  for (const invalid of [
+    cancellation, { ...reschedule, message: summary.message }, { ...reschedule, reminderId: "ab000000" },
+    { ...reschedule, version: 0 }, { ...reschedule, afterSeconds: "3600" },
+    ...[0, 1.5, 31622401].map((afterSeconds) => ({ ...reschedule, afterSeconds })),
+  ]) {
+    await expect(client.rescheduleReminder(invalid as AgentReminderRescheduleInput)).rejects.toThrow(/^无效的提醒改期参数$/);
+  }
+  expect(requests).toEqual([]);
+  expect(await client.rescheduleReminder(reschedule)).toEqual(rescheduled);
+  expect(await client.rescheduleReminder(reschedule)).toEqual(rescheduled);
+  expect(requests).toEqual([reschedule, reschedule]);
+  for (const fields of [{ requestId: "other" }, { reminderId: summary.reminderId.toUpperCase() },
+    { remindAt: -1 }, { version: reschedule.version }, { version: reschedule.version + 2 }, { unexpected: "private" }]) {
+    body = JSON.stringify({ ...rescheduled, ...fields });
+    await expect(client.rescheduleReminder(reschedule)).rejects.toThrow(/^Runtime 提醒改期回执格式无效$/);
+  }
+  for (status of [202, 403, 404, 409, 429]) {
+    body = "private response";
+    await expect(client.rescheduleReminder(reschedule)).rejects.toThrow(`Runtime 拒绝改期提醒请求 (HTTP ${status})`);
+  }
 });
 
 it("提醒查询接受整批上限和桌面编辑的正文，拒绝无效投影和超限响应", async () => {

@@ -111,3 +111,29 @@ it("提醒管理命令只读取各自的凭证，取消必须指定完整 ID 和
   const cancel = command("cancel-reminder", ...valid);
   expect([cancel.status, cancel.stdout, cancel.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_cancel 凭证文件"]);
 });
+
+it("提醒改期要求完整 ID、版本和整数延时，并且只读取改期凭证", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
+  fixtures.push(dir);
+  const otherCredential = join(dir, "other-client.json");
+  writeFileSync(otherCredential, JSON.stringify({
+    instanceId: "rt-test12345678", clientId: "client-aa0000000001", token: "a".repeat(43),
+  }));
+  const command = (...args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, "../dist/main.js"), "reschedule-reminder", ...args], {
+    env: { ...process.env, MANEKI_RUNTIME_URL: "http://127.0.0.1:1", MANEKI_REMINDER_TOKEN_FILE: otherCredential,
+      MANEKI_REMINDER_READ_TOKEN_FILE: otherCredential, MANEKI_REMINDER_CANCEL_TOKEN_FILE: otherCredential,
+      MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE: undefined },
+    encoding: "utf8", timeout: 5000, windowsHide: true,
+  });
+  const target = ["--request-id", "reschedule-1", "--reminder-id", "ab000000-0000-4000-a000-000000000001", "--version", "1"];
+  const valid = [...target, "--after-seconds", "3600"];
+  for (const args of [target, [...target, "--after-seconds", "1e3"], [...target, "--after-seconds", "31622401"],
+    [...valid, "--after-seconds", "1"], [...valid, "--message", "private-text"]]) {
+    const result = command(...args);
+    expect([result.status, result.stdout, result.stderr.trim()]).toEqual([
+      2, "", "usage: maneki reschedule-reminder --request-id <id> --reminder-id <id> --version <n> --after-seconds <n>",
+    ]);
+  }
+  const result = command(...valid);
+  expect([result.status, result.stdout, result.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_reschedule 凭证文件"]);
+});

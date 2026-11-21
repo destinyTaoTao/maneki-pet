@@ -21,6 +21,7 @@ const endpoints = {
   // 兼容桌面编辑的正文，200 条各 512 个 UTF-16 码元，按每码元最多 6 字节 JSON 转义预留空间。
   "reminder-read": { scope: "reminder_read", path: "/v1/reminders/pending", proofField: "reminderReadProof", label: "查询提醒", identity: "提醒查询", Error: ReminderClientError, maxBytes: 640 * 1024, postStatus: 200 },
   "reminder-cancel": { scope: "reminder_cancel", path: "/v1/reminders/cancel", proofField: "reminderCancelProof", label: "取消提醒", identity: "提醒取消", Error: ReminderClientError, maxBytes: 1024, postStatus: 200 },
+  "reminder-reschedule": { scope: "reminder_reschedule", path: "/v1/reminders/reschedule", proofField: "reminderRescheduleProof", label: "改期提醒", identity: "提醒改期", Error: ReminderClientError, maxBytes: 1024, postStatus: 200 },
 } as const;
 type Endpoint = typeof endpoints[keyof typeof endpoints];
 

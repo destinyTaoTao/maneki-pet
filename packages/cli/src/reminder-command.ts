@@ -1,6 +1,12 @@
 import { parseArgs } from "node:util";
-import { normalizeAgentReminder, normalizeAgentReminderCancelInput, type AgentReminderCancelInput, type AgentReminderInput } from "@maneki-pet/core";
-import { createReminderCancelClient, createReminderClient, createReminderReadClient, ReminderClientError } from "@maneki-pet/sdk";
+import {
+  normalizeAgentReminder, normalizeAgentReminderCancelInput, normalizeAgentReminderRescheduleInput,
+  type AgentReminderCancelInput, type AgentReminderInput, type AgentReminderRescheduleInput,
+} from "@maneki-pet/core";
+import {
+  createReminderCancelClient, createReminderClient, createReminderReadClient, createReminderRescheduleClient,
+  ReminderClientError,
+} from "@maneki-pet/sdk";
 
 export function reminderClient() {
   return createReminderClient({
@@ -20,6 +26,13 @@ export function reminderCancelClient() {
   return createReminderCancelClient({
     baseUrl: process.env.MANEKI_RUNTIME_URL ?? "",
     tokenFile: process.env.MANEKI_REMINDER_CANCEL_TOKEN_FILE ?? "",
+  });
+}
+
+export function reminderRescheduleClient() {
+  return createReminderRescheduleClient({
+    baseUrl: process.env.MANEKI_RUNTIME_URL ?? "",
+    tokenFile: process.env.MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE ?? "",
   });
 }
 
@@ -95,6 +108,42 @@ export async function runReminderCancelCommand(args: string[]): Promise<void> {
   }
   try {
     const receipt = await reminderCancelClient().cancelReminder(input);
+    process.stdout.write(`${JSON.stringify(receipt)}\n`);
+  } catch (error) {
+    process.stderr.write(`${safeReminderError(error)}\n`);
+    process.exitCode = 1;
+  }
+}
+
+function rescheduleCommandInput(args: string[]): AgentReminderRescheduleInput | null {
+  try {
+    const option = { type: "string", multiple: true } as const;
+    const { values } = parseArgs({
+      args, options: { "request-id": option, "reminder-id": option, version: option, "after-seconds": option },
+    });
+    const requestIds = values["request-id"];
+    const reminderIds = values["reminder-id"];
+    const versions = values.version;
+    const delays = values["after-seconds"];
+    if (requestIds?.length !== 1 || reminderIds?.length !== 1 || versions?.length !== 1 || delays?.length !== 1 ||
+        !/^\d+$/.test(versions[0]!) || !/^\d+$/.test(delays[0]!)) return null;
+    return normalizeAgentReminderRescheduleInput({
+      requestId: requestIds[0], reminderId: reminderIds[0], version: Number(versions[0]), afterSeconds: Number(delays[0]),
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function runReminderRescheduleCommand(args: string[]): Promise<void> {
+  const input = rescheduleCommandInput(args);
+  if (!input) {
+    process.stderr.write("usage: maneki reschedule-reminder --request-id <id> --reminder-id <id> --version <n> --after-seconds <n>\n");
+    process.exitCode = 2;
+    return;
+  }
+  try {
+    const receipt = await reminderRescheduleClient().rescheduleReminder(input);
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
   } catch (error) {
     process.stderr.write(`${safeReminderError(error)}\n`);
