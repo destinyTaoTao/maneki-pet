@@ -1,0 +1,13 @@
+# 由用户按需加载。桥及提醒凭证都使用绝对路径。
+- insert:
+    - id: maneki-reminder
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: maneki_reminders
+        transport: stdio
+        command: !!js process.execPath
+        args:
+          - !!js process.env.MANEKI_REMINDER_BRIDGE
+        env:
+          MANEKI_RUNTIME_URL: !!js process.env.MANEKI_REMINDER_URL || 'http://127.0.0.1:18100'
+          MANEKI_REMINDER_TOKEN_FILE: !!js process.env.MANEKI_REMINDER_TOKEN_FILE

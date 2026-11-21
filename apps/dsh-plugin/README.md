@@ -87,6 +87,33 @@ Windows、Node 24.12.0、dsh `0.2.2-rc.1` 的隔离 profile 已验证工具发�
 
 从仓库根目录构建后，运行 `node scripts/acceptance-dsh-briefing.mjs` 可用本机 npm 安装的 dsh `0.2.2-rc.1` 重跑这条简报链路，也可在命令末尾传入 dsh 的 `lib/bin.js` 绝对路径。脚本创建临时 profile 和 Runtime，结束时清理凭证与目录。
 
+## 让 dsh 安排一次提醒
+
+在已配置模型的 dsh 中输入「半小时后提醒我休息」。工具调用成功后，小招返回提醒 ID 和到期时间。可以退出 dsh，保持小招后台运行，到期时由它投递通知。要查看、更改或取消这条提醒，请打开小招的个人助手面板。
+
+先从源码构建并启动 Runtime。以下示例在仓库根目录运行，使用接入指南的演示目录和端口。`reminder_create` 允许这个具名客户端安排多条提醒，提醒文字会出现在本机通知中。为每个需要使用它的 profile 单独命名和授权。[启动示例](../../README.md#接入小招)
+
+```powershell
+$runtimeDir = Join-Path $env:LOCALAPPDATA 'ManekiIntegrationDemo'
+$port = 18101
+$env:MANEKI_REMINDER_URL = "http://127.0.0.1:$port"
+$env:MANEKI_REMINDER_BRIDGE = (Resolve-Path packages/cli/dist/reminder-mcp.js).Path
+$env:MANEKI_REMINDER_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-client.mjs "$runtimeDir" $port dsh-web --allow-reminder-create
+if ($LASTEXITCODE -ne 0) { throw '提醒配对失败' }
+$reminderPatch = (Resolve-Path apps/dsh-plugin/reminder.patch.example.yml).Path
+dsh --profile web --patch "$reminderPatch"
+```
+
+dsh 的原生 MCP 客户端将该工具注册为 `mcp__maneki_reminders__maneki_remind`。半小时对应 `afterSeconds: 1800`，本例正文是「休息」。同一意图遇到超时或回执丢失时，复用原 `requestId`、延时和正文；另一条新意图使用新 ID。[请求与重试契约](../../docs/architecture.md#agent-reminders)
+
+要收回这个 profile 的创建权限，执行以下命令。已经安排的提醒会继续由 Runtime 调度。
+
+```powershell
+node packages/runtime/scripts/pair-reminder-client.mjs "$runtimeDir" $port dsh-web --revoke-reminder-create
+```
+
+**在 Windows 重跑验收会发出一条真实的「休息」通知。** 从已构建的仓库运行 `node scripts/acceptance-dsh-reminder.mjs`，也可追加本机 dsh 的 `lib/bin.js` 路径。验收在隔离 profile 中将上述中文句子送进 dsh 的原生对话循环，由本地确定性 Provider 解析并请求工具。Windows、Node 24.12.0、dsh `0.2.2-rc.1` 实测重试返回同一回执，撤销后新建被拒。宿主退出后，脚本推进测试 Runtime 的时钟并重启后台，验证到期前仍待投递、到期时 Windows 受理一次、再重启后投递次数仍为一。在线模型自主选择工具、用户是否看到系统横幅及其他平台仍待验证。[验收脚本](../../scripts/acceptance-dsh-reminder.mjs)
+
 ## 旧手工凭证模式（继续兼容）
 
 先从仓库构建：`pnpm -r build`。桌面和 Runtime 必须使用本轮构建，旧安装版没有新的状态接口。构建原生壳可运行 `pnpm --filter @maneki-pet/desktop tauri build --no-bundle`；它使用已准备的本地动作包。

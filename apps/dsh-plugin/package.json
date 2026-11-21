@@ -18,6 +18,7 @@
     "dist/index.d.ts",
     "cordis.patch.yml",
     "briefing.patch.example.yml",
+    "reminder.patch.example.yml",
     "README.md"
   ],
   "scripts": {
