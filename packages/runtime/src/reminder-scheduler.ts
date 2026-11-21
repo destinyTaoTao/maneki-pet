@@ -2,7 +2,7 @@ import type { SystemNotifier } from "@maneki-pet/core";
 import type { AssistantStore } from "./assistant-store.js";
 import type { NotificationBudget } from "./quota.js";
 import type { EventFeed } from "./events.js";
-import type { DailyReminders } from "./daily-reminders.js";
+import type { RecurringReminders } from "./daily-reminders.js";
 import { randomUUID } from "node:crypto";
 
 const SCAN_INTERVAL_MS = 30_000;
@@ -12,7 +12,7 @@ export class ReminderScheduler {
   private running: Promise<void> | undefined;
   private stopped = false;
   private backingOff = false;
-  private dailyRetryAt = 0;
+  private readonly recurringRetryAt = new Map<RecurringReminders, number>();
   constructor(
     private readonly store: AssistantStore,
     private readonly notifier: SystemNotifier,
@@ -20,7 +20,7 @@ export class ReminderScheduler {
     private readonly dnd: () => boolean,
     private readonly feed: EventFeed,
     private readonly now: () => number = Date.now,
-    private readonly daily?: DailyReminders,
+    private readonly recurring: readonly RecurringReminders[] = [],
   ) {}
   wake(): void {
     if (this.stopped) return;
@@ -48,9 +48,11 @@ export class ReminderScheduler {
     let interval = SCAN_INTERVAL_MS;
     if (!this.backingOff) {
       try {
-        const once = this.store.nextDue();
-        const daily = this.withDaily((reminders) => reminders.nextDue());
-        const next = Math.min(once ?? Infinity, daily ?? Infinity);
+        let next = this.store.nextDue() ?? Infinity;
+        for (const reminders of this.recurring) {
+          const due = this.withRecurring(reminders, () => reminders.nextDue());
+          if (due !== null) next = Math.min(next, due);
+        }
         interval =
           this.allowed()
             ? Math.min(SCAN_INTERVAL_MS, Math.max(1, next - this.now()))
@@ -69,25 +71,27 @@ export class ReminderScheduler {
   private allowed(): boolean {
     return !this.dnd() && this.budget.canSend(this.now()).allowed;
   }
-  private withDaily<T>(run: (daily: DailyReminders) => T): T | null {
-    if (!this.daily || performance.now() < this.dailyRetryAt) return null;
+  private withRecurring<T>(reminders: RecurringReminders, run: () => T): T | null {
+    if (performance.now() < (this.recurringRetryAt.get(reminders) ?? 0)) return null;
     try {
-      return run(this.daily);
+      return run();
     } catch {
-      // 每日状态不可读时限频重扫，单次提醒保持原有调度。
-      this.dailyRetryAt = performance.now() + SCAN_INTERVAL_MS;
+      // 每种周期的存储故障独立退避。
+      this.recurringRetryAt.set(reminders, performance.now() + SCAN_INTERVAL_MS);
       return null;
     }
   }
   private async deliver(): Promise<void> {
     if (this.allowed()) await this.deliverOnce();
-    if (this.stopped) return;
-    const daily = this.withDaily((reminders) => reminders.advance(this.now(), this.allowed()));
-    if (!daily) return;
-    this.budget.record(this.now());
-    const body = this.body(daily);
-    const result = await this.notify(daily.id, 1, body);
-    this.publish(daily.id, body, result.status);
+    for (const reminders of this.recurring) {
+      if (this.stopped) return;
+      const delivery = this.withRecurring(reminders, () => reminders.advance(this.now(), this.allowed()));
+      if (!delivery) continue;
+      this.budget.record(this.now());
+      const body = this.body(delivery);
+      const result = await this.notify(delivery.id, 1, body);
+      this.publish(delivery.id, body, result.status);
+    }
   }
   private async deliverOnce(): Promise<void> {
     const due = this.store.due(this.now());
