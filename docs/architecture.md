@@ -1036,6 +1036,26 @@ SDK `createReminderReadClient(...).listReminders(signal?)` 与 `createReminderCa
 - 同一改期身份重试相同请求 ID、提醒 ID、版本和延时，返回原到期时间和新版本，包括重启、后续再改期或取消之后。已提交的请求 ID 换参数返回 409；失败不记为成功回执。每个改期身份每 UTC 整点小时最多成功改期 30 次，重放不占额度、失败不扣减，持久化配额与创建隔离。若系统时钟回拨到已记账小时之前，本 Runtime 返回 429 拒绝新改期，直至时钟恢复到已记账小时。
 - SDK `createReminderRescheduleClient(...).rescheduleReminder(input,signal?)`、CLI `reschedule-reminder --request-id <id> --reminder-id <id> --version <n> --after-seconds <n>`，以及独立 stdio 桥 `reminder-reschedule-mcp.js` 的唯一工具 `maneki_reschedule_reminder` 共用上述接口。桥使用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE`。dsh 显式加载改期 patch，可同时加载查询桥。升级 Runtime 与接入端后单独配对，无数据库迁移。
 
+<a id="daily-reminders"></a>
+
+#### Personal agent 的每日提醒
+
+本机管理员为每个调用方单独签发具名 `reminder_recurring`。该凭证只可创建、查询和取消同一 clientId 的每日规则，独立于单次提醒权限。撤销凭证停止工具访问，已安排的规则继续调度。管理员按登记名撤销前可令 agent 明确取消规则。管理端沿用具名签发与回环握手，能力名 `reminder-recurring`、响应字段 `recurringReminderProof`。身份探针为 `GET /v1/recurring-reminders/identity`，管理撤销为 `POST /v1/admin/recurring-reminders/revoke`，接收 `{name}`。
+
+| 路由 | 契约 |
+|---|---|
+| `POST /v1/recurring-reminders` | `{requestId,localTime,message}`，返回 `{requestId,seriesId,localTime,timeZone,nextAt}`。严格 `HH:mm` 24 小时格式，提醒正文与单次提醒使用相同约束。 |
+| `GET /v1/recurring-reminders` | `{reminders:[{seriesId,localTime,message,timeZone,nextAt}]}`，列出本身份活跃规则，按 nextAt、ID 升序。 |
+| `POST /v1/recurring-reminders/cancel` | `{requestId,seriesId}`，返回 `{requestId,seriesId,cancelled:true}`。seriesId 为完整小写 UUID。不存在或归属不符统一 404。 |
+
+请求 ID 沿用单次提醒文法，按身份在创建与取消之间共用。首次成功、状态变化与回执同事务提交，原参数重试返回首次回执。已提交的 ID 更换参数或操作返回 409。规则一旦取消便不再被认领；取消前已认领的那次可能继续投递。重放旧创建请求只取原回执，不会复活取消规则。最多 64 条活跃规则，每个身份最多 8 条；同一身份每 UTC 整点小时最多成功创建 30 条，重放不占额度，时钟回拨到已记账小时之前拒绝新建。HTTP 成功为 200，`Cache-Control: no-store`。
+
+创建时读取用户在 Maneki 中设置的时区并固定到该规则。首次运行取严格晚于受理时刻的第一个有效本地时间，nextAt 为 Unix 毫秒。调度按本地日历推进，遇到夏令时使目标分钟不存在或不唯一时跳过当天。重启、休眠或勿扰跨日时只考虑当前本地日及未来，不补发旧日；当前本地日的逾期提醒可在恢复后投递。用户后来更改默认时区时，新建规则采用新设置。
+
+Runtime 复用现有调度与通知预算。每条规则持久保存下一次对应的本地日期与 UTC 时间。以规则 ID 和本地日期标识当次投递，在调用通知器前以 SQLite 事务前移到下一次。重启不会再次认领同一次；在提交认领后、通知器受理前中断或失败时，当次可能漏发，下一天仍照常调度。时钟回拨不会让已认领的本地日期重新出现。使用现有 SQLite KV 与 mutation 存储，不需要数据库迁移。KV 使用独立 v1 键并校验记录；状态不可读时每日提醒拒绝操作，单次提醒仍可运行。
+
+SDK `createRecurringReminderClient(...)` 提供 `createDailyReminder(input,signal?)`、`listDailyReminders(signal?)`、`cancelDailyReminder(input,signal?)`。CLI 对应 `remind-daily --request-id <id> --at <HH:mm> --message <text>`、`daily-reminders`、`cancel-daily-reminder --request-id <id> --series-id <uuid>`。独立 stdio 桥 `reminder-recurring-mcp.js` 公布 `maneki_remind_daily`、`maneki_list_daily_reminders`、`maneki_cancel_daily_reminder`，仅取 `MANEKI_RUNTIME_URL` 与 `MANEKI_REMINDER_RECURRING_TOKEN_FILE`。dsh 显式加载对应 patch。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
