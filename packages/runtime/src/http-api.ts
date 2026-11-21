@@ -302,6 +302,10 @@ export class LocalHttpApi {
         return;
       }
       const targetId = url.slice("/v1/clients/".length, -"/revoke".length);
+      if (targetId === "root") {
+        this.sendJson(res, 409, { error: "installation identity cannot be revoked as a client" });
+        return;
+      }
       const target = this.deps.store.findClient(targetId);
       if (!target) {
         this.sendJson(res, 404, { error: "client not found" });
@@ -320,7 +324,10 @@ export class LocalHttpApi {
         this.forbidden(res, "listing clients requires admin scope");
         return;
       }
-      this.sendJson(res, 200, { clients: this.deps.store.listClients() });
+      const clients = this.deps.store.listClients().map(({ clientId, name, scopes, createdAt, revokedAt }) => ({
+        clientId, name, scopes, createdAt, revokedAt,
+      }));
+      this.sendJson(res, 200, { clients });
       return;
     }
 

@@ -199,6 +199,18 @@ describe("本地 HTTP API 鉴权矩阵", () => {
     expect(actual.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
   });
 
+  it("管理员清单只返回管理所需字段，安装根身份不能通过客户端撤销", async () => {
+    const { runtime, base } = await makeRuntime();
+    const token = runtime.rootToken;
+    const denied = await jsonFetch(base, "/v1/clients/root/revoke", { token, body: {} });
+    expect(denied.status).toBe(409);
+    const list = await jsonFetch(base, "/v1/clients", { token });
+    expect(list.status).toBe(200);
+    expect(list.body.clients).toEqual([{
+      clientId: "root", name: "root", scopes: ["admin"], createdAt: expect.any(String), revokedAt: null,
+    }]);
+  });
+
   it("配对流程：root 签发 express 客户端，签发 admin 范围被拒绝", async () => {
     const { runtime, base } = await makeRuntime();
     const pair = await jsonFetch(base, "/v1/pair", { token: runtime.rootToken, body: { name: "shell", scopes: "express,notify" } });
