@@ -36,6 +36,8 @@ export interface RuntimeOptions {
   originAllowlist?: string[];
   version?: string;
   log?: (line: string) => void;
+  /** 退出清理失败时通知宿主，可用于设置后台进程的退出码。 */
+  onShutdownError?: () => void;
   /** WS 鉴权超时（测试可调短）。 */
   wsAuthTimeoutMs?: number;
 }
@@ -69,18 +71,64 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
   const lock = new InstanceLock(join(options.configDir, "runtime.lock"));
   lock.acquire();
 
-  let openedStore: RuntimeStore | undefined;
-  let openedAssistant: AssistantService | undefined;
+  type Cleanup = () => void | Promise<void>;
+  const cleanup: {
+    http?: Cleanup;
+    ws?: Cleanup;
+    subscription?: Cleanup;
+    assistant?: Cleanup;
+    expressions?: Cleanup;
+    observations?: Cleanup;
+    bridge?: Cleanup;
+    memory?: Cleanup;
+    audit?: (kind: string, failedStages: string[]) => void;
+    database?: Cleanup;
+  } = {};
+  let stopPromise: Promise<void> | undefined;
+
+  async function release(startupFailed: boolean): Promise<void> {
+    lifecycle.transition("stopping");
+    const failedStages: string[] = [];
+    async function attempt(stage: string, close?: Cleanup): Promise<void> {
+      try { await close?.(); }
+      catch { failedStages.push(stage); }
+    }
+    // 先封住入口；WS 必须先断开才能等 HTTP 排空，期间数据库仍供清理使用。
+    const httpDrain = attempt("http", cleanup.http);
+    await attempt("subscription", cleanup.subscription);
+    // 先发起助理取消，避免 WS 断连触发陪伴重新调度。
+    const stoppingAssistant = attempt("assistant", cleanup.assistant);
+    const closingBridge = attempt("bridge", cleanup.bridge);
+    await attempt("ws", cleanup.ws);
+    await stoppingAssistant;
+    await attempt("expressions", cleanup.expressions);
+    await attempt("observations", cleanup.observations);
+    await httpDrain;
+    await closingBridge;
+    await attempt("memory", cleanup.memory);
+    const kind = startupFailed ? "runtime.start_failed" : failedStages.length ? "runtime.stop_failed" : "runtime.stopped";
+    await attempt("audit", () => cleanup.audit?.(kind, [...failedStages]));
+    await attempt("database", cleanup.database);
+    await attempt("lock", () => lock.release());
+    lifecycle.transition("stopped");
+    if (failedStages.length && !startupFailed) await attempt("host", options.onShutdownError);
+    if (failedStages.length || !startupFailed) {
+      await attempt("log", () => log(failedStages.length
+        ? `runtime cleanup failed: ${failedStages.join(", ")}`
+        : "maneki runtime stopped cleanly"));
+    }
+    if (failedStages.length) throw new Error(`runtime cleanup failed: ${failedStages.join(", ")}`);
+  }
+
   try {
     const store = new RuntimeStore(join(options.configDir, "runtime.db"));
-    openedStore = store;
+    cleanup.database = () => store.close();
     const { config } = loadRuntimeConfig(options.configDir);
 
-    let instanceId = store.kvGet("instanceId");
-    if (!instanceId) {
-      instanceId = `rt-${generateToken().slice(0, 12)}`;
-      store.kvSet("instanceId", instanceId);
-    }
+    const storedId = store.kvGet("instanceId");
+    const instanceId = storedId || `rt-${generateToken().slice(0, 12)}`;
+    if (!storedId) store.kvSet("instanceId", instanceId);
+    cleanup.audit = (kind, failedStages) => store.audit(kind, instanceId, failedStages.length ? { failedStages } : {}, new Date().toISOString());
 
     const root = ensureRootToken(options.configDir, store);
 
@@ -96,6 +144,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       },
       publish: (state) => feed.publish("expression.state", { state }),
     });
+    cleanup.expressions = () => expressions.close();
     const dnd = {
       get: (): boolean => store.kvGet("dnd") === "1",
       set: (value: boolean): void => {
@@ -109,6 +158,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       },
       publish: () => feed.publish("assistant.observations_changed"),
     });
+    cleanup.observations = () => observations.close();
     const notifications = new NotificationBudget(config.limits.maxNotificationsPerHour);
     const quotaPolicy = new DailyQuotaPolicy(
       {
@@ -132,14 +182,14 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       ...(options.assistantMemory ? { memory: options.assistantMemory } : {}),
       speech: { ...options.speech, host: speechHost },
     });
-    openedAssistant = assistant;
-    const stopAssistantEvents = feed.subscribe((event) => {
+    cleanup.assistant = () => assistant.stop();
+    cleanup.subscription = feed.subscribe((event) => {
       if (event.kind === "dnd.changed") { assistant.wake(); assistant.companion?.policyChanged(); }
     });
 
     // HTTP 签发与 WS 兑换必须共享同一票据发行器，票据才有效。
     const tickets = new TicketIssuer();
-    let started: StartedRuntime | undefined;
+    const stop = (): Promise<void> => stopPromise ??= release(false);
 
     // M2b 派发：配置了 dsh 网关才装配 TaskService（Broker + DshAdapter 派发）。
     let tasks: TaskService | undefined;
@@ -177,6 +227,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       log,
       ...(options.wsAuthTimeoutMs !== undefined ? { authTimeoutMs: options.wsAuthTimeoutMs } : {}),
     });
+    cleanup.ws = () => hub.detach();
     const companionLeases = new CompanionLeases({
       runtimeEpoch: hub.runtimeEpoch,
       now: Date.now, mono: () => performance.now(),
@@ -217,10 +268,11 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
         expressions.current();
       },
       onShutdown: () => {
-        // 受信管理入口退出：优雅停机，事件循环随服务关闭自然排空。
-        void started?.stop();
+        // HTTP 接受退出后，release 负责记录故障并通知宿主。
+        void stop().catch(() => undefined);
       },
     });
+    cleanup.http = () => api.stop();
     const { port } = await api.start();
     hub.attach(api.rawServer);
 
@@ -239,30 +291,31 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       channelEnabled: () => true,
       notifications,
     });
+    cleanup.bridge = () => bridge.close();
 
     // 外挂记忆（票据 #46）：配置了 stdio 启动命令才创建；客户端按需拉起服务进程，
     // 关闭/故障降级由 Core MemoryContextService 承担，不影响提醒与派发。
-    let memoryClient: McpMemoryClient | undefined;
     let memoryService: MemoryContextService | undefined;
     if (config.externalMemory) {
       const external = config.externalMemory;
-      memoryClient = new McpMemoryClient({
+      const memoryClient = new McpMemoryClient({
         command: external.command,
         ...(external.args ? { args: external.args } : {}),
         ...(external.searchTool ? { searchTool: external.searchTool } : {}),
         ...(external.writeTool ? { writeTool: external.writeTool } : {}),
         ...(external.providerId ? { providerId: external.providerId } : {}),
       });
+      cleanup.memory = () => memoryClient.stop();
       memoryService = new MemoryContextService({ provider: memoryClient });
     }
 
     lifecycle.transition("ready");
     feed.publish("runtime.ready", { port, instanceId });
-    store.audit("runtime.started", instanceId, { port, configDir: options.configDir }, new Date().toISOString());
+    store.audit("runtime.started", instanceId, { port }, new Date().toISOString());
     log(`maneki runtime ready: port=${port} instanceId=${instanceId}`);
 
     let mcpStarted = false;
-    started = {
+    return {
       assistant,
       port,
       instanceId,
@@ -274,6 +327,7 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
       ...(tasks ? { tasks } : {}),
       state: () => lifecycle.state,
       startMcpStdioBridge: async () => {
+        if (stopPromise) throw new Error("runtime stopping");
         if (mcpStarted) {
           return;
         }
@@ -281,39 +335,12 @@ export async function startRuntime(options: RuntimeOptions): Promise<StartedRunt
         await bridge.connectStdio();
         log("mcp stdio bridge connected");
       },
-      stop: async () => {
-        if (lifecycle.state !== "ready" && lifecycle.state !== "degraded") {
-          return;
-        }
-        lifecycle.transition("stopping");
-        // 先停止 HTTP 接入，避免 Provider/调度清理期间再接受新的业务写入。
-        const stoppingHttp = api.stop();
-        stopAssistantEvents();
-        await assistant.stop();
-        expressions.close();
-        observations.close();
-        hub.detach();
-        await stoppingHttp;
-        await bridge.close();
-        try {
-          await memoryClient?.stop();
-        } finally {
-          try {
-            store.audit("runtime.stopped", instanceId, {}, new Date().toISOString());
-            store.close();
-          } finally {
-            lock.release();
-            lifecycle.transition("stopped");
-          }
-        }
-        log("maneki runtime stopped cleanly");
-      },
+      stop,
     };
-    return started;
   } catch (error) {
-    await openedAssistant?.stop();
-    openedStore?.close();
-    lock.release();
+    // release 已记录脱敏的回滚故障；调用方仍需原始启动失败（例如不支持的库版本）。
+    stopPromise ??= release(true);
+    await stopPromise.catch(() => undefined);
     throw error;
   }
 }
