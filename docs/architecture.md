@@ -1054,7 +1054,7 @@ SDK `createReminderReadClient(...).listReminders(signal?)` 与 `createReminderCa
 
 创建时读取用户在 Maneki 中设置的时区并固定到该规则。首次运行取严格晚于受理时刻的第一个有效本地时间，nextAt 为 Unix 毫秒。调度按本地日历推进，遇到夏令时使目标分钟不存在或不唯一时跳过当天。重启、休眠或勿扰跨日时只考虑当前本地日及未来，不补发旧日；当前本地日的逾期提醒可在恢复后投递。用户后来更改默认时区时，新建规则采用新设置。
 
-Runtime 复用现有调度与通知预算。每条规则持久保存下一次对应的本地日期与 UTC 时间。以规则 ID 和本地日期标识当次投递，在调用通知器前以 SQLite 事务前移到下一次。重启不会再次认领同一次；在提交认领后、通知器受理前中断或失败时，当次可能漏发，下一天仍照常调度。时钟回拨不会让已认领的本地日期重新出现。使用现有 SQLite KV 与 mutation 存储，不需要数据库迁移。KV 使用独立 v1 键并校验记录；状态不可读时每日提醒拒绝操作，单次提醒仍可运行。
+Runtime 复用现有调度与通知预算。规则持久保存下一次对应的本地日期，载入时以当前时区规则计算 UTC 投递时间。时区规则库升级后仍从已存日期向前计算，已返回的创建回执保留当时的 UTC 值。以规则 ID 和本地日期标识当次投递，在调用通知器前以 SQLite 事务前移到下一次。重启不会再次认领同一次；在提交认领后、通知器受理前中断或失败时，当次可能漏发，下一天仍照常调度。时钟回拨不会让已认领的本地日期重新出现。使用现有 SQLite KV 与 mutation 存储，不需要数据库迁移。KV 使用独立 v1 键并校验记录，状态不可读时每日提醒拒绝操作，单次提醒仍可运行。
 
 SDK `createRecurringReminderClient(...)` 提供 `createDailyReminder(input,signal?)`、`listDailyReminders(signal?)`、`cancelDailyReminder(input,signal?)`。CLI 对应 `remind-daily --request-id <id> --at <HH:mm> --message <text>`、`daily-reminders`、`cancel-daily-reminder --request-id <id> --series-id <uuid>`。独立 stdio 桥 `reminder-recurring-mcp.js` 公布 `maneki_remind_daily`、`maneki_list_daily_reminders`、`maneki_cancel_daily_reminder`，仅取 `MANEKI_RUNTIME_URL` 与 `MANEKI_REMINDER_RECURRING_TOKEN_FILE`。dsh 显式加载对应 patch。
 
