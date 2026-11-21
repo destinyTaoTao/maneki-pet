@@ -171,7 +171,7 @@ Windows 上的 dsh `0.2.2-rc.1` 已通过两轮隔离验收。本地确定性 Pr
 
 在已配置模型的 dsh 中输入「每天上午九点提醒我休息」。成功回执会给出系列 ID、每日时间、适用时区和下一次到期时间。小招使用创建时的助手设置时区，调整默认时区只影响新建规则。dsh 退出后，运行中的小招后台继续调度。
 
-给每个需要接入的 profile 单独签发 `reminder_recurring`。这个权限可以创建、查询和取消该身份自己的每日规则。dsh 可以把工具返回的提醒内容交给它配置的模型。先从源码构建并启动新版 Runtime，以下命令在仓库根目录运行，沿用演示目录和端口。
+给每个需要接入的 profile 单独签发 `reminder_recurring`。这个权限可以创建、查询和取消该身份自己的每日和工作日规则。dsh 可以把工具返回的提醒内容交给它配置的模型。先从源码构建并启动新版 Runtime，以下命令在仓库根目录运行，沿用演示目录和端口。
 
 ```powershell
 $runtimeDir = Join-Path $env:LOCALAPPDATA 'ManekiIntegrationDemo'
@@ -179,20 +179,36 @@ $port = 18101
 $env:MANEKI_REMINDER_URL = "http://127.0.0.1:$port"
 $env:MANEKI_REMINDER_RECURRING_BRIDGE = (Resolve-Path packages/cli/dist/reminder-recurring-mcp.js).Path
 $env:MANEKI_REMINDER_RECURRING_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-recurring-client.mjs "$runtimeDir" $port dsh-web --allow-reminder-recurring
-if ($LASTEXITCODE -ne 0) { throw '每日提醒配对失败' }
+if ($LASTEXITCODE -ne 0) { throw '周期提醒配对失败' }
 $dailyPatch = (Resolve-Path apps/dsh-plugin/reminder-recurring.patch.example.yml).Path
 dsh --profile web --patch "$dailyPatch"
 ```
 
 dsh 注册 `mcp__maneki_reminder_recurring__maneki_remind_daily`、`mcp__maneki_reminder_recurring__maneki_list_daily_reminders` 和 `mcp__maneki_reminder_recurring__maneki_cancel_daily_reminder`。创建时传入 `localTime: "09:00"`、正文 `休息` 和新 `requestId`。取消时先查列表，核对所选规则的完整 `seriesId`，再用新的 `requestId` 取消。如果多条规则仍无法区分，请用户选定。超时或回执丢失后，用原请求 ID 和完整参数重试。取消后重试旧创建请求只会取回原回执。[每日提醒契约](../../docs/architecture.md#daily-reminders)
 
-下列命令撤销这个 profile 的每日提醒权限。已创建的规则会继续调度。如需同时停止提醒，请先取消对应系列，再撤销权限。
+下列命令撤销这个 profile 的每日和工作日提醒权限。已创建的规则会继续调度。如需同时停止提醒，请先取消对应系列，再撤销权限。
 
 ```powershell
 node packages/runtime/scripts/pair-reminder-recurring-client.mjs "$runtimeDir" $port dsh-web --revoke-reminder-recurring
 ```
 
 从已构建的仓库运行 `node scripts/acceptance-dsh-reminder-recurring.mjs` 可重跑隔离验收，也可附上本机 dsh 的 `lib/bin.js` 绝对路径。脚本用本地确定性 Provider 驱动真实 dsh 对话循环，用注入的通知器记录 Runtime 在模拟到期时刻的投递。[验收脚本](../../scripts/acceptance-dsh-reminder-recurring.mjs)
+
+## 让 dsh 安排工作日提醒
+
+在已配置模型的 dsh 中输入「每个工作日上午九点提醒我休息」。工作日按规则时区的周一至周五计算，遇到节假日或调休仍以星期几为准。成功回执包含系列 ID、时间、创建时的助手时区和下次到期时间。周五投递后，调度从周一查找下一个有效时刻，夏令时使指定分钟不存在或不唯一时跳过当天。dsh 退出后，运行中的小招后台继续调度。[工作日提醒契约](../../docs/architecture.md#weekday-reminders)
+
+从源码构建并启动新版 Runtime，按上一节设置 `MANEKI_REMINDER_URL` 和 `MANEKI_REMINDER_RECURRING_TOKEN_FILE`。已有的 `reminder_recurring` 凭证可以直接使用。只需操作工作日规则时，加载工作日 patch。需要同时操作每日规则时，再加载 `$dailyPatch`。
+
+```powershell
+$env:MANEKI_REMINDER_WEEKDAYS_BRIDGE = (Resolve-Path packages/cli/dist/reminder-weekdays-mcp.js).Path
+$weekdayPatch = (Resolve-Path apps/dsh-plugin/reminder-weekdays.patch.example.yml).Path
+dsh --profile web --patch "$weekdayPatch"
+```
+
+dsh 注册 `mcp__maneki_reminder_weekdays__maneki_remind_weekdays`、`mcp__maneki_reminder_weekdays__maneki_list_weekday_reminders` 和 `mcp__maneki_reminder_weekdays__maneki_cancel_weekday_reminder`。创建时传入 `localTime: "09:00"`、正文 `休息` 和新 `requestId`。可以说「取消每个工作日上午九点的休息提醒」。先查询工作日列表，确认完整 `seriesId` 后用新的 `requestId` 取消。多条规则仍无法区分时，请用户选定。超时或回执丢失时使用完全相同的请求 ID 和参数重试，已取消规则不会因重放创建而恢复。
+
+从已构建的仓库运行 `node scripts/acceptance-dsh-reminder-weekdays.mjs` 可重跑隔离验收，也可附上本机 dsh 的 `lib/bin.js` 绝对路径。脚本用本地确定性 Provider 驱动真实 dsh 对话循环，在 `Asia/Shanghai` 观察 Runtime 向注入通知器投递，覆盖周五、同日重启、周末、周一和取消后。这项验收的范围是工具接入和调度调用，在线模型自主选择工具和系统通知横幅仍待验证。[验收脚本](../../scripts/acceptance-dsh-reminder-weekdays.mjs)
 
 ## 让 dsh 改期自己安排的每日提醒
 
