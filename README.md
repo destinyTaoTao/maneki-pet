@@ -2,7 +2,7 @@
 
 一只陪你工作、替你留意 dsh 会话的桌宠。两个项目同时运行时，你可以直接问「哪个会话在等我？」。小招会根据宿主事件回答，工程操作和审批仍留在 dsh。关掉桌宠窗口后，后台继续照看提醒。
 
-[Windows 安装指南](./docs/install-windows.md) · [dsh 插件](./apps/dsh-plugin/README.md) · [架构设计](./docs/architecture.md) · [路线图与验收](./docs/roadmap.md) · [MIT](./LICENSE) · [每日提醒验收](./docs/audits/2026-11-21-daily-reminders.md)
+[Windows 安装指南](./docs/install-windows.md) · [dsh 插件](./apps/dsh-plugin/README.md) · [架构设计](./docs/architecture.md) · [路线图与验收](./docs/roadmap.md) · [MIT](./LICENSE) · [每日提醒改期验收](./docs/audits/2026-11-21-daily-reminder-reschedule.md)
 
 ## 现在能用什么
 
@@ -14,7 +14,7 @@
 | 形象、动作与轻陪伴 | 源码支持动作包、点播、模板气泡、「来一句」及暂停。自动台词遵守勿扰和独立预算。正式素材另行准备；长时间节奏、真实休眠及多屏观感待验。[轻陪伴验证](./docs/audits/2026-11-14-template-companionship.md) |
 | 长期记忆 | EverNook 的保存与召回分别授权，记忆有来源，tokenizer 在本地匹配模型。已做隔离身份联验，跨天自然问句的产品体验仍在验收。[配置与证据](./packages/adapters/evernook/README.md) |
 | 让 personal agent 安排休息 | 对已授权的 agent 说「半小时后提醒我休息」。小招保存一次提醒，宿主退出后，仍由后台到点投递。[配对与重试示例](#agent-reminders) |
-| 让 personal agent 每天提醒你 | 对已授权的 agent 说「每天上午九点提醒我休息」。小招按规则的本地时区调度。[每日提醒](#daily-reminders) |
+| 让 personal agent 每天提醒你 | 对已授权的 agent 说「每天上午九点提醒我休息」。小招按本地时区调度，也可以经单独授权改到每天十点。[每日提醒](#daily-reminders) · [每日改期](#daily-reminder-reschedule) |
 | 让 personal agent 管理自己安排的提醒 | 权限分别授予。agent 可查询尚未开始投递的提醒，并精确取消或改期其中一条。[查询与取消](#agent-reminder-management) · [改期](#agent-reminder-reschedule) |
 | 让 personal agent 整理开工简报 | 单独授权后，agent 可通过 SDK、HTTP、CLI 或 MCP 一次查询到期待办和等待回应的 dsh 会话。[接入示例](#让-personal-agent-帮你开工) |
 
@@ -37,7 +37,7 @@ flowchart TB
     Ports --> Cloud["用户启用的云端服务"]
 ```
 
-多个 Shell 共享一个 Runtime 和一个数据库拥有者。Core 定义规则与端口，Runtime 负责 IO 与装配。表情租约表达的是某个来源当前想展示的状态；个人会话的任务进度另有来源、序列和时效。personal agent 可将自己的工作进度显示在桌宠上。简报查询与单次提醒操作分别授权，每日提醒另行配对。要接入可执行任务，仍须单独实现并验收 Adapter 的审批、取消和恢复。[模块分工与接口](./docs/architecture.md)
+多个 Shell 共享一个 Runtime 和一个数据库拥有者。Core 定义规则与端口，Runtime 负责 IO 与装配。表情租约表达的是某个来源当前想展示的状态；个人会话的任务进度另有来源、序列和时效。personal agent 可将自己的工作进度显示在桌宠上。简报查询与单次提醒操作分别授权，每日提醒与每日改期另行配对。要接入可执行任务，仍须单独实现并验收 Adapter 的审批、取消和恢复。[模块分工与接口](./docs/architecture.md)
 
 ## 接入小招
 
@@ -46,8 +46,8 @@ flowchart TB
 | dsh 插件 | 人类在宿主输入 `/maneki pair`、`show`、`assistant` | 首个宿主，观察已收到的会话事件；配对与退出经原生管理入口 |
 | 本机 API / WebSocket | 非 Node 客户端、原生桌面或订阅实时事件 | HTTP v1 固定回环、按 scope 鉴权；WS 使用一次性短期票据。[本地接口](./docs/architecture.md#61-runtime-应用接口) |
 | Node SDK | 在 Node agent 中显示进度、查询简报或管理自己的提醒 | 源码 workspace 包 `@maneki-pet/sdk`，提供 `getState()`、`setState()`、`getBriefing()`、`createReminder()`、`listReminders()`、`cancelReminder()`、`rescheduleReminder()`，另有每日提醒客户端。[SDK 源码](./packages/sdk/src/index.ts) |
-| CLI | 脚本管理提醒、查询简报、读取或更新表现状态 | `remind`、`reminders`、`cancel-reminder`、`reschedule-reminder`、`remind-daily`、`daily-reminders`、`cancel-daily-reminder`、`briefing`、`state get`、`state set`；已有平台草稿、导出和离线诊断命令继续可用 |
-| MCP stdio | 支持 MCP 的外部宿主连接已运行的小招 | 状态桥提供 `maneki_set_state`，简报桥提供 `maneki_get_briefing`，提醒桥分别提供 `maneki_remind`、`maneki_list_reminders`、`maneki_cancel_reminder`、`maneki_reschedule_reminder`，每日提醒另有专用桥。每个桥使用自己的凭证。[MCP 契约](./docs/architecture.md#55-mcp-与各-harness-的接入策略) |
+| CLI | 脚本管理提醒、查询简报、读取或更新表现状态 | `remind`、`reminders`、`cancel-reminder`、`reschedule-reminder`、`remind-daily`、`daily-reminders`、`cancel-daily-reminder`、`daily-reschedule-targets`、`reschedule-daily-reminder`、`briefing`、`state get`、`state set`；已有平台草稿、导出和离线诊断命令继续可用 |
+| MCP stdio | 支持 MCP 的外部宿主连接已运行的小招 | 状态桥提供 `maneki_set_state`，简报桥提供 `maneki_get_briefing`，提醒桥分别提供 `maneki_remind`、`maneki_list_reminders`、`maneki_cancel_reminder`、`maneki_reschedule_reminder`，每日提醒和每日改期分别有专用桥。每个桥使用自己的凭证。[MCP 契约](./docs/architecture.md#55-mcp-与各-harness-的接入策略) |
 
 **从源码试用。** Windows 构建使用 Node 24.12.0 x64、Corepack、Rust 1.88+、MSVC 和 PATH 中的 FFmpeg、ffprobe。干净检出会生成开发占位形象。正式角色包的导入、许可证与构建配方另见[角色素材说明](./apps/desktop/recipes/catgirl-signature-v2.md)。
 
@@ -245,6 +245,33 @@ node packages/runtime/scripts/manage-daily-reminders.mjs "$demoDir" 18101 person
 ```
 
 同一规则的每个本地日最多调用通知器一次。Runtime 在调用通知器前保存该日的认领，重启也不会再次认领。若在认领与通知受理之间崩溃，当次可能错过。勿扰、休眠或停机后的补发限于当前本地日。[调度与回执契约](./docs/architecture.md#daily-reminders)
+
+<a id="daily-reminder-reschedule"></a>
+
+## 把每日提醒改到另一个时刻
+
+对已配置每日改期工具的 dsh 说「把每天上午九点的休息提醒改到每天上午十点」。先查改期目标，用完整 `seriesId` 和当前 `version` 选中原规则。仍有同名、同时刻的多个候选时，请用户确认具体条目。改期保留规则的时区、正文和 ID，下一次调度使用新时刻。
+
+- 原规则当天还有一次待投递提醒，且十点还没到，今天可以在十点提醒。
+- 今天九点这一轮已被 Runtime 认领，今天十点不再发。通常会从明天十点开始，夏令时缺失或不唯一的时刻会顺延。
+- 改期受理后，旧九点安排被替换。已经交给通知器的那次无法撤回。
+
+以下沿用上文已登记的每日提醒身份与演示 Runtime。单独授权 `reminder_recurring_reschedule`，它允许查看该身份的改期目标和修改时刻。
+
+```powershell
+$env:MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-recurring-reschedule-client.mjs "$demoDir" 18101 personal-agent --allow-reminder-recurring-reschedule
+if ($LASTEXITCODE -ne 0) { throw '每日改期配对失败' }
+node packages/cli/dist/main.js daily-reschedule-targets
+```
+
+| 入口 | 查询版本和改期 |
+| --- | --- |
+| SDK | `createRecurringReminderRescheduleClient(...).listTargets()` 和 `.rescheduleDailyReminder({requestId,seriesId,version,localTime:"10:00"})` |
+| 本机 HTTP | `GET /v1/recurring-reminders/reschedule/targets` 与 `POST /v1/recurring-reminders/reschedule` |
+| CLI | `maneki daily-reschedule-targets`，再运行 `maneki reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at 10:00` |
+| MCP stdio | `reminder-recurring-reschedule-mcp.js` 提供 `maneki_list_daily_reschedule_targets` 和 `maneki_reschedule_daily_reminder`。用独立改期凭证连接同一个 Runtime。 |
+
+响应丢失时原样保留请求 ID、系列 ID、旧版本和新时刻重试，返回首次回执里的下一次时间和新版本。重新发起改期时先查询当前版本。用配对脚本的 `--revoke-reminder-recurring-reschedule` 撤销该能力，已改好的规则继续调度。[请求与回执契约](./docs/architecture.md#daily-reminder-reschedule) · [dsh 接入](./apps/dsh-plugin/README.md#让-dsh-改期自己安排的每日提醒) · [验收记录](./docs/audits/2026-11-21-daily-reminder-reschedule.md)
 
 ## 模型与数据
 
