@@ -19,6 +19,10 @@ const recurringReminderEndpoint = {
   proofField: "recurringReminderProof", identity: "每日提醒", Error: ReminderClientError, postStatus: 200,
 } as const;
 
+const weekdayReminderEndpoint = {
+  ...recurringReminderEndpoint, path: "/v1/recurring-reminders/weekdays", identity: "工作日提醒",
+} as const;
+
 const recurringReminderRescheduleEndpoint = {
   scope: "reminder_recurring_reschedule", path: "/v1/recurring-reminders/reschedule",
   proofPurpose: "reminder-recurring-reschedule", proofField: "recurringReminderRescheduleProof",
@@ -36,6 +40,9 @@ const endpoints = {
   "recurring-reminder-create": { ...recurringReminderEndpoint, label: "创建每日提醒", maxBytes: 1024 },
   "recurring-reminder-list": { ...recurringReminderEndpoint, label: "查询每日提醒", maxBytes: 32 * 1024 },
   "recurring-reminder-cancel": { ...recurringReminderEndpoint, path: "/v1/recurring-reminders/cancel", label: "取消每日提醒", maxBytes: 1024 },
+  "weekday-reminder-create": { ...weekdayReminderEndpoint, label: "创建工作日提醒", maxBytes: 1024 },
+  "weekday-reminder-list": { ...weekdayReminderEndpoint, label: "查询工作日提醒", maxBytes: 32 * 1024 },
+  "weekday-reminder-cancel": { ...weekdayReminderEndpoint, path: "/v1/recurring-reminders/weekdays/cancel", label: "取消工作日提醒", maxBytes: 1024 },
   "recurring-reminder-reschedule-targets": { ...recurringReminderRescheduleEndpoint, path: "/v1/recurring-reminders/reschedule/targets", label: "查询每日提醒改期目标", maxBytes: 32 * 1024 },
   "recurring-reminder-reschedule": { ...recurringReminderRescheduleEndpoint, label: "改期每日提醒", maxBytes: 1024 },
 } as const;

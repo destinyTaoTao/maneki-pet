@@ -12,6 +12,7 @@
     "maneki-reminder-cancel-mcp": "./dist/reminder-cancel-mcp.js",
     "maneki-reminder-reschedule-mcp": "./dist/reminder-reschedule-mcp.js",
     "maneki-reminder-recurring-mcp": "./dist/reminder-recurring-mcp.js",
+    "maneki-reminder-weekdays-mcp": "./dist/reminder-weekdays-mcp.js",
     "maneki-reminder-recurring-reschedule-mcp": "./dist/reminder-recurring-reschedule-mcp.js"
   },
   "scripts": {

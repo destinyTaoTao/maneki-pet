@@ -424,7 +424,7 @@ const dailyReceipt = { requestId: dailyCreate.requestId, ...dailyFields };
 const dailyCancel = { requestId: "cancel-1", seriesId: dailySummary.seriesId };
 const dailyCancelled = { ...dailyCancel, cancelled: true };
 
-it.each(["错误证明字段", "错误证明域", "证明后断开"])("每日规则三条操作遇到%s时都不发送凭证", async (reason) => {
+it.each(["错误证明字段", "错误证明域", "证明后断开"])("周期提醒操作遇到%s时都不发送凭证", async (reason) => {
   const requests: Array<[string | undefined, string | undefined]> = [];
   const baseUrl = await serve((req, res) => {
     requests.push([req.url, req.headers.authorization]);
@@ -443,7 +443,44 @@ it.each(["错误证明字段", "错误证明域", "证明后断开"])("每日规
   await expect(client.createDailyReminder(dailyCreate)).rejects.toThrow("无法验证 Runtime 的每日提醒身份");
   await expect(client.listDailyReminders()).rejects.toThrow("无法验证 Runtime 的每日提醒身份");
   await expect(client.cancelDailyReminder(dailyCancel)).rejects.toThrow("无法验证 Runtime 的每日提醒身份");
-  expect(requests).toEqual(Array(3).fill(["/v1/health", undefined]));
+  await expect(client.createWeekdayReminder(dailyCreate)).rejects.toThrow("无法验证 Runtime 的工作日提醒身份");
+  await expect(client.listWeekdayReminders()).rejects.toThrow("无法验证 Runtime 的工作日提醒身份");
+  await expect(client.cancelWeekdayReminder(dailyCancel)).rejects.toThrow("无法验证 Runtime 的工作日提醒身份");
+  expect(requests).toEqual(Array(6).fill(["/v1/health", undefined]));
+});
+
+it("工作日规则复用同一凭证，严格校验输入、回执和列表，并只调用独立路由", async () => {
+  let body: unknown = dailyReceipt;
+  const requests: Array<[string | undefined, string | undefined, unknown]> = [];
+  const baseUrl = await serveVerified(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    requests.push([req.method, req.url, chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined]);
+    res.end(JSON.stringify(body));
+  }, "reminder-recurring");
+  const client = createRecurringReminderClient({ baseUrl, tokenFile });
+  await expect(client.createWeekdayReminder({ ...dailyCreate, localTime: "8:00" })).rejects.toThrow(/^无效的工作日提醒参数$/);
+  await expect(client.cancelWeekdayReminder({ ...dailyCancel, seriesId: dailyCancel.seriesId.toUpperCase() }))
+    .rejects.toThrow(/^无效的取消工作日提醒参数$/);
+  expect(requests).toEqual([]);
+
+  expect(await client.createWeekdayReminder(dailyCreate)).toEqual(dailyReceipt);
+  body = { reminders: [dailySummary] };
+  expect(await client.listWeekdayReminders()).toEqual(body);
+  body = dailyCancelled;
+  expect(await client.cancelWeekdayReminder(dailyCancel)).toEqual(dailyCancelled);
+  expect(requests).toEqual([
+    ["POST", "/v1/recurring-reminders/weekdays", { ...dailyCreate, message: reminderMessage }],
+    ["GET", "/v1/recurring-reminders/weekdays", undefined],
+    ["POST", "/v1/recurring-reminders/weekdays/cancel", dailyCancel],
+  ]);
+
+  body = { ...dailyReceipt, localTime: "09:00" };
+  await expect(client.createWeekdayReminder(dailyCreate)).rejects.toThrow(/^Runtime 工作日提醒回执格式无效$/);
+  body = { reminders: [dailySummary, dailySummary] };
+  await expect(client.listWeekdayReminders()).rejects.toThrow(/^Runtime 工作日提醒列表格式无效$/);
+  body = { ...dailyCancelled, seriesId: "another" };
+  await expect(client.cancelWeekdayReminder(dailyCancel)).rejects.toThrow(/^Runtime 取消工作日提醒回执格式无效$/);
 });
 
 it("每日规则只调用固定路由，拒绝额外字段、非规范时间与模糊目标，并严格校验回执", async () => {

@@ -146,42 +146,59 @@ function validDailyRows<T extends DailyReminderSummary>(rows: unknown, validRow:
   return true;
 }
 
-export function createRecurringReminderClient(options: RecurringReminderClientOptions) {
-  const create = createPairedTransport("recurring-reminder-create", options);
-  const list = createPairedTransport("recurring-reminder-list", options);
-  const cancel = createPairedTransport("recurring-reminder-cancel", options);
+function recurringReminderOperations(options: RecurringReminderClientOptions, recurrence: "daily" | "weekdays") {
+  const endpoint = recurrence === "daily" ? "recurring-reminder" : "weekday-reminder";
+  const label = recurrence === "daily" ? "每日提醒" : "工作日提醒";
+  const create = createPairedTransport(`${endpoint}-create`, options);
+  const list = createPairedTransport(`${endpoint}-list`, options);
+  const cancel = createPairedTransport(`${endpoint}-cancel`, options);
   return {
-    /** 用户明确要求每日提醒时调用，同一意图重试时保留原参数。 */
-    async createDailyReminder(input: DailyReminderInput, signal?: AbortSignal): Promise<DailyReminderReceipt> {
+    async createReminder(input: DailyReminderInput, signal?: AbortSignal): Promise<DailyReminderReceipt> {
       const normalized = normalizeDailyReminderInput(input);
-      if (!normalized) throw new ReminderClientError("无效的每日提醒参数");
+      if (!normalized) throw new ReminderClientError(`无效的${label}参数`);
       const body = await create(signal, JSON.stringify(normalized));
       if (Object.keys(body).length !== 5 || body.requestId !== normalized.requestId ||
           !validDailyReminderFields(body) || body.localTime !== normalized.localTime) {
-        throw new ReminderClientError("Runtime 每日提醒回执格式无效");
+        throw new ReminderClientError(`Runtime ${label}回执格式无效`);
       }
       const { requestId, seriesId, localTime, timeZone, nextAt } = body;
       return { requestId, seriesId, localTime, timeZone, nextAt };
     },
-    async listDailyReminders(signal?: AbortSignal): Promise<DailyReminderList> {
+    async listReminders(signal?: AbortSignal): Promise<DailyReminderList> {
       const body = await list(signal);
       if (Object.keys(body).length !== 1 || !validDailyRows(body.reminders, validDailySummary)) {
-        throw new ReminderClientError("Runtime 每日提醒列表格式无效");
+        throw new ReminderClientError(`Runtime ${label}列表格式无效`);
       }
       return { reminders: body.reminders };
     },
-    /** 使用已明确选定规则的完整 ID，同一意图重试时保留原参数。 */
-    async cancelDailyReminder(input: DailyReminderCancelInput, signal?: AbortSignal): Promise<DailyReminderCancelReceipt> {
+    async cancelReminder(input: DailyReminderCancelInput, signal?: AbortSignal): Promise<DailyReminderCancelReceipt> {
       const normalized = normalizeDailyReminderCancelInput(input);
-      if (!normalized) throw new ReminderClientError("无效的取消每日提醒参数");
+      if (!normalized) throw new ReminderClientError(`无效的取消${label}参数`);
       const body = await cancel(signal, JSON.stringify(normalized));
       const { requestId, seriesId, cancelled } = body;
       if (Object.keys(body).length !== 3 || requestId !== normalized.requestId ||
           seriesId !== normalized.seriesId || cancelled !== true) {
-        throw new ReminderClientError("Runtime 取消每日提醒回执格式无效");
+        throw new ReminderClientError(`Runtime 取消${label}回执格式无效`);
       }
       return { requestId, seriesId, cancelled };
     },
+  };
+}
+
+export function createRecurringReminderClient(options: RecurringReminderClientOptions) {
+  const daily = recurringReminderOperations(options, "daily");
+  const weekdays = recurringReminderOperations(options, "weekdays");
+  return {
+    /** 用户明确要求每日提醒时调用，同一意图重试时保留原参数。 */
+    createDailyReminder: daily.createReminder,
+    listDailyReminders: daily.listReminders,
+    /** 使用已明确选定规则的完整 ID，同一意图重试时保留原参数。 */
+    cancelDailyReminder: daily.cancelReminder,
+    /** 用户明确要求在规则时区内每周一至周五提醒时调用，同一意图重试时保留原参数。 */
+    createWeekdayReminder: weekdays.createReminder,
+    listWeekdayReminders: weekdays.listReminders,
+    /** 使用已明确选定工作日规则的完整 ID，同一意图重试时保留原参数。 */
+    cancelWeekdayReminder: weekdays.cancelReminder,
   };
 }
 

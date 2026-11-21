@@ -19,7 +19,8 @@ import { douyinReadiness } from "./douyin-readiness.js";
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   args: ["state", "briefing", "remind", "reminders", "cancel-reminder", "reschedule-reminder",
-    "remind-daily", "daily-reminders", "cancel-daily-reminder", "daily-reschedule-targets", "reschedule-daily-reminder"].includes(process.argv[2] ?? "")
+    "remind-daily", "daily-reminders", "cancel-daily-reminder", "remind-weekdays", "weekday-reminders",
+    "cancel-weekday-reminder", "daily-reschedule-targets", "reschedule-daily-reminder"].includes(process.argv[2] ?? "")
     ? process.argv.slice(2, 3) : process.argv.slice(2),
   options: {
     python: { type: "string", default: "python" },
@@ -78,10 +79,13 @@ async function main(): Promise<void> {
     case "remind-daily":
     case "daily-reminders":
     case "cancel-daily-reminder":
+    case "remind-weekdays":
+    case "weekday-reminders":
+    case "cancel-weekday-reminder":
     case "daily-reschedule-targets":
     case "reschedule-daily-reminder": {
-      const { runDailyReminderCommand } = await import("./daily-reminder-command.js");
-      return runDailyReminderCommand(command, process.argv.slice(3));
+      const { runRecurringReminderCommand } = await import("./daily-reminder-command.js");
+      return runRecurringReminderCommand(command, process.argv.slice(3));
     }
     case "briefing": {
       const { runBriefingCommand } = await import("./briefing-command.js");
@@ -193,7 +197,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      process.stderr.write("usage: maneki state get|set | briefing | remind | reminders | cancel-reminder | reschedule-reminder | remind-daily | daily-reminders | cancel-daily-reminder | daily-reschedule-targets | reschedule-daily-reminder | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
+      process.stderr.write("usage: maneki state get|set | briefing | remind | reminders | cancel-reminder | reschedule-reminder | remind-daily | daily-reminders | cancel-daily-reminder | remind-weekdays | weekday-reminders | cancel-weekday-reminder | daily-reschedule-targets | reschedule-daily-reminder | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
       process.exit(2);
   }
 }
