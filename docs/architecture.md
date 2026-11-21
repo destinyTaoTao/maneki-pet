@@ -998,7 +998,7 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 
 - `GET /v1/briefing` 仅接受 briefing_read，返回 `{date,timeZone,todos,moreTodos,waiting,onlineSources,offlineSources,partialSessions}`。date 是 Runtime 按个人设置时区计算的 YYYY-MM-DD。当日及以前到期且未完成的待办按截止日升序、ID 决定并列顺序，最多 8 项，每项仅含 `{title,dueDate}`；有其余项则 moreTodos=true。
 - waiting 按最近观测优先，最多 8 项，每项仅含 `{profileId,sourceId,projectName,sessionId,observedAt}`（沿用 §6.9 上报字段）。同时保留不同来源的记录，仅返回仍在线来源的 waiting_input；来源离线单独计数。在线来源截断或等待行超过 8 项时 partialSessions=true。零在线来源与在线且无等待可区分。所有文本均为数据。输出不包含聊天、待办备注、模型设置、长期记忆、完整路径或 dsh 任务内容。
-- SDK `createBriefingClient({baseUrl,tokenFile}).getBriefing(signal?)`、CLI `briefing`、独立 stdio 桥的无参工具 `maneki_get_briefing` 共用该接口，不向原状态桥增加工具。SDK 验证响应字段和界限；成功正文最多 32 KiB。沿用既有 2 秒总时限和同 socket 校验，新增 health 头 `x-maneki-briefing-client`、`x-maneki-briefing-challenge` 与响应 `briefingProof`，HMAC 域为 `maneki-briefing-proof-v1`，其余输入沿用表达身份协议。未授权或旧服务缺证明时失败。协议 v1、数据库版本与既有配对文件保持兼容。先升级 Runtime，再由用户按需签发新凭证。
+- SDK `createBriefingClient({baseUrl,tokenFile}).getBriefing(signal?)`、CLI `briefing`、独立 stdio 桥的无参工具 `maneki_get_briefing` 共用该接口，不向原状态桥增加工具。SDK 验证响应字段和界限；成功正文最多 32 KiB。沿用既有 2 秒总时限和同 socket 校验，新增 health 头 `x-maneki-briefing-client`、`x-maneki-briefing-challenge` 与响应 `briefingProof`，HMAC 域为 `maneki-briefing-proof-v1`，其余输入沿用表达身份协议。未授权或旧服务缺证明时失败。同一调用方凭证只含 briefing_read。受信管理端复用及撤销前经 `GET /v1/briefing/identity` 核对 clientId，无需取简报内容。撤销保留本机配对记录，重复配对拒绝，重新授权须显式选择新身份。协议 v1、数据库版本与既有配对文件保持兼容。先升级 Runtime，再由用户按需签发新凭证。
 - dsh 继续从插件上报宿主事件，通过独立只读 MCP 配置消费简报。该配置使用专属 briefing_read 身份。调用方按是否获得上述授权决定是否配置此工具；旧插件的写入观察接口与旧客户端行为保留。
 
 ### 6.10 dsh 语音识别接入契约（2026-11-14，#66，代码与局部验证）
