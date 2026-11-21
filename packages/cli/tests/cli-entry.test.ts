@@ -173,3 +173,37 @@ it("每日提醒命令拒绝重复或多余参数、非规范时间与模糊 ID�
     expect([unpaired.status, unpaired.stdout, unpaired.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_recurring 凭证文件"]);
   }
 });
+
+it("每日改期命令要求完整 ID、查询版本和规范时刻，并独立读取改期凭证", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
+  fixtures.push(dir);
+  const otherCredential = join(dir, "other-client.json");
+  writeFileSync(otherCredential, JSON.stringify({
+    instanceId: "rt-test12345678", clientId: "client-aa0000000001", token: "a".repeat(43),
+  }));
+  const command = (...args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, "../dist/main.js"), ...args], {
+    env: { ...process.env, MANEKI_RUNTIME_URL: "http://127.0.0.1:1", MANEKI_REMINDER_RECURRING_TOKEN_FILE: otherCredential,
+      MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE: otherCredential, MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE: undefined },
+    encoding: "utf8", timeout: 5000, windowsHide: true,
+  });
+  const target = ["reschedule-daily-reminder", "--request-id", "move-1", "--series-id", "ab000000-0000-4000-a000-000000000001"];
+  const valid = [...target, "--version", "1", "--at", "09:00"];
+  for (const args of [
+    [...target, "--at", "09:00"], [...target, "--at", "9:00", "--version", "1"],
+    [...target, "--at", "09:00", "--version", "9007199254740992"], [...target, "--at", "09:00", "--version", "1e0"],
+    [...valid, "--version", "2"], [...valid, "--message", "private-text"],
+  ]) {
+    const invalid = command(...args);
+    expect([invalid.status, invalid.stdout, invalid.stderr.trim()]).toEqual([
+      2, "", "usage: maneki reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
+    ]);
+  }
+  const filtered = command("daily-reschedule-targets", "--message", "private-text");
+  expect([filtered.status, filtered.stdout, filtered.stderr.trim()]).toEqual([2, "", "usage: maneki daily-reschedule-targets"]);
+  for (const args of [["daily-reschedule-targets"], valid]) {
+    const unpaired = command(...args);
+    expect([unpaired.status, unpaired.stdout, unpaired.stderr.trim()]).toEqual([
+      1, "", "需要可读的已配对 reminder_recurring_reschedule 凭证文件",
+    ]);
+  }
+});

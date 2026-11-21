@@ -19,6 +19,12 @@ const recurringReminderEndpoint = {
   proofField: "recurringReminderProof", identity: "每日提醒", Error: ReminderClientError, postStatus: 200,
 } as const;
 
+const recurringReminderRescheduleEndpoint = {
+  scope: "reminder_recurring_reschedule", path: "/v1/recurring-reminders/reschedule",
+  proofPurpose: "reminder-recurring-reschedule", proofField: "recurringReminderRescheduleProof",
+  identity: "每日提醒改期", Error: ReminderClientError, postStatus: 200,
+} as const;
+
 const endpoints = {
   expression: { scope: "express", path: "/v1/expressions/state", proofField: "expressionProof", label: "状态", identity: "表达", Error: ExpressionClientError, maxBytes: 1024, postStatus: 202 },
   briefing: { scope: "briefing_read", path: "/v1/briefing", proofField: "briefingProof", label: "简报", identity: "简报", Error: BriefingClientError, maxBytes: 32 * 1024, postStatus: 200 },
@@ -30,6 +36,8 @@ const endpoints = {
   "recurring-reminder-create": { ...recurringReminderEndpoint, label: "创建每日提醒", maxBytes: 1024 },
   "recurring-reminder-list": { ...recurringReminderEndpoint, label: "查询每日提醒", maxBytes: 32 * 1024 },
   "recurring-reminder-cancel": { ...recurringReminderEndpoint, path: "/v1/recurring-reminders/cancel", label: "取消每日提醒", maxBytes: 1024 },
+  "recurring-reminder-reschedule-targets": { ...recurringReminderRescheduleEndpoint, path: "/v1/recurring-reminders/reschedule/targets", label: "查询每日提醒改期目标", maxBytes: 32 * 1024 },
+  "recurring-reminder-reschedule": { ...recurringReminderRescheduleEndpoint, label: "改期每日提醒", maxBytes: 1024 },
 } as const;
 type Endpoint = typeof endpoints[keyof typeof endpoints];
 

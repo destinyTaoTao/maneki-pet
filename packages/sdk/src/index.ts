@@ -4,14 +4,16 @@ import { createPairedTransport, ExpressionClientError, type PairedClientOptions 
 
 export { createBriefingClient, type BriefingClientOptions } from "./briefing.js";
 export {
-  createRecurringReminderClient, createReminderCancelClient, createReminderClient, createReminderReadClient,
-  createReminderRescheduleClient, type RecurringReminderClientOptions, type ReminderClientOptions,
+  createRecurringReminderClient, createRecurringReminderRescheduleClient, createReminderCancelClient, createReminderClient,
+  createReminderReadClient, createReminderRescheduleClient, type RecurringReminderClientOptions,
+  type RecurringReminderRescheduleClientOptions, type ReminderClientOptions,
 } from "./reminder.js";
 export type {
   AgentReminderCancelInput, AgentReminderCancelReceipt, AgentReminderInput, AgentReminderList, AgentReminderReceipt,
   AgentReminderRescheduleInput, AgentReminderRescheduleReceipt, AgentReminderSummary,
   DailyReminderCancelInput, DailyReminderCancelReceipt, DailyReminderInput, DailyReminderList, DailyReminderReceipt,
-  DailyReminderSummary, WorkBriefing,
+  DailyReminderRescheduleInput, DailyReminderRescheduleReceipt, DailyReminderRescheduleTarget,
+  DailyReminderRescheduleTargetList, DailyReminderSummary, WorkBriefing,
 } from "@maneki-pet/core";
 export { BriefingClientError, ExpressionClientError, ReminderClientError } from "./paired-transport.js";
 export { expressionStates };

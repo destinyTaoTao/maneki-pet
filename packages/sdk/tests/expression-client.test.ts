@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
-  createBriefingClient, createExpressionClient, createRecurringReminderClient, createReminderCancelClient,
+  createBriefingClient, createExpressionClient, createRecurringReminderClient, createRecurringReminderRescheduleClient, createReminderCancelClient,
   createReminderClient, createReminderReadClient, createReminderRescheduleClient, type AgentReminderCancelInput,
   type AgentReminderInput, type AgentReminderRescheduleInput, type DailyReminderCancelInput, type DailyReminderInput,
-  type ReminderClientOptions,
+  type DailyReminderRescheduleInput, type ReminderClientOptions,
 } from "../src/index.js";
 
 let dir: string;
@@ -32,6 +32,7 @@ const proofFields = {
   expression: "expressionProof", briefing: "briefingProof", reminder: "reminderProof",
   "reminder-read": "reminderReadProof", "reminder-cancel": "reminderCancelProof",
   "reminder-reschedule": "reminderRescheduleProof", "reminder-recurring": "recurringReminderProof",
+  "reminder-recurring-reschedule": "recurringReminderRescheduleProof",
 } as const;
 type Capability = keyof typeof proofFields;
 
@@ -518,4 +519,88 @@ it("每日规则列表接受单身份上限，拒绝非规范正文、重复或�
   }
   body = " ".repeat(32 * 1024 + 1);
   await expect(client.listDailyReminders()).rejects.toThrow(/^Runtime 响应过大$/);
+});
+
+const dailyReschedule = { requestId: "daily-move", seriesId: dailySummary.seriesId, localTime: "09:00", version: 1 };
+const dailyRescheduled = { ...dailyFields, ...dailyReschedule, version: 2 };
+
+it.each(["旧每日提醒证明字段", "旧每日提醒证明域", "证明后断开"])("每日改期两条路由遇到%s时不会发送凭证", async (reason) => {
+  const requests: Array<[string | undefined, string | undefined]> = [];
+  const capability = "reminder-recurring-reschedule";
+  const baseUrl = await serve((req, res) => {
+    requests.push([req.url, req.headers.authorization]);
+    expect(req.headers[`x-maneki-${capability}-client`]).toBe(credential.clientId);
+    expect(req.headers[`x-maneki-${capability}-challenge`]).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(req.headers["x-maneki-reminder-recurring-challenge"]).toBeUndefined();
+    const proof = healthProof(req, capability, reason === "旧每日提醒证明域" ? "reminder-recurring" : capability);
+    if (reason === "旧每日提醒证明字段") {
+      proof.recurringReminderProof = proof.recurringReminderRescheduleProof;
+      delete proof.recurringReminderRescheduleProof;
+    }
+    if (reason === "证明后断开") res.setHeader("connection", "close");
+    res.end(JSON.stringify(proof));
+  });
+  const client = createRecurringReminderRescheduleClient({ baseUrl, tokenFile });
+  await expect(client.listTargets()).rejects.toThrow("无法验证 Runtime 的每日提醒改期身份");
+  await expect(client.rescheduleDailyReminder(dailyReschedule)).rejects.toThrow("无法验证 Runtime 的每日提醒改期身份");
+  expect(requests).toEqual([["/v1/health", undefined], ["/v1/health", undefined]]);
+});
+
+it("每日改期只调用专用路由，拒绝模糊或额外参数并校验对应回执", async () => {
+  let body: unknown = dailyRescheduled;
+  const requests: Array<[string | undefined, string | undefined, unknown]> = [];
+  const baseUrl = await serveVerified(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    requests.push([req.method, req.url, chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined]);
+    res.end(JSON.stringify(body));
+  }, "reminder-recurring-reschedule");
+  const client = createRecurringReminderRescheduleClient({ baseUrl, tokenFile });
+  expect(Object.keys(client)).toEqual(["listTargets", "rescheduleDailyReminder"]);
+  for (const invalid of [
+    { ...dailyCancel, localTime: "09:00" }, { ...dailyReschedule, seriesId: "ab000000" },
+    { ...dailyReschedule, seriesId: dailyReschedule.seriesId.toUpperCase() }, { ...dailyReschedule, requestId: "private/path" },
+    { ...dailyReschedule, message: dailySummary.message }, { ...dailyReschedule, timeZone: "UTC" },
+    ...[0, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].map((version) => ({ ...dailyReschedule, version })),
+    ...["9:00", "24:00", "09:00\n", "09:00:00"].map((localTime) => ({ ...dailyReschedule, localTime })),
+  ]) {
+    await expect(client.rescheduleDailyReminder(invalid as DailyReminderRescheduleInput)).rejects.toThrow(/^无效的每日提醒改期参数$/);
+  }
+  expect(requests).toEqual([]);
+  expect(await client.rescheduleDailyReminder(dailyReschedule)).toEqual(dailyRescheduled);
+  expect(await client.rescheduleDailyReminder(dailyReschedule)).toEqual(dailyRescheduled);
+  body = { reminders: [{ ...dailySummary, version: 1 }] };
+  expect(await client.listTargets()).toEqual(body);
+  expect(requests).toEqual([
+    ["POST", "/v1/recurring-reminders/reschedule", dailyReschedule],
+    ["POST", "/v1/recurring-reminders/reschedule", dailyReschedule],
+    ["GET", "/v1/recurring-reminders/reschedule/targets", undefined],
+  ]);
+  for (const fields of [
+    { requestId: "other" }, { seriesId: "ab000000-0000-4000-a000-000000000002" }, { localTime: "08:00" },
+    { timeZone: "invalid zone" }, { nextAt: 0.1 }, { version: 1 }, { version: 3 }, { version: "2" }, { private: "private" },
+  ]) {
+    body = { ...dailyRescheduled, ...fields };
+    await expect(client.rescheduleDailyReminder(dailyReschedule)).rejects.toThrow(/^Runtime 每日提醒改期回执格式无效$/);
+  }
+});
+
+it("每日改期目标须带正安全版本，列表有序且受单身份条数与字节上限约束", async () => {
+  const reminders = Array.from({ length: 8 }, (_, i) => ({
+    ...dailySummary, seriesId: `ab000000-0000-4000-a000-${i.toString(16).padStart(12, "0")}`, version: i + 1,
+  }));
+  let body = JSON.stringify({ reminders });
+  const baseUrl = await serveVerified((_req, res) => res.end(body), "reminder-recurring-reschedule");
+  const client = createRecurringReminderRescheduleClient({ baseUrl, tokenFile });
+  expect(await client.listTargets()).toEqual({ reminders });
+  for (const invalid of [
+    { reminders: [], extra: true }, { reminders: [dailySummary] }, { reminders: [...reminders, { ...dailySummary, version: 1 }] },
+    { reminders: [reminders[0], reminders[0]] }, { reminders: [reminders[1], reminders[0]] },
+    ...[0, "1", 1.5, Number.MAX_SAFE_INTEGER + 1].map((version) => ({ reminders: [{ ...dailySummary, version }] })),
+  ]) {
+    body = JSON.stringify(invalid);
+    await expect(client.listTargets()).rejects.toThrow(/^Runtime 每日提醒改期目标列表格式无效$/);
+  }
+  body = " ".repeat(32 * 1024 + 1);
+  await expect(client.listTargets()).rejects.toThrow(/^Runtime 响应过大$/);
 });

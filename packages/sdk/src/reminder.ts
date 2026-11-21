@@ -2,16 +2,18 @@ import {
   AGENT_REMINDER_UUID_PATTERN, DAILY_REMINDER_TIME_PATTERN, MAX_AGENT_REMINDER_LIST_ITEMS,
   MAX_AGENT_REMINDER_MESSAGE_LENGTH, MAX_DAILY_REMINDERS_PER_CLIENT,
   normalizeAgentReminder, normalizeAgentReminderCancelInput, normalizeAgentReminderMessage, normalizeAgentReminderRescheduleInput,
-  normalizeDailyReminderCancelInput, normalizeDailyReminderInput, validTimeZone,
+  normalizeDailyReminderCancelInput, normalizeDailyReminderInput, normalizeDailyReminderRescheduleInput, validTimeZone,
   type AgentReminderCancelInput, type AgentReminderCancelReceipt, type AgentReminderInput, type AgentReminderList,
   type AgentReminderReceipt, type AgentReminderRescheduleInput, type AgentReminderRescheduleReceipt,
   type AgentReminderSummary, type DailyReminderCancelInput, type DailyReminderCancelReceipt, type DailyReminderInput,
-  type DailyReminderList, type DailyReminderReceipt, type DailyReminderSummary,
+  type DailyReminderList, type DailyReminderReceipt, type DailyReminderRescheduleInput, type DailyReminderRescheduleReceipt,
+  type DailyReminderRescheduleTarget, type DailyReminderRescheduleTargetList, type DailyReminderSummary,
 } from "@maneki-pet/core";
 import { createPairedTransport, ReminderClientError, type PairedClientOptions } from "./paired-transport.js";
 
 export type ReminderClientOptions = PairedClientOptions;
 export type RecurringReminderClientOptions = PairedClientOptions;
+export type RecurringReminderRescheduleClientOptions = PairedClientOptions;
 
 function validRemindAt(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && Number.isFinite(new Date(value).getTime());
@@ -114,19 +116,28 @@ function validDailyReminderFields(row: Record<string, unknown>): row is Record<s
     typeof timeZone === "string" && validTimeZone(timeZone) && validRemindAt(nextAt);
 }
 
-function validDailySummary(row: unknown): row is DailyReminderSummary {
-  if (typeof row !== "object" || !row || Array.isArray(row) || Object.keys(row).length !== 5) return false;
+function validDailySummaryFields(row: unknown): row is DailyReminderSummary {
+  if (typeof row !== "object" || !row || Array.isArray(row)) return false;
   const fields = row as Record<string, unknown>;
   return validDailyReminderFields(fields) && typeof fields.message === "string" &&
     normalizeAgentReminderMessage(fields.message) === fields.message;
 }
 
-function validDailySummaries(rows: unknown): rows is DailyReminderSummary[] {
+function validDailySummary(row: unknown): row is DailyReminderSummary {
+  return validDailySummaryFields(row) && Object.keys(row).length === 5;
+}
+
+function validDailyRescheduleTarget(row: unknown): row is DailyReminderRescheduleTarget {
+  return validDailySummaryFields(row) && Object.keys(row).length === 6 &&
+    "version" in row && typeof row.version === "number" && Number.isSafeInteger(row.version) && row.version >= 1;
+}
+
+function validDailyRows<T extends DailyReminderSummary>(rows: unknown, validRow: (row: unknown) => row is T): rows is T[] {
   if (!Array.isArray(rows) || rows.length > MAX_DAILY_REMINDERS_PER_CLIENT) return false;
   const ids = new Set<string>();
   let previous: DailyReminderSummary | undefined;
   for (const row of rows) {
-    if (!validDailySummary(row) || ids.has(row.seriesId)) return false;
+    if (!validRow(row) || ids.has(row.seriesId)) return false;
     if (previous && (row.nextAt < previous.nextAt ||
       (row.nextAt === previous.nextAt && row.seriesId < previous.seriesId))) return false;
     ids.add(row.seriesId);
@@ -154,7 +165,7 @@ export function createRecurringReminderClient(options: RecurringReminderClientOp
     },
     async listDailyReminders(signal?: AbortSignal): Promise<DailyReminderList> {
       const body = await list(signal);
-      if (Object.keys(body).length !== 1 || !validDailySummaries(body.reminders)) {
+      if (Object.keys(body).length !== 1 || !validDailyRows(body.reminders, validDailySummary)) {
         throw new ReminderClientError("Runtime 每日提醒列表格式无效");
       }
       return { reminders: body.reminders };
@@ -170,6 +181,33 @@ export function createRecurringReminderClient(options: RecurringReminderClientOp
         throw new ReminderClientError("Runtime 取消每日提醒回执格式无效");
       }
       return { requestId, seriesId, cancelled };
+    },
+  };
+}
+
+export function createRecurringReminderRescheduleClient(options: RecurringReminderRescheduleClientOptions) {
+  const list = createPairedTransport("recurring-reminder-reschedule-targets", options);
+  const reschedule = createPairedTransport("recurring-reminder-reschedule", options);
+  return {
+    async listTargets(signal?: AbortSignal): Promise<DailyReminderRescheduleTargetList> {
+      const body = await list(signal);
+      if (Object.keys(body).length !== 1 || !validDailyRows(body.reminders, validDailyRescheduleTarget)) {
+        throw new ReminderClientError("Runtime 每日提醒改期目标列表格式无效");
+      }
+      return { reminders: body.reminders };
+    },
+    /** 使用已明确选定规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
+    async rescheduleDailyReminder(input: DailyReminderRescheduleInput, signal?: AbortSignal): Promise<DailyReminderRescheduleReceipt> {
+      const normalized = normalizeDailyReminderRescheduleInput(input);
+      if (!normalized) throw new ReminderClientError("无效的每日提醒改期参数");
+      const body = await reschedule(signal, JSON.stringify(normalized));
+      if (Object.keys(body).length !== 6 || body.requestId !== normalized.requestId ||
+          !validDailyReminderFields(body) || body.seriesId !== normalized.seriesId || body.localTime !== normalized.localTime ||
+          typeof body.version !== "number" || !Number.isSafeInteger(body.version) || body.version !== normalized.version + 1) {
+        throw new ReminderClientError("Runtime 每日提醒改期回执格式无效");
+      }
+      const { requestId, seriesId, localTime, timeZone, nextAt, version } = body;
+      return { requestId, seriesId, localTime, timeZone, nextAt, version };
     },
   };
 }
