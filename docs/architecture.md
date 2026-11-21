@@ -1040,7 +1040,7 @@ SDK `createReminderReadClient(...).listReminders(signal?)` 与 `createReminderCa
 
 #### Personal agent 的每日提醒
 
-本机管理员为每个调用方单独签发具名 `reminder_recurring`。该凭证只可创建、查询和取消同一 clientId 的每日规则，独立于单次提醒权限。撤销凭证停止工具访问，已安排的规则继续调度。管理员按登记名撤销前可令 agent 明确取消规则。管理端沿用具名签发与回环握手，能力名 `reminder-recurring`、响应字段 `recurringReminderProof`。身份探针为 `GET /v1/recurring-reminders/identity`，管理撤销为 `POST /v1/admin/recurring-reminders/revoke`，接收 `{name}`。
+本机管理员为每个调用方单独签发具名 `reminder_recurring`。该凭证只可创建、查询和取消同一 clientId 的每日规则，独立于单次提醒权限。撤销凭证停止工具访问，已安排的规则继续调度。管理端沿用具名签发与回环握手，能力名 `reminder-recurring`、响应字段 `recurringReminderProof`。身份探针为 `GET /v1/recurring-reminders/identity`，管理撤销为 `POST /v1/admin/recurring-reminders/revoke`，接收 `{name}`。
 
 | 路由 | 契约 |
 |---|---|
@@ -1049,6 +1049,8 @@ SDK `createReminderReadClient(...).listReminders(signal?)` 与 `createReminderCa
 | `POST /v1/recurring-reminders/cancel` | `{requestId,seriesId}`，返回 `{requestId,seriesId,cancelled:true}`。seriesId 为完整小写 UUID。不存在或归属不符统一 404。 |
 
 请求 ID 沿用单次提醒文法，按身份在创建与取消之间共用。首次成功、状态变化与回执同事务提交，原参数重试返回首次回执。已提交的 ID 更换参数或操作返回 409。规则一旦取消便不再被认领；取消前已认领的那次可能继续投递。重放旧创建请求只取原回执，不会复活取消规则。最多 64 条活跃规则，每个身份最多 8 条；同一身份每 UTC 整点小时最多成功创建 30 条，重放不占额度，时钟回拨到已记账小时之前拒绝新建。HTTP 成功为 200，`Cache-Control: no-store`。
+
+调用方凭证丢失或撤销后，本机管理员仍能按登记名查看和停止已有的规则。管理路由仅接受 admin，`POST /v1/admin/recurring-reminders/list` 接收 `{name}`，`POST /v1/admin/recurring-reminders/cancel` 接收 `{name,requestId,seriesId}`。管理员使用目标身份的同一列表与取消语义。管理回环脚本 `manage-daily-reminders.mjs` 支持按名称使用 `list` 或 `cancel <seriesId> <requestId>`。
 
 创建时读取用户在 Maneki 中设置的时区并固定到该规则。首次运行取严格晚于受理时刻的第一个有效本地时间，nextAt 为 Unix 毫秒。调度按本地日历推进，遇到夏令时使目标分钟不存在或不唯一时跳过当天。重启、休眠或勿扰跨日时只考虑当前本地日及未来，不补发旧日；当前本地日的逾期提醒可在恢复后投递。用户后来更改默认时区时，新建规则采用新设置。
 
