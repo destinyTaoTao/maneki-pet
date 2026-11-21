@@ -41,10 +41,21 @@ export class ExpressionStateFeed {
 
   private refresh(): void {
     const now = Date.now();
+    const activeClients = new Map<string, boolean>();
+    const states = new Set<ExpressionState>();
     for (const [key, source] of this.sources) {
-      if (source.expiresAt <= now || !this.deps.active(source.clientId)) this.sources.delete(key);
+      if (source.expiresAt <= now) {
+        this.sources.delete(key);
+        continue;
+      }
+      let active = activeClients.get(source.clientId);
+      if (active === undefined) {
+        active = this.deps.active(source.clientId);
+        activeClients.set(source.clientId, active);
+      }
+      if (active) states.add(source.state);
+      else this.sources.delete(key);
     }
-    const states = new Set([...this.sources.values()].map((source) => source.state));
     const next = PRIORITY.find((state) => states.has(state)) ?? "idle";
     if (next !== this.state) {
       this.state = next;
