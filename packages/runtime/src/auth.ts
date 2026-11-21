@@ -11,8 +11,9 @@ export const REMINDER_READ_SCOPE = "reminder_read";
 export const REMINDER_CANCEL_SCOPE = "reminder_cancel";
 export const REMINDER_RESCHEDULE_SCOPE = "reminder_reschedule";
 export const REMINDER_RECURRING_SCOPE = "reminder_recurring";
+export const REMINDER_RECURRING_RESCHEDULE_SCOPE = "reminder_recurring_reschedule";
 export const REMINDER_SCOPES = [REMINDER_SCOPE, REMINDER_READ_SCOPE, REMINDER_CANCEL_SCOPE, REMINDER_RESCHEDULE_SCOPE] as const;
-export const NAMED_CLIENT_SCOPES = [BRIEFING_SCOPE, ...REMINDER_SCOPES, REMINDER_RECURRING_SCOPE] as const;
+export const NAMED_CLIENT_SCOPES = [BRIEFING_SCOPE, ...REMINDER_SCOPES, REMINDER_RECURRING_SCOPE, REMINDER_RECURRING_RESCHEDULE_SCOPE] as const;
 export type NamedClientScope = typeof NAMED_CLIENT_SCOPES[number];
 export const NAMED_CLIENT_NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 export const BRIEFING_CLIENT_NAME = NAMED_CLIENT_NAME;
@@ -62,6 +63,10 @@ export function reminderRescheduleIdentityProof(tokenHash: string, clientId: str
 
 export function recurringReminderIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
   return clientIdentityProof("maneki-reminder-recurring-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
+}
+
+export function recurringReminderRescheduleIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
+  return clientIdentityProof("maneki-reminder-recurring-reschedule-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
 }
 
 function clientIdentityProof(purpose: string, tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {

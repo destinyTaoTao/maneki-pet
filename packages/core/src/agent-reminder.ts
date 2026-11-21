@@ -83,6 +83,23 @@ export interface DailyReminderCancelReceipt extends DailyReminderCancelInput {
   cancelled: true;
 }
 
+export interface DailyReminderRescheduleInput extends DailyReminderCancelInput {
+  version: number;
+  localTime: string;
+}
+
+export interface DailyReminderRescheduleReceipt extends DailyReminderReceipt {
+  version: number;
+}
+
+export interface DailyReminderRescheduleTarget extends DailyReminderSummary {
+  version: number;
+}
+
+export interface DailyReminderRescheduleTargetList {
+  reminders: DailyReminderRescheduleTarget[];
+}
+
 function validReminderDelay(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_AGENT_REMINDER_DELAY_SECONDS;
 }
@@ -149,4 +166,16 @@ export function normalizeDailyReminderCancelInput(input: unknown): DailyReminder
   if (typeof requestId !== "string" || !AGENT_REMINDER_ID_PATTERN.test(requestId) ||
       typeof seriesId !== "string" || !AGENT_REMINDER_UUID_PATTERN.test(seriesId)) return null;
   return { requestId, seriesId };
+}
+
+/** 根据完整规则 ID 和查询所得版本更新每日时刻。 */
+export function normalizeDailyReminderRescheduleInput(input: unknown): DailyReminderRescheduleInput | null {
+  if (typeof input !== "object" || !input || Array.isArray(input)) return null;
+  const keys = Object.keys(input);
+  if (keys.length !== 4 || !keys.includes("version") || !keys.includes("localTime")) return null;
+  const { version, localTime, ...target } = input as Record<string, unknown>;
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1 ||
+      typeof localTime !== "string" || !DAILY_REMINDER_TIME_PATTERN.test(localTime)) return null;
+  const normalized = normalizeDailyReminderCancelInput(target);
+  return normalized ? { ...normalized, version, localTime } : null;
 }

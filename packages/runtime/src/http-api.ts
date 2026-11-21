@@ -11,6 +11,7 @@ import {
   NAMED_CLIENT_SCOPES,
   REMINDER_CANCEL_SCOPE,
   REMINDER_READ_SCOPE,
+  REMINDER_RECURRING_RESCHEDULE_SCOPE,
   REMINDER_RECURRING_SCOPE,
   REMINDER_RESCHEDULE_SCOPE,
   REMINDER_SCOPE,
@@ -24,6 +25,7 @@ import {
   hashToken,
   parseBearer,
   recurringReminderIdentityProof,
+  recurringReminderRescheduleIdentityProof,
   reminderCancelIdentityProof,
   reminderIdentityProof,
   reminderReadIdentityProof,
@@ -52,6 +54,7 @@ const clientProofs = {
   "reminder-cancel": { scope: REMINDER_CANCEL_SCOPE, sign: reminderCancelIdentityProof },
   "reminder-reschedule": { scope: REMINDER_RESCHEDULE_SCOPE, sign: reminderRescheduleIdentityProof },
   "reminder-recurring": { scope: REMINDER_RECURRING_SCOPE, sign: recurringReminderIdentityProof },
+  "reminder-recurring-reschedule": { scope: REMINDER_RECURRING_RESCHEDULE_SCOPE, sign: recurringReminderRescheduleIdentityProof },
 } as const;
 const reminderRoutes = {
   [REMINDER_SCOPE]: { identity: "/v1/reminders/identity", method: "POST", operation: "/v1/reminders" },
@@ -63,6 +66,9 @@ const reminderManagementScopes = [REMINDER_READ_SCOPE, REMINDER_CANCEL_SCOPE, RE
 const recurringRemindersPath = "/v1/recurring-reminders";
 const recurringRemindersIdentityPath = recurringRemindersPath + "/identity";
 const recurringRemindersCancelPath = recurringRemindersPath + "/cancel";
+const recurringReschedulePath = recurringRemindersPath + "/reschedule";
+const recurringRescheduleIdentityPath = recurringReschedulePath + "/identity";
+const recurringRescheduleTargetsPath = recurringReschedulePath + "/targets";
 const recurringAdminListPath = "/v1/admin/recurring-reminders/list";
 const recurringAdminCancelPath = "/v1/admin/recurring-reminders/cancel";
 const revokeRoutes = new Map<string, Exclude<keyof typeof clientProofs, "expression">>([
@@ -72,6 +78,7 @@ const revokeRoutes = new Map<string, Exclude<keyof typeof clientProofs, "express
   ["/v1/admin/reminders/cancel/revoke", "reminder-cancel"],
   ["/v1/admin/reminders/reschedule/revoke", "reminder-reschedule"],
   ["/v1/admin/recurring-reminders/revoke", "reminder-recurring"],
+  ["/v1/admin/recurring-reminders/reschedule/revoke", "reminder-recurring-reschedule"],
 ]);
 
 export interface LocalHttpApiDeps {
@@ -212,10 +219,13 @@ export class LocalHttpApi {
       const reminderCancelProof = this.clientProof(req, "reminder-cancel", boundPort);
       const reminderRescheduleProof = this.clientProof(req, "reminder-reschedule", boundPort);
       const recurringReminderProof = this.clientProof(req, "reminder-recurring", boundPort);
-      if (reminderReadProof || reminderCancelProof || reminderRescheduleProof || recurringReminderProof) res.setHeader("cache-control", "no-store");
+      const recurringReminderRescheduleProof = this.clientProof(req, "reminder-recurring-reschedule", boundPort);
+      if (reminderReadProof || reminderCancelProof || reminderRescheduleProof || recurringReminderProof || recurringReminderRescheduleProof) {
+        res.setHeader("cache-control", "no-store");
+      }
       this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version,
         ...proof, ...speechProof, expressionProof, briefingProof, reminderProof, reminderReadProof, reminderCancelProof,
-        reminderRescheduleProof, recurringReminderProof });
+        reminderRescheduleProof, recurringReminderProof, recurringReminderRescheduleProof });
       return;
     }
 
@@ -225,6 +235,11 @@ export class LocalHttpApi {
       return;
     }
     const client = auth.client;
+    if (hasScope(client, REMINDER_RECURRING_RESCHEDULE_SCOPE) || url === recurringReschedulePath ||
+        url === recurringRescheduleIdentityPath || url === recurringRescheduleTargetsPath) {
+      await this.handleRecurringReschedule(req, res, client, method, url);
+      return;
+    }
     if (hasScope(client, REMINDER_RECURRING_SCOPE) || url === recurringRemindersPath ||
         url === recurringRemindersIdentityPath || url === recurringRemindersCancelPath) {
       await this.handleRecurringReminders(req, res, client, method, url);
@@ -395,6 +410,10 @@ export class LocalHttpApi {
           this.sendJson(res, 409, { error: "reminder_creator_not_registered" });
           return;
         }
+        if (namedScope === REMINDER_RECURRING_RESCHEDULE_SCOPE && !this.deps.store.findNamedClient(name, REMINDER_RECURRING_SCOPE)) {
+          this.sendJson(res, 409, { error: "recurring_reminder_creator_not_registered" });
+          return;
+        }
       }
       const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE, "assistant", "speech_host", ...NAMED_CLIENT_SCOPES].includes(scope));
       if (invalid !== undefined) {
@@ -411,7 +430,8 @@ export class LocalHttpApi {
         createdAt: new Date().toISOString(),
       });
       this.deps.store.audit("client.paired", clientId, { name: checked.value.name, scopes: requested }, new Date().toISOString());
-      if (namedScope === REMINDER_RECURRING_SCOPE || reminderManagementScopes.some(scope => scope === namedScope)) {
+      if (namedScope === REMINDER_RECURRING_SCOPE || namedScope === REMINDER_RECURRING_RESCHEDULE_SCOPE ||
+          reminderManagementScopes.some(scope => scope === namedScope)) {
         res.setHeader("cache-control", "no-store");
       }
       this.sendJson(res, 200, { clientId, token });
@@ -436,7 +456,8 @@ export class LocalHttpApi {
       const target = this.deps.store.findNamedClient(body.name, scope);
       if (!target) { this.sendJson(res, 404, { error: `${purpose}_client_not_found` }); return; }
       if (!target.revokedAt) this.revokeClient(target.clientId, client.clientId);
-      if (scope === REMINDER_RECURRING_SCOPE || reminderManagementScopes.some(managementScope => managementScope === scope)) {
+      if (scope === REMINDER_RECURRING_SCOPE || scope === REMINDER_RECURRING_RESCHEDULE_SCOPE ||
+          reminderManagementScopes.some(managementScope => managementScope === scope)) {
         res.setHeader("cache-control", "no-store");
       }
       this.sendJson(res, 200, { revoked: target.clientId });
@@ -654,6 +675,40 @@ export class LocalHttpApi {
         ? assistant.cancelDailyReminder(owner.clientId, input)
         : assistant.listDailyReminders(owner.clientId);
       this.sendJson(res, 200, result);
+    } catch (error) {
+      if (!(error instanceof AssistantError)) throw error;
+      this.sendJson(res, error.status, { error: error.code });
+    }
+  }
+
+  private async handleRecurringReschedule(
+    req: IncomingMessage, res: ServerResponse, client: AuthedClient, method: string, url: string,
+  ): Promise<void> {
+    res.setHeader("cache-control", "no-store");
+    if (client.scopes.length !== 1 || !hasScope(client, REMINDER_RECURRING_RESCHEDULE_SCOPE)) {
+      this.forbidden(res, "reminder_recurring_reschedule requires a dedicated client");
+      return;
+    }
+    if (method === "GET" && url === recurringRescheduleIdentityPath) {
+      this.sendJson(res, 200, { clientId: client.clientId, name: client.name });
+      return;
+    }
+    const listing = method === "GET" && url === recurringRescheduleTargetsPath;
+    if (!listing && !(method === "POST" && url === recurringReschedulePath)) {
+      this.forbidden(res, "reminder_recurring_reschedule client is restricted to daily reschedule routes");
+      return;
+    }
+    const assistant = this.deps.assistant;
+    if (!assistant) { this.sendJson(res, 503, { error: "assistant_unavailable" }); return; }
+    const owner = this.deps.store.findNamedClient(client.name, REMINDER_RECURRING_SCOPE);
+    if (!owner) { this.forbidden(res, "recurring reminder creator is not registered"); return; }
+    try {
+      if (listing) {
+        this.sendJson(res, 200, assistant.listDailyRescheduleTargets(owner.clientId));
+        return;
+      }
+      const body = await this.readJson(req, res);
+      if (body) this.sendJson(res, 200, assistant.rescheduleDailyReminder(client.clientId, owner.clientId, body));
     } catch (error) {
       if (!(error instanceof AssistantError)) throw error;
       this.sendJson(res, error.status, { error: error.code });

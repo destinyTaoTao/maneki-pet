@@ -316,6 +316,14 @@ export class AssistantService {
   listDailyReminders(clientId: string) {
     return this.dailyReminders.list(clientId);
   }
+  listDailyRescheduleTargets(ownerId: string) {
+    return this.dailyReminders.listRescheduleTargets(ownerId);
+  }
+  rescheduleDailyReminder(actorId: string, ownerId: string, raw: unknown) {
+    const { receipt, changed } = this.dailyReminders.reschedule(actorId, ownerId, raw);
+    if (changed) this.scheduler.wake();
+    return receipt;
+  }
   cancelDailyReminder(clientId: string, raw: unknown) {
     const receipt = this.dailyReminders.cancel(clientId, raw);
     this.scheduler.wake();

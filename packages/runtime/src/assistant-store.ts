@@ -467,11 +467,12 @@ export class AssistantStore {
       .get(client, id) as { hash: string; result: string } | undefined;
   }
   /** 与提醒和回执共用事务。回拨时仅保留旧版单次创建的行为。 */
-  consumeAgentReminderQuota(operation: "creation" | "reschedule" | "daily_creation", client: string, now: number): void {
+  consumeAgentReminderQuota(operation: "creation" | "reschedule" | "daily_creation" | "daily_reschedule", client: string, now: number): void {
     const keys = {
       creation: "reminderCreationQuota",
       reschedule: "reminderRescheduleQuota",
       daily_creation: "dailyReminderCreationQuota.v1",
+      daily_reschedule: "dailyReminderRescheduleQuota.v1",
     };
     const key = `${keys[operation]}.${client}`;
     const hour = Math.floor(now / 3_600_000);

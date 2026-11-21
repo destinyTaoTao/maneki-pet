@@ -8,18 +8,23 @@ import {
   localTimeToUtc,
   normalizeDailyReminderCancelInput,
   normalizeDailyReminderInput,
+  normalizeDailyReminderRescheduleInput,
   validDateOnly,
   validTimeZone,
   type DailyReminderCancelReceipt,
   type DailyReminderList,
   type DailyReminderReceipt,
+  type DailyReminderRescheduleReceipt,
+  type DailyReminderRescheduleTargetList,
   type DailyReminderSummary,
 } from "@maneki-pet/core";
 import { AssistantError, readAssistantSettings } from "./assistant-settings.js";
 import type { AssistantStore } from "./assistant-store.js";
 
 const STATE_KEY = "dailyReminders.v1";
+const VERSIONS_KEY = "dailyReminderVersions.v1";
 const MAX_STATE_LENGTH = 100_000;
+const MAX_VERSIONS_LENGTH = 4096;
 const DAY_MS = 86_400_000;
 
 interface Occurrence {
@@ -138,6 +143,38 @@ export class DailyReminders {
     this.parsed = { raw, rules };
   }
 
+  private readVersions(): Map<string, number> {
+    const raw = this.store.get(VERSIONS_KEY);
+    if (raw === null) return new Map();
+    if (typeof raw !== "string" || raw.length > MAX_VERSIONS_LENGTH) throw unavailable();
+    let saved: { version?: unknown; bySeries?: unknown } | null;
+    try { saved = JSON.parse(raw); }
+    catch { throw unavailable(); }
+    if (saved?.version !== 1 || Object.keys(saved).length !== 2 ||
+        !saved.bySeries || typeof saved.bySeries !== "object" || Array.isArray(saved.bySeries)) {
+      throw unavailable();
+    }
+    const entries = Object.entries(saved.bySeries as Record<string, unknown>);
+    if (entries.length > MAX_DAILY_REMINDERS) throw unavailable();
+    const versions = new Map<string, number>();
+    for (const [id, version] of entries) {
+      if (!AGENT_REMINDER_UUID_PATTERN.test(id) || typeof version !== "number" ||
+          !Number.isSafeInteger(version) || version < 2) throw unavailable();
+      versions.set(id, version);
+    }
+    return versions;
+  }
+
+  private saveVersions(rules: Rule[], versions: Map<string, number>): void {
+    // 取消规则不依赖版本存储，下一次改期写入时清理已取消的版本。
+    const bySeries: Record<string, number> = {};
+    for (const { seriesId } of rules) {
+      const version = versions.get(seriesId);
+      if (version !== undefined) bySeries[seriesId] = version;
+    }
+    this.store.set(VERSIONS_KEY, JSON.stringify({ version: 1, bySeries }));
+  }
+
   create(clientId: string, raw: unknown): DailyReminderReceipt {
     const input = normalizeDailyReminderInput(raw);
     if (!input) throw new AssistantError(400, "daily_reminder_input_invalid");
@@ -187,6 +224,61 @@ export class DailyReminders {
         .sort(compareOccurrences)
         .map(summary),
     };
+  }
+
+  listRescheduleTargets(clientId: string): DailyReminderRescheduleTargetList {
+    const versions = this.readVersions();
+    const { reminders } = this.list(clientId);
+    return {
+      reminders: reminders.map((rule) => ({ ...rule, version: versions.get(rule.seriesId) ?? 1 })),
+    };
+  }
+
+  reschedule(actorId: string, ownerId: string, raw: unknown): { receipt: DailyReminderRescheduleReceipt; changed: boolean } {
+    const input = normalizeDailyReminderRescheduleInput(raw);
+    if (!input) throw new AssistantError(400, "daily_reminder_reschedule_input_invalid");
+    const { requestId, seriesId, localTime, version } = input;
+    const actor = `daily-reminder-reschedule:${actorId}`;
+    const hash = fingerprint([ownerId, seriesId, localTime, version]);
+    const nextVersion = version + 1;
+    return this.store.transaction(() => {
+      const cached = this.store.mutation(actor, requestId);
+      if (cached) {
+        if (cached.hash !== hash) throw new AssistantError(409, "request_id_conflict");
+        let stored: Partial<DailyReminderRescheduleReceipt> | null;
+        try { stored = JSON.parse(cached.result); }
+        catch { throw unavailable(); }
+        const nextAt = stored?.nextAt;
+        const timeZone = stored?.timeZone;
+        if (!isValidEpoch(nextAt) || typeof timeZone !== "string" || !validTimeZone(timeZone) ||
+            !Number.isSafeInteger(nextVersion)) throw unavailable();
+        const receipt = { requestId, seriesId, localTime, timeZone, nextAt, version: nextVersion };
+        if (cached.result !== JSON.stringify(receipt)) throw unavailable();
+        return { receipt, changed: false };
+      }
+
+      const rules = this.read();
+      const rule = rules.find((item) => item.seriesId === seriesId && item.clientId === ownerId);
+      if (!rule) throw new AssistantError(404, "daily_reminder_not_found");
+      const versions = this.readVersions();
+      if ((versions.get(seriesId) ?? 1) !== version) throw new AssistantError(409, "version_conflict");
+      if (rule.localTime === localTime) throw new AssistantError(409, "daily_reminder_time_unchanged");
+      if (!Number.isSafeInteger(nextVersion)) throw new AssistantError(409, "daily_reminder_version_exhausted");
+
+      const now = this.now();
+      const { timeZone } = rule;
+      const today = localParts(now, timeZone).date;
+      // 认领和跨日推进都持久化日期。改期只能在该日期及之后安排下一次。
+      const firstDate = today > rule.nextDate ? today : rule.nextDate;
+      const occurrence = nextOccurrence({ localTime, timeZone }, firstDate, now);
+      const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt, version: nextVersion };
+      this.store.consumeAgentReminderQuota("daily_reschedule", actorId, now);
+      this.save(rules.map((item) => item === rule ? moveRule({ ...rule, localTime }, occurrence) : item));
+      versions.set(seriesId, nextVersion);
+      this.saveVersions(rules, versions);
+      this.store.rememberMutation(actor, requestId, hash, receipt);
+      return { receipt, changed: true };
+    });
   }
 
   cancel(clientId: string, raw: unknown): DailyReminderCancelReceipt {
