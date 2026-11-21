@@ -1,8 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+import { MAX_BRIEFING_ITEMS, validTimeZone, type WorkBriefing } from "@maneki-pet/core";
 import type { PersonalTodo, PersonalReminder } from "@maneki-pet/core";
 import type { CompanionReference } from "@maneki-pet/core";
 import { CompanionReferences } from "./companion-references.js";
-import { AssistantError } from "./assistant-settings.js";
+import { AssistantError, defaultAssistantSettings } from "./assistant-settings.js";
 
 export const MEMORY_WRITE_UNKNOWN_NOTICE = "此次保存结果未知，请到 EverNook 核实；不会自动重试。";
 
@@ -157,6 +158,21 @@ export class AssistantStore {
         ...row,
         completed: row.completed === 1,
       })) as unknown as PersonalTodo[];
+  }
+  briefingTimeZone(): string {
+    // 单独投影时区，模型配置、记忆路径和凭证引用均不离开 SQLite。
+    const row = this.db.prepare(
+      "SELECT json_extract(value, '$.timeZone') AS zone FROM runtime_kv WHERE key='assistant.settings'",
+    ).get();
+    if (!row) return defaultAssistantSettings().timeZone;
+    if (typeof row.zone !== "string" || !validTimeZone(row.zone)) throw new AssistantError(503, "settings_invalid");
+    return row.zone;
+  }
+  dueTodos(date: string): Pick<WorkBriefing, "todos" | "moreTodos"> {
+    const rows = this.db.prepare(
+      "SELECT title,due_date AS dueDate FROM assistant_todos WHERE completed=0 AND due_date<=? ORDER BY due_date,id LIMIT ?",
+    ).all(date, MAX_BRIEFING_ITEMS + 1) as WorkBriefing["todos"];
+    return { todos: rows.slice(0, MAX_BRIEFING_ITEMS), moreTodos: rows.length > MAX_BRIEFING_ITEMS };
   }
   todo(id: string): PersonalTodo | undefined {
     return this.todos().find((item) => item.id === id);

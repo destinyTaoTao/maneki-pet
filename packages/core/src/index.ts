@@ -131,6 +131,7 @@ export {
 export * from "./personal-assistant.js";
 export * from "./speech-provider.js";
 export * from "./session-observation.js";
+export * from "./work-briefing.js";
 export * from "./companion-types.js";
 export * from "./companion-policy.js";
 export * from "./companion-templates.js";

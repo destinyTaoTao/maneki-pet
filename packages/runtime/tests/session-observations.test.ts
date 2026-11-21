@@ -71,3 +71,39 @@ it("来源满额时拒绝新增在线来源，过期后只回收失联来源", (
   expect(feed.snapshot()).toHaveLength(64);
   expect(feed.snapshot().filter((item) => item.connected).map((item) => item.sourceId)).toEqual([source(64)]);
 });
+
+it("简报保留同来源 ID 的不同上报方，区分空闲、未观测、撤销和租约届满，读取不发布事件", () => {
+  const { feed, advance, active, publish } = setup();
+  const empty = { waiting: [], onlineSources: 0, offlineSources: 0, partialSessions: false };
+  expect(feed.briefing()).toEqual(empty);
+  feed.report("owner", report(1, rows("working")));
+  expect(feed.briefing()).toEqual({ ...empty, onlineSources: 1 });
+  feed.report("owner", { ...report(2, rows("waiting_input", 2)), truncated: true });
+  feed.report("other", report());
+  const both = feed.briefing();
+  expect(both).toMatchObject({ onlineSources: 2, offlineSources: 0, partialSessions: true });
+  expect(both.waiting.map(row => [row.clientId, row.sourceId, row.sessionId])).toEqual([
+    ["owner", sourceId, "session-A"], ["other", sourceId, "session-A"],
+  ]);
+  publish.mockClear();
+  active.delete("owner");
+  expect(feed.briefing()).toMatchObject({ onlineSources: 1, offlineSources: 1, partialSessions: false, waiting: [{ clientId: "other" }] });
+  advance(15000);
+  expect(feed.briefing()).toEqual({ ...empty, offlineSources: 2 });
+  expect(publish).not.toHaveBeenCalled();
+});
+
+it("跨来源仅取最近八条等待观测，截断只取决于在线数据", () => {
+  const { feed } = setup();
+  const sessions = Array.from({ length: 8 }, (_, i) => ({
+    ...rows()[0]!, sessionId: `session-${i}`, observedAt: i + 1,
+  }));
+  feed.report("owner", report(1, sessions));
+  expect(feed.briefing().partialSessions).toBe(false);
+  feed.report("other", report(1, [{ ...sessions[0]!, observedAt: 9 }]));
+  const result = feed.briefing();
+  expect(result.waiting.map(row => row.observedAt)).toEqual([9, 8, 7, 6, 5, 4, 3, 2]);
+  expect(result.partialSessions).toBe(true);
+  feed.report("other", { ...report(2, []), connected: false, truncated: true });
+  expect(feed.briefing()).toMatchObject({ partialSessions: false, onlineSources: 1, offlineSources: 1 });
+});

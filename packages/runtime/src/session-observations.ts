@@ -1,4 +1,4 @@
-import { sessionPhases, type ObservedSession, type SessionObservationSource } from "@maneki-pet/core";
+import { MAX_BRIEFING_ITEMS, sessionPhases, type ObservedSession, type SessionObservationSource, type WorkBriefing } from "@maneki-pet/core";
 import { validateObject } from "./validate.js";
 
 interface Source extends SessionObservationSource { reportSequence: number }
@@ -76,11 +76,39 @@ export class SessionObservations {
     return [...this.sources.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt).map(({ reportSequence: _sequence, ...source }) =>
       ({ ...source, sessions: source.sessions.map((row) => ({ ...row })) }));
   }
+  briefing(): Pick<WorkBriefing, "waiting" | "onlineSources" | "offlineSources" | "partialSessions"> {
+    const now = this.now();
+    let onlineSources = 0;
+    let partialSessions = false;
+    const waiting: WorkBriefing["waiting"] = [];
+    for (const source of this.sources.values()) {
+      if (!this.isOnline(source, now)) continue;
+      onlineSources++;
+      partialSessions ||= source.truncated;
+      for (const { phase, projectName, sessionId, observedAt } of source.sessions) {
+        if (phase !== "waiting_input") continue;
+        if (waiting.length === MAX_BRIEFING_ITEMS) {
+          partialSessions = true;
+          if (observedAt <= waiting[MAX_BRIEFING_ITEMS - 1]!.observedAt) continue;
+          waiting.pop();
+        }
+        const row = { clientId: source.clientId, profileId: source.profileId, sourceId: source.sourceId, projectName, sessionId, observedAt };
+        const index = waiting.findIndex(item => item.observedAt < observedAt);
+        if (index < 0) waiting.push(row);
+        else waiting.splice(index, 0, row);
+      }
+    }
+    return { waiting, onlineSources, offlineSources: this.sources.size - onlineSources, partialSessions };
+  }
   close(): void { clearInterval(this.timer); this.timer = undefined; this.sources.clear(); }
+  private isOnline(source: Source, now: number): boolean {
+    return source.connected && now - source.lastSeenAt < 15000 && this.deps.active(source.clientId);
+  }
   private refresh(): void {
     let changed = false;
+    const now = this.now();
     for (const source of this.sources.values()) {
-      if (source.connected && (this.now() - source.lastSeenAt >= 15000 || !this.deps.active(source.clientId))) {
+      if (source.connected && !this.isOnline(source, now)) {
         source.connected = false;
         changed = true;
       }
