@@ -243,6 +243,7 @@ Windows 工程派发发布出口：
 - [ ] 多通道送达与按 reminder/occurrence/channel 去重，区分系统受理/用户确认/失败
 - [x] 2026-11-21 `maneki_remind` 单次相对时间提醒已接入 SDK、HTTP、CLI 和 dsh MCP。独立授权与按名撤销、来源配额、持久幂等和权限隔离通过回归；真实 dsh 退出、Runtime 重启后，Windows 在模拟到期时刻受理了 1 次通知。[验收记录](./audits/2026-11-21-agent-reminders.md)
 - [x] 2026-11-21 外部 agent 可分别获权通过 SDK、HTTP、CLI 和 dsh MCP 查询和取消自己安排的待投递提醒。按 ID 和版本取消，重试返回原回执。dsh 隔离验收覆盖同名条目和取消后的投递差异。[验收记录](./audits/2026-11-21-agent-reminder-management.md)
+- [x] 2026-11-21 外部 agent 可经独立授权，通过 SDK、HTTP、CLI 和 dsh MCP 改期自有提醒。按 ID 和版本替换到期时间，重试保留原回执。真实 dsh 联验确认目标在旧时刻零投递、新时刻一次投递。[验收记录](./audits/2026-11-21-agent-reminder-reschedule.md)
 - [ ] 主动性引擎按类别分离触发器/预算；默认勿扰不穿透，可靠提醒恢复后合并补发，过期闲聊丢弃；重提后置，未来开放须显式开启并有次数/间隔上限
 - [ ] 碎碎念（murmur）产品闭环：Core 已有局部规则/测试，Runtime/桌面未接入；按 §4.3.1 实现模板低频表达、独立控制、持久预算与气泡仲裁，不能以旧 Core 测试代表功能完成
 - [ ] 每日简报（daily briefing）触发器：默认关闭、时间点可配、内容确定性汇总、纳入防打扰预算；主动内容当日失效、无料不发
