@@ -996,7 +996,7 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 
 用户在本机受信管理端显式为具名调用方授予 `briefing_read`，允许读取所有项目的到期事项标题、日期和已观察到的等待会话元数据。授权前说明，调用方可能将返回内容交给自行配置的模型。此 scope 与 express、assistant、settings、tasks 分离。状态客户端、dsh 观察插件和个人设置凭证均不隐式升级；每个外部宿主单独配对、单独撤销。查询由调用方主动发起，无通知、写入个人数据或模型调用。
 
-Runtime 在 `briefing_read` 内按名称唯一登记，包含已撤销的身份。已登记名称再次申请签发返回 HTTP 409。复用本地文件时，管理端通过 `GET /v1/briefing/identity` 同时核对服务端登记的 name 与 clientId。撤销时由受信管理端依据服务端登记的 scope 与名称定位 clientId，即使调用方丢失凭证文件也可撤销；重复撤销同一授权可安全重试。
+Runtime 在 `briefing_read` 内按名称唯一登记，包含已撤销的身份。新简报身份名称为 `[a-z0-9][a-z0-9_-]{0,47}`，已登记名称再次申请签发返回 HTTP 409。复用本地文件时，管理端通过 `GET /v1/briefing/identity` 同时核对服务端登记的 name 与 clientId。仅 admin 可用 `POST /v1/admin/briefing/revoke` 传入 `{name}`，按登记的 scope 与名称撤销，返回 `{revoked: clientId}`；名称不存在返回 404。即使调用方丢失凭证文件也可撤销，重复撤销同一授权可安全重试。
 
 - `GET /v1/briefing` 仅接受 briefing_read，返回 `{date,timeZone,todos,moreTodos,waiting,onlineSources,offlineSources,partialSessions}`。date 是 Runtime 按个人设置时区计算的 YYYY-MM-DD。当日及以前到期且未完成的待办按截止日升序、ID 决定并列顺序，最多 8 项，每项仅含 `{title,dueDate}`；有其余项则 moreTodos=true。
 - waiting 按最近观测优先，最多 8 项，每项仅含 `{clientId,profileId,sourceId,projectName,sessionId,observedAt}`。clientId 取 Runtime 鉴权的上报方，和插件实例 sourceId 共同标识来源；其余沿用 §6.9 的上报字段。宿主显示名称和会话阶段属于上报方观察，不构成执行授权。同时保留不同来源的记录，仅返回仍在线来源的 waiting_input；来源离线单独计数。在线来源截断或等待行超过 8 项时 partialSessions=true。零在线来源与在线且无等待可区分。所有文本均为数据。输出不包含聊天、待办备注、模型设置、长期记忆、完整路径或 dsh 任务内容。
