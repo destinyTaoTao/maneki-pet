@@ -62,21 +62,7 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.3.0.tgz
 
 先从仓库构建：`pnpm -r build`。桌面和 Runtime 必须使用本轮构建，旧安装版没有新的状态接口。构建原生壳可运行 `pnpm --filter @maneki-pet/desktop tauri build --no-bundle`；它使用已准备的本地动作包。
 
-启动新构建的桌面（或手动启动同版本共享 Runtime），确认 `http://127.0.0.1:18100/v1/health` 可达。受信管理端通过现有 `/v1/pair` 为宿主单独签发 `express` 凭证，插件只读该凭证文件，不能读取 root-token。以下 PowerShell 在本机管理端执行，凭证不会输出；默认 Runtime 目录与 Tauri `com.manekipet.desktop` 的 loader 一致，可用 `-RuntimeDir` 对应路径替换变量：
-
-```powershell
-$runtimeDir = Join-Path $env:APPDATA 'com.manekipet.desktop\runtime'
-$clientDir = Join-Path $env:APPDATA 'com.manekipet.desktop\dsh-observer'
-New-Item -ItemType Directory -Path $clientDir -Force | Out-Null
-$rootToken = (Get-Content -LiteralPath (Join-Path $runtimeDir 'root-token') -Raw).Trim()
-$pair = Invoke-RestMethod -Uri 'http://127.0.0.1:18100/v1/pair' -Method Post `
-  -Headers @{ Authorization = "Bearer $rootToken" } -ContentType 'application/json' `
-  -Body '{"name":"dsh-observer","scopes":"express"}'
-$env:MANEKI_TOKEN_FILE = Join-Path $clientDir 'client-token'
-[IO.File]::WriteAllText($env:MANEKI_TOKEN_FILE, $pair.token)
-$pair.clientId | Set-Content -LiteralPath (Join-Path $clientDir 'client-id')
-Remove-Variable rootToken, pair
-```
+启动与插件匹配的 Runtime。已有手工部署可以继续使用为该插件独立签发的纯文本 `express` 凭证。把 `MANEKI_TOKEN_FILE` 指向原凭证，`MANEKI_RUNTIME_URL` 指向受信的本机 Runtime 地址；仓库与 dsh profile 中仅保存路径。新安装可使用上方的原生 `/maneki pair` 流程。第三方状态客户端的配对文件和启动示例见[仓库接入指南](../../README.md#接入小招)。
 
 然后在仓库根目录执行（原工作目录就是 dsh 的默认项目）：
 

@@ -1,156 +1,104 @@
-<div align="center">
+# Maneki · 小招
 
-# 🐱 Maneki · 小招
+一只陪你工作、替你留意 dsh 会话的桌宠。两个项目同时运行时，你可以直接问「哪个会话在等我？」。小招会根据宿主事件回答，工程操作和审批仍留在 dsh。关掉桌宠窗口后，后台继续照看提醒。
 
-**小招，陪你工作和生活的桌面管家**
+[Windows 安装指南](./docs/install-windows.md) · [dsh 插件](./apps/dsh-plugin/README.md) · [架构设计](./docs/architecture.md) · [路线图与验收](./docs/roadmap.md) · [MIT](./LICENSE) · [本轮审查与验证](./docs/audits/2026-11-21-assistant-integration-review.md)
 
-*A desktop companion that keeps you company and follows your dsh sessions.*
+## 现在能用什么
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Status](https://img.shields.io/badge/status-incubating-orange.svg)](./docs/roadmap.md)
-[![Target platforms](https://img.shields.io/badge/targets-Windows%20%7C%20macOS%20%7C%20Linux-blue)](./docs/roadmap.md)
+| 场景 | 能力与验收边界 |
+| --- | --- |
+| 聊天、待办与单次提醒 | Windows x64 个人预览 `0.2.0-alpha.2`。模型关闭也能处理「半小时后提醒我休息」等明确指令。阶段一另以 Windows 独立身份确认跨项目续聊，两个 dsh 均退出后，用户看到了该次 Windows 提醒。[安装与使用](./docs/install-windows.md) · [阶段一实机记录](./docs/audits/2026-11-13-stage1-dsh-companion.md) |
+| 找到等待回应的会话 | 当前源码支持按项目目录名、会话 ID 和阶段查看进度。真实 dsh 的等待、完成、续接、取消和失联均有对照记录。[会话验收](./docs/audits/2026-11-14-session-observations.md) |
+| 按住说话与朗读 | 麦克风、识别和合成分别启用。可选本地引擎、百炼，或单独授权 dsh 提供只读进度查询所需的转写。真实录音与第二个会话同时完成的组合场景仍待验收。[语音配置](./docs/voice.md) |
+| 形象、动作与轻陪伴 | 源码支持动作包、点播、模板气泡、「来一句」及暂停。自动台词遵守勿扰和独立预算。正式素材另行准备；长时间节奏、真实休眠及多屏观感待验。[轻陪伴验证](./docs/audits/2026-11-14-template-companionship.md) |
+| 长期记忆 | EverNook 的保存与召回分别授权，记忆有来源，tokenizer 在本地匹配模型。已做隔离身份联验，跨天自然问句的产品体验仍在验收。[配置与证据](./packages/adapters/evernook/README.md) |
 
-</div>
+安装包是封存的本地预览。GitHub 当前没有公开 Release；下文的 SDK、状态 CLI 与独立 MCP 桥使用同一版 `main` 源码构建。Windows x64 是本轮验证平台，macOS/Linux 仍是目标平台。
 
-> 招财猫（招き猫 / Maneki-neko）的天性就是：**主动招手迎接你，把好运带回来**。
->
-> 小招住在你的桌面上。平时陪你聊两句，工作时替你留意 dsh 会话，有事情需要你决定时来叫你。你从 dsh 插件打开它，换项目仍能接着聊。首版规划中，长期偏好经你同意存入 EverNook，工程操作与审批由你回到 dsh 处理。
-
-> **当前状态：Windows x64 个人助理预览；更新于 2026-11-09。** `0.2.0-alpha.2` 在可安装预览上增加对话查询、修改和取消未来事项，以及同名选择/缺时间澄清；不依赖对话模型。安装器内置 Runtime / Node 与正式橘猫娘形象，dsh 离线插件仍为 `0.3.0`。先看[安装与使用](./docs/install-windows.md)、[对话增量验证](./docs/audits/2026-11-09-personal-dialogue.md)及[首版交付验证](./docs/audits/2026-11-08-windows-preview-delivery.md)。M1/M2/M2b 整体出口尚未通过，工程派发继续关闭；原生授权、真实设备/账号和既有用户安装迁移保留人工验收。
->
-> **当前执行限制：** dsh 原生审批和完整恢复尚未通过验收，新任务派发及未经核实的取消均已关闭；已有本地任务记录可查询，重启后的真实外部状态请到 harness 核查。
->
-> **2026-11-03 可用增量：** [dsh 状态联动 MVP](./apps/dsh-plugin/README.md) 已通过 Windows 真实 dsh 文字任务验证。任务在 dsh 原生界面操作，小招显示工作、思考、等待和完成等状态；本增量不含反向派发、overlay 或完整交付恢复。需要使用本轮构建的桌面与 Runtime，不能沿用旧安装版。
-
-> **2026-11-07 基础插件增量：** 新增 `/maneki status|connect|pair|show|quit`，通过已登记原生入口连接/启动共享 Runtime、显式配对、显示同一桌宠和退出后台；插件仅持有状态表达凭证。真实 dsh 本地包安装与注册、Windows 发行布局通过验证；原生授权按钮、托盘退出及安装器流程仍待人工验收。需一起更新桌面与 Runtime，未自动替换当前安装版，详见[使用说明](./apps/dsh-plugin/README.md)与[验证边界](./docs/audits/2026-11-07-dsh-plugin-management.md)。
-
-> **2026-11-07 文字助理增量：** `/maneki assistant` 或桌宠文字入口打开同一窗口的对话、待办、提醒与设置面板。默认关闭模型和自身云端能力；不启用模型也能输入“待办：周五前提交报销”“半小时后提醒我休息”。待办截止日期不会自动创建提醒，完成/删除待办取消未触发的关联提醒。历史本地保留，清空须预览确认并同时删除摘要；模型回答只作文本显示。系统通知由后台调度，系统受理不等于用户已看到。模型接口通过本机替身验证，未进行真实计费调用；语音、MCP 提醒工具、休眠/DPI/长期性能和安装器仍分别验收，见[本轮记录](./docs/audits/2026-11-07-text-assistant-reminders.md)。
-
-> **2026-11-07 按键语音增量：** 同一助手面板支持按住说话、松开转写后自动提交，以及可选本地朗读。麦克风、ASR、TTS 三项独立且默认关闭；用户自行安装 whisper.cpp 1.9.5 和模型，TTS 使用 Windows 已安装语音。录音仅走内存，不自动下载或转云端；语音复用个人对话/待办/提醒，工程派发仍关闭。Windows 本地引擎与原生组件检测已验证，真实麦克风/扬声器、权限弹窗、识别准确率和长期性能保留人工验收。见[安装与使用](./docs/voice.md)及[验证记录](./docs/audits/2026-11-07-push-to-talk-voice.md)。未替换现有安装版。
-
-迁移：桌面与 Runtime 须一起更新，dsh 插件仍可用 `0.3.0` 入口。当前 SQLite 升级到 v6，升级前按源版本生成 `runtime.db.bak-<版本>`（如 v3 的 `.bak-3`、v4 的 `.bak-4`、v5 的 `.bak-5`）；旧 Runtime 拒绝新库，回退须停止后台并显式恢复对应备份。旧设置缺少 voice 时默认关闭，旧客户端保存时保留已有语音设置。个人助理凭证独立保存在 `assistant-client.json`，首次打开助手才创建；既有表达凭证不扩权，撤销后不静默重配。模型密钥只由 Runtime 保存在用户目录，设置页仅显示是否配置，不放进 dsh 或项目配置。
-
-2026-11-04 安全迁移：桌面与 Runtime 须一同更新并重启后台。桌面改由 native 配对，WebView 不再获取 root；修改勿扰需单独 `settings` 权限，旧 `express` 凭证不会自动提权。桌面凭证被撤销后须由受信管理入口重新配对；旧无归属任务不向新客户端开放，先到原 harness 核查。实现与安装验收边界见[记录](./docs/audits/2026-11-04-mvp-reliability-implementation.md)。
->
-> 抖音发布资格可通过构建后的 `node packages/cli/dist/main.js platform douyin-check` 查看离线诊断；它不核验真实账号、不接受凭证，也不启用发布。
-
-> **2026-11-07 在线语音增量：** ASR/TTS 可分别选择本地或阿里百炼北京地域，默认仍为关闭的本地选项。云端使用独立语音密钥并显式开启自身云端调用；配置保存在共享 Runtime，不进入 dsh 项目设置。沿用按键、取消和待办提醒流程，无静默回退。官方协议替身与取消/密钥隔离已验证，未进行真实云端计费调用，账号、设备和体验继续人工验收。见[配置说明](./docs/voice.md#可选百炼在线语音)与[验证记录](./docs/audits/2026-11-07-cloud-voice.md)。
-
-## ✨ 目标能力
-
-2026-11-15 源码增量：Windows 共享 Runtime 改由自身持有 OS 排他锁，异常退出后可重新取得锁；缺少原生模块时明确拒绝启动。主会话新增默认关闭的 EverNook 显式保存与召回：设置本机路径并主动配对后，可单独授权“记住：…”保存，回执显示来源；召回还需匹配当前对话模型的本地 tokenizer，缺失时降级且不阻塞聊天和提醒。不会自动安装、下载或选择模型。仅在隔离身份及本地模型替身下完成自动验证，真实次日跨项目效果仍待验收。见[配置说明](./packages/adapters/evernook/README.md)和[本轮证据](./docs/audits/2026-11-15-project-review.md)。封存的 alpha.2 不含此增量；三色候选须完成 Windows 观感和资源验收后随下一预览发布，橘色默认、白黑可选。
-
-2026-11-14 #66 源码增量：按键语音可选本地、百炼或经独立授权的 dsh 本地识别来源；dsh 来源目前仅支持只读会话进度查询；失联时保留文字入口，不自动切换服务。隔离 Windows 测试曾验证真实 dsh SenseVoice 与本地合成语音链路；后续安全加固后的真实链路、麦克风及桌面选择仍待本轮人工验收。需一起更新桌面、Runtime 和插件；封存的 alpha.2 发行包不含此增量。见[语音说明](./docs/voice.md)和[验证记录](./docs/audits/2026-11-14-voice-session-progress.md)。
-
-2026-11-14 源码增量：助手新增“会话”页，可查看已观察到的 dsh 会话来源、项目目录名、完整会话 ID 与阶段。模型关闭时可输入“查看会话进度”“哪个会话在等我”。A 等待、B 完成、回答后续接、取消和宿主失联已通过独立 Windows 场景验证；详见[验证记录](./docs/audits/2026-11-14-session-observations.md)。使用本轮一起构建的 Runtime、桌面和插件；alpha.2 封存发行包仍对应原交付内容。原生跳转、发现未观察过的历史会话另验。
-
-Windows 开发机可运行 `pnpm release:windows`，在 `dist/releases/maneki-0.2.0-alpha.2-windows-x64` 生成完整交付目录，上一版封存包保留。构建要求 Node 24.12.0 x64 与已批准本地素材，缺失时拒绝发行；产物不入 Git，尚无公开 Release 下载地址。`pnpm acceptance:windows` 使用独立安装身份与临时数据实际验证安装/升级、Runtime 和 dsh；检查原生视图后运行 `pnpm acceptance:windows finish` 卸载测试身份并保留测试数据。该流程不替换用户安装、不代点授权。
-
-2026-11-08 提醒增量：提醒清单的“我已查看”只记录用户确认时间，保留原系统受理/失败状态，不完成待办；失败项可点“重试系统通知”，仍受勿扰和通知限额限制，不自动重试。发送后记账前崩溃可能重投；存储异常后退避，未知结果不伪报失败或新建投递。实现、迁移及人工边界见[记录](./docs/audits/2026-11-08-reminder-management.md)。
-
-| 首版体验 | 预览已有基础 | 接下来要验收 |
-|---|---|---|
-| 同一个桌面管家 | dsh 插件唤起独立窗口，共享主会话、待办与单次提醒 | 两个项目打开同一段历史，关闭 dsh 后提醒仍到点 |
-| 看懂会话进度 | 真实宿主事件可驱动工作、思考和完成等表情 | 两个会话并行时，面板或文字提问能指认哪个在等你，失联时显示进度不可用 |
-| 开口和它说话 | 按住说话、可选朗读，当前源码角色包扩展为 27 段动画 | 说话时小招专心听，后台继续收进度，松开后能回答同一个问题 |
-| 跨天记住偏好 | 主会话显式保存与有来源召回已接入，默认关闭，隔离自动验证通过 | 配置真实模型与本地 tokenizer，次日换项目召回并做关闭对照，来源可核对 |
-
-2026-11-14 模板轻陪伴已在源码中接入并通过隔离自动测试：支持低频碎碎念、文字气泡、“来一句”、暂停与关闭，以及用户主动回应时引用原台词；自动内容不使用模型、不播声、不占用可靠提醒预算。Windows 真实休眠、两小时节奏和实机性能等仍待验收；封存的 alpha.2 安装包不含此功能。后续会话动态提示、模型润色与显式偏好另行推进。见[设计方案](./docs/architecture.md#light-companionship)、[协议与兼容矩阵](./docs/architecture.md#companion-protocol-v1)及[验收记录](./docs/audits/2026-11-14-template-companionship.md)。
-
-## 🎯 设计原则
-
-- **安全第一**：API 只绑 127.0.0.1 + 随机令牌与分权；派发授权与具体操作审批分开，输出按数据处理；用量与上下文限额三层配置化。
-- **可扩展**：纯 TS Core 定义规则与端口，Runtime 装配具体实现；语音、模型、harness 和形象独立替换，关闭可选能力不影响文字入口。
-- **性能可测**：Tauri v2 优先；2026-11-03 用户确认空闲全相关进程树 Private Bytes 目标 ≤ 300 MiB（Runtime ≤ 75 MiB），计入 WebView、Runtime 和桥。正式猫娘无调试器固定场景采样约 267–279 MiB，Runtime 约 62 MiB，详见[验收记录](./docs/audits/2026-11-03-catgirl-default-acceptance.md)；这些采样不代表长期峰值或全部负载。2026-10-31 的约 243.7MB 为旧 250MB 目标下的历史测量；活跃模型资源另报。
-- **按能力接入**：支持 MCP 的宿主可接入表达工具；完整任务代理另需经过会话路由与执行审批验收的 Adapter。
-
-## 🏗️ 架构总览
+## 架构
 
 ```mermaid
 flowchart TB
-  Shell[桌宠 Shell：桌面 / overlay] -. 应用接口 / IPC .-> Runtime[Runtime：装配、鉴权、生命周期]
-  Shell --> Core
-  Runtime --> Core[纯 TS Core：状态、对话与任务规则、主动性、提醒]
-  Runtime --> Gateway[Gateway：harness Adapter / MCP 表达桥]
-  Runtime --> Local[Local Services：可插拔模型与语音 / SQLite / 通知]
-  Gateway --> Core
-  Local --> Core
+    Shell["桌宠与个人助手面板"] -->|HTTP / WebSocket| Runtime["共享 Runtime<br/>身份、权限、生命周期"]
+    Dsh["dsh 插件"] -->|状态租约与会话观察| Runtime
+    Agent["外部 Agent"] -->|stdio| MCP["状态 MCP 桥"]
+    CLI["状态 CLI"] --> SDK["Node SDK"]
+    MCP --> SDK
+    SDK -->|本机 HTTP| Runtime
+    Runtime --> Core["Core<br/>状态仲裁、预算、领域规则"]
+    Runtime --> Store[("SQLite<br/>会话、个人事项、审计")]
+    Runtime --> Ports["对话、语音与记忆适配器"]
+    Ports --> Local["本地模型 / 操作系统语音 / EverNook"]
+    Ports --> Cloud["用户启用的云端服务"]
 ```
 
-实线表示依赖，虚线表示跨进程调用；Shell 不导入 Node 服务实现，Core 不依赖具体 IO。共享 Runtime 不要求先打开桌宠 App；完整安装与人工确认边界见上方记录。当前 dsh 通过命令打开桌面助手设置，由 Runtime 保存全局配置；嵌入 dsh 的设置页面后续另验。不同 profile 默认共享个人助手，项目配置不能覆盖麦克风、云端授权和勿扰。完整设计见 [docs/architecture.md](./docs/architecture.md)。
+多个 Shell 共享一个 Runtime 和一个数据库拥有者。Core 定义规则与端口，Runtime 负责 IO 与装配。表情租约表达的是某个来源当前想展示的状态；个人会话的任务进度另有来源、序列和时效。未来的 personal agent 可以先接状态通道，展示自己的工作进度。要接入可执行任务，仍须单独实现并验收 Adapter 的审批、取消和恢复。[模块分工与接口](./docs/architecture.md)
 
-## 🔌 接入方式（三种运行形态）
+## 接入小招
 
-| 形态 | 适用场景 |
-|---|---|
-| ① 独立桌宠界面 | Tauri 透明窗连接共享 Runtime，按已验证的 API / MCP / hooks 能力接入 harness |
-| ② dsh 插件入口 | 首版连接或唤起共享 Runtime 和独立桌面窗口。内嵌 overlay 后置 |
-| ③ core 库模式（后置） | 保留第三方嵌入 `@maneki-pet/core` 的设计边界，近期不作为交付目标 |
+| 入口 | 适用场景 | 当前边界 |
+| --- | --- | --- |
+| dsh 插件 | 人类在宿主输入 `/maneki pair`、`show`、`assistant` | 首个宿主，观察已收到的会话事件；配对与退出经原生管理入口 |
+| 本机 API / WebSocket | 非 Node 客户端、原生桌面或订阅实时事件 | HTTP v1 固定回环、按 scope 鉴权；WS 使用一次性短期票据。[本地接口](./docs/architecture.md#61-runtime-应用接口) |
+| Node SDK | 在自己的 Node agent 内管理一个表现来源 | 源码 workspace 包 `@maneki-pet/sdk`，提供 `getState()` 和 `setState()`。[SDK 源码](./packages/sdk/src/index.ts) |
+| CLI | 脚本读取聚合状态或续租、释放指定来源 | `state get`、`state set`；已有平台草稿、导出和离线诊断命令继续可用 |
+| MCP stdio | 支持 MCP 的外部宿主连接已运行的小招 | 独立桥公布 `maneki_set_state`。原有 Runtime 进程内的四个表达工具与独立桥分别装配。[MCP 契约](./docs/architecture.md#55-mcp-与各-harness-的接入策略) |
 
-**双向通道是不同能力**：harness → 宠物为状态/表达/通知；宠物 → harness 的派发、补充输入、查询与取消由 Adapter 提供。具体宿主、版本和平台通过验收后才列为已支持。
+**从源码试用。** Windows 构建使用 Node 24.12.0 x64、Corepack、Rust 1.88+、MSVC 和 PATH 中的 FFmpeg、ffprobe。干净检出会生成开发占位形象。正式角色包的导入、许可证与构建配方另见[角色素材说明](./apps/desktop/recipes/catgirl-signature-v2.md)。
 
-后续工程派发首版新建受控会话，已有会话仅观察；自己的任务输入、跟踪与取消须分别通过验收。“受控”指路由与授权可追踪，不替代 harness 的 OS 隔离。独立助理设计要求关闭 dsh/窗口后仍调度提醒，重新唤起桌宠且模型可用时仍可聊天；明确“退出助理”才停止本机服务。关机/退出期间错过的提醒下次启动补扫，外部任务可能继续且不伪报取消；开机自启动默认关闭。
-
-## 🎨 素材准备与试片
-
-2026-11-14：橘猫娘升级为 `xiaozhao-default@2.0.0`，27 段静音透明动画覆盖七状态与 20 项点播动作；新增 `xiaozhao-white` 暖瓷白猫和 `xiaozhao-black` 炭黑猫，沿用同一套动作与 MIT 授权。侧栏以角色卡片、当前形象标记和配套轨道色联动换装；白/黑包作为可选素材，未导入不阻断开发构建。新增动作使用本机 MiniMax H3 制作，白/黑版本由验收后的橘猫成片离线换色，保留人物与明暗，不改变业务功能。制作与重建见[三色配方](./apps/desktop/recipes/catgirl-signature-v2.md)，大素材不入库，目前没有公开发行下载地址。
-
-设置面板可选择当前形象声明的动作并点播；切换形象会更新动作列表，无动作时入口禁用。
-
-Windows 桌宠已增加人物轮廓交互与下方控制条：悬停人物或键盘聚焦时显示，透明留白放行鼠标，人物仍可点击与拖动。控制条文字入口将草稿带入助手；麦克风入口打开助手并聚焦按键语音，未启用时引导到设置，不自动录音。人物交互的历史检查与剩余边界见[交互验收记录](./docs/audits/2026-11-04-pet-interaction-acceptance.md)，本轮语音边界见上方记录。
-
-2026-11-14 设置界面源码采用“贴身旁白”：右键小招展开橘色快捷菜单与右侧设置栏，可直接切换勿扰，或进入语音、形象和全部设置；宠物保留在左侧，原形象/动作与 Runtime 信息并入“形象”页。关闭侧栏恢复小窗，不向快捷菜单授予新的个人数据权限。此为未封装的源码增量，未替换现有安装；真实右键手感、边缘收拢、多屏/DPI 和原生观感仍需实机验收。
-
-开发构建会在缺包时补齐 `1.0.1` 中性三方块占位包；生成失败不留下目标半包。旧内置默认 `xiaozhao-default` / `小招 · 招财猫` / `1.0.0` 已退役，准备时会报错并保留原文件，须显式导入正式包。其他已有合法包保持不变，损坏包报错并保留现场；仅已知旧程序招财猫 fallback 按冻结指纹迁移为中性图，其他已准备 fallback 保留。图标源复用当前 fallback，`--public-dir` 隔离生成不写应用图标目录。它不启动生成模型，也不提供正式橘猫娘素材。收到版本化动作包目录后，显式安装并检查（先安装依赖并构建 Core）；将下列源目录占位符替换为实际绝对路径，避免 pnpm 在 `apps/desktop` 下执行脚本时解析到错误位置：
-
-```sh
-pnpm --filter @maneki-pet/core build
-pnpm --filter @maneki-pet/desktop import:pack "<absolute-source-pack-dir>"
-pnpm --filter @maneki-pet/desktop generate:packs
-pnpm --filter @maneki-pet/desktop prepare:packs
+```powershell
+corepack pnpm install --frozen-lockfile
+corepack pnpm -r build
+corepack pnpm -r test
 ```
 
-开发环境的安装、`prepare:packs` 和动作包测试需要本机 PATH 中的 `ffmpeg` / `ffprobe`。它们只读校验当前内置列表的 v1 结构、映射、文件哈希、真实媒体格式/尺寸与完整解码；JSON 各限 1 MiB、素材单文件 64 MiB、包合计 256 MiB，缺工具或校验失败明确拒绝并保留旧包。不生成或下载素材，不代替 Windows 播放与创作验收。独立候选包导入后，还需在 `apps/desktop/config/builtin-packs.json` 中显式登记 ID 才能出现在换装列表；不要把未验收试片改为默认。制作入口与正式晋升步骤见[角色配方](./apps/desktop/recipes/orange-catgirl-v1.md#可重复处理入口)。
+以下示例使用单独的数据目录。先在仓库根目录的一个终端启动后台，保持终端打开。
 
-## 🛡️ 安全模型（摘要）
+```powershell
+$demoDir = Join-Path $env:LOCALAPPDATA 'ManekiIntegrationDemo'
+node packages/runtime/dist/cli.js --config-dir "$demoDir" --port 18101 --background
+```
 
-- 本机回环 + 令牌/scope + Host/Origin 校验；CORS 不能代替鉴权。
-- 任务派发默认 ask；首版危险操作回到 harness 原生界面确认，后续审批桥另行验证；无法保证时只开放观察。
-- Agent 输出不执行；结构化调用也要校验和授权。模型或语音不能代批危险操作。
-- 数据本地优先，录音默认不落盘；可一键关闭 Maneki 自身云端 Provider。harness 的数据去向与云端使用另行授权，不将本机 CLI 当作全本地推理。
-- 收费 Provider 的交互调用须明确启用；主动收费调用默认关闭、另行授权和限额；购买/支付逐次审批。
-- 动作包为纯数据，验证内容哈希与路径；哈希不等于来源签名，权限清单不等于代码沙箱。
-- 桌面播放器单个素材最多 64 MiB，图片或视频画面最多 8,388,608 像素；超限时提示并回退。大素材活跃资源与剩余验收见[资源验证记录](./docs/audits/2026-11-01-media-budget.md)。
-- 勿扰抑制主动打扰，用户主动交互仍可用；语音输出关闭和麦克风禁用独立。审批等待不自动放行，过期提醒按规则补发。
+在第二个终端为该调用方配对。配对脚本验证正在运行的实例，只输出该客户端的 JSON 凭证文件路径。每次调用都在发送凭证前核验同一连接上的 Runtime 身份。缺少身份证明的旧 Runtime 需要与客户端一起升级。同一名称可复用已配对的身份。每个接入方使用独立名称，凭证文件留在当前用户的私有目录。
 
-## 🗺️ Roadmap（摘要）
+```powershell
+$demoDir = Join-Path $env:LOCALAPPDATA 'ManekiIntegrationDemo'
+$env:MANEKI_RUNTIME_URL = 'http://127.0.0.1:18101'
+$env:MANEKI_TOKEN_FILE = node packages/runtime/scripts/pair-expression-client.mjs "$demoDir" 18101 my-agent
+$sourceId = [guid]::NewGuid().ToString()
+node packages/cli/dist/main.js state set working --source-id $sourceId
+node packages/cli/dist/main.js state get
+node packages/cli/dist/main.js state set idle --source-id $sourceId
+```
 
-首版按四个 Windows 实机场景交付：阶段一“同一个小招”和阶段二“找到等我的会话”已有独立身份验收记录；阶段三语音与阶段四长期记忆仍待整体通过。封存的 alpha.2 不因此包含后续源码增量。
+状态租约持续 15 秒。长任务用同一个来源续租，结束时发送 `idle`。返回值为所有来源仲裁后的当前状态。例中的后台独立于已有安装；要让桌宠显示这些状态，桌面与客户端须连接同一个 Runtime。
 
-1. 从两个 dsh 项目打开同一个小招。[#64](https://github.com/destinyTaoTao/maneki-pet/issues/64)
-2. 在面板或主会话中找到等待回应的 dsh 会话。[#65](https://github.com/destinyTaoTao/maneki-pet/issues/65)
-3. 按住说话查询进度，让语音和动作共用同一段交互。[#66](https://github.com/destinyTaoTao/maneki-pet/issues/66)
-4. 将明确指定的偏好存入 EverNook，次日换项目后召回。[#67](https://github.com/destinyTaoTao/maneki-pet/issues/67)
+同一个 agent 改用 SDK 时，可在依赖 `@maneki-pet/sdk` 的 workspace 包中使用它自己的凭证。另一个 agent 应以新名称配对，这样可以单独撤销。可写入 `idle`、`thinking`、`working`、`waiting_input`、`celebrating`、`error`。
 
-第二个宿主、内嵌浮层、常开麦克风、自动画像和动作市场后置。工程派发、审批桥、跨宿主编排与平台发布另行立项。分阶段依赖、实机步骤和历史里程碑见[路线图](./docs/roadmap.md)，职责与数据归属见[架构设计](./docs/architecture.md)。
+```js
+import { createExpressionClient } from "@maneki-pet/sdk";
 
-## 💡 灵感与致谢
+const pet = createExpressionClient({
+  baseUrl: process.env.MANEKI_RUNTIME_URL,
+  tokenFile: process.env.MANEKI_TOKEN_FILE,
+});
+await pet.setState("thinking");
+console.log(await pet.getState());
+await pet.setState("idle");
+```
 
-Maneki 站在以下优秀项目的肩膀上，感谢它们的开源精神（设计借鉴分析见 [docs/research.md](./docs/research.md)）：
+MCP 宿主将 `command` 设为 `node`，`args` 填入 `packages/cli/dist/state-mcp.js` 的**绝对路径**，独立宿主先用另一个名称（例如 `my-mcp-host`）配对，再为宿主配置同一 `MANEKI_RUNTIME_URL` 和它自己的 `MANEKI_TOKEN_FILE`。工具 `maneki_set_state` 接收如 `{"state":"working"}` 的参数。桥关闭后，原有后台与其他来源继续运行。
 
-- [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) — 透明视频桌宠、插件化、开放 API 的完整范本
-- [pooriaanv/claudeBuddy](https://github.com/pooriaanv/claudeBuddy) — Agent 完成时"敲门"提醒
-- [Xiaooolong/code-pet](https://github.com/Xiaooolong/code-pet) — 实时感知 Claude Code 状态切动画
-- [agentscope-ai/QwenPaw](https://github.com/agentscope-ai/QwenPaw) — 桌宠形态的个人助理与技能体系
-- [dev-zyl/LingoPet](https://github.com/dev-zyl/LingoPet) — 轻量桌宠 + 提醒待办 + 宠物市场
-- [TopSea/Alive](https://github.com/TopSea/Alive) — 可私有化部署的 AI 桌宠
-- [Lazily01/desktop-pet](https://github.com/Lazily01/desktop-pet) — 语音指令 + 屏幕理解的桌宠
+## 模型与数据
 
-## 📄 许可证
+- **对话**使用显式配置的 Chat Completions 兼容端点。本地服务使用回环地址，云端服务需要 HTTPS 和单独授权。更换模型服务的协议、主机或端口后，需为新服务重新配置密钥。
+- **语音**独立选择 ASR 和 TTS。录音默认仅在内存处理，关闭麦克风仍可使用文字和提醒。云端语音使用独立密钥。[语音配置与设备验收](./docs/voice.md)
+- **主动陪伴**由确定性规则决定是否打扰。模板可离线工作；外部工具和模型输出作为数据处理，个人事项的修改必须经过相应入口的授权与校验。[轻陪伴协议](./docs/architecture.md#light-companionship)
+- **性能目标**为空闲全相关进程树私有内存 ≤ 300 MiB，其中 Runtime ≤ 75 MiB；事件到动画首帧 p95 < 300 ms，已运行状态下提醒到通知调用 p95 < 1 s。不同设备、模型及素材分别测量。[性能预算与验收口径](./docs/architecture.md#8-性能可维护性与验证)
 
-- 代码：[MIT](./LICENSE)
-- 小招 · 原创橘猫娘 1.1.0 素材：MIT，随素材附带许可和独立生成来源记录；不包含参考项目蓝鲸素材或生成模型权重。其他素材以各包许可为准。
+## 设计参考与许可
 
-## 🤝 参与建设
+AIRI 将展示端、共享模块、服务通道与外部集成分别画在架构图上。Maneki 借鉴这一点，让宿主和桌宠共用一个状态入口。Open-LLM-VTuber 分别配置语言模型、识别与合成；小招沿用独立 Provider 的思路，并为云端数据传输单独授权。[AIRI](https://github.com/moeru-ai/airi/tree/e2e19ca972a789fa5ebf2edb9622eca855c340c7) · [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/tree/992309c0aa19845960228f880013d4685fde93b5) · [早期桌宠项目调研与致谢](./docs/research.md)
 
-目前处于孵化期，欢迎在 Issues 里聊聊你想要的形象、动作和 harness 适配优先级。
+代码采用 [MIT 许可证](./LICENSE)。角色、第三方组件和模型各自适用随附许可。问题、复现步骤和接入体验可提交到 [GitHub Issues](https://github.com/destinyTaoTao/maneki-pet/issues)。
