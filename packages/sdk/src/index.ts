@@ -3,8 +3,9 @@ import { expressionStates, petStates, type PetState } from "@maneki-pet/core";
 import { createPairedTransport, ExpressionClientError, type PairedClientOptions } from "./paired-transport.js";
 
 export { createBriefingClient, type BriefingClientOptions } from "./briefing.js";
-export type { WorkBriefing } from "@maneki-pet/core";
-export { BriefingClientError, ExpressionClientError } from "./paired-transport.js";
+export { createReminderClient, type ReminderClientOptions } from "./reminder.js";
+export type { AgentReminderInput, AgentReminderReceipt, WorkBriefing } from "@maneki-pet/core";
+export { BriefingClientError, ExpressionClientError, ReminderClientError } from "./paired-transport.js";
 export { expressionStates };
 export type ExpressionState = typeof expressionStates[number];
 

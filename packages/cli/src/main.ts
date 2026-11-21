@@ -18,7 +18,7 @@ import { douyinReadiness } from "./douyin-readiness.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  args: process.argv[2] === "state" || process.argv[2] === "briefing" ? process.argv.slice(2, 3) : process.argv.slice(2),
+  args: ["state", "briefing", "remind"].includes(process.argv[2] ?? "") ? process.argv.slice(2, 3) : process.argv.slice(2),
   options: {
     python: { type: "string", default: "python" },
     config: { type: "string" },
@@ -57,6 +57,10 @@ function requireValue(value: string | undefined, label: string): string {
 
 async function main(): Promise<void> {
   switch (command) {
+    case "remind": {
+      const { runReminderCommand } = await import("./reminder-command.js");
+      return runReminderCommand(process.argv.slice(3));
+    }
     case "briefing": {
       const { runBriefingCommand } = await import("./briefing-command.js");
       return runBriefingCommand(process.argv.slice(3));
@@ -167,7 +171,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      process.stderr.write("usage: maneki state get|set | briefing | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
+      process.stderr.write("usage: maneki state get|set | briefing | remind | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
       process.exit(2);
   }
 }

@@ -12,10 +12,12 @@ export interface PairedClientOptions {
 
 export class ExpressionClientError extends Error {}
 export class BriefingClientError extends Error {}
+export class ReminderClientError extends Error {}
 
 const endpoints = {
-  expression: { scope: "express", path: "/v1/expressions/state", label: "状态", identity: "表达", Error: ExpressionClientError, maxBytes: 1024 },
-  briefing: { scope: "briefing_read", path: "/v1/briefing", label: "简报", identity: "简报", Error: BriefingClientError, maxBytes: 32 * 1024 },
+  expression: { scope: "express", path: "/v1/expressions/state", label: "状态", identity: "表达", Error: ExpressionClientError, maxBytes: 1024, postStatus: 202 },
+  briefing: { scope: "briefing_read", path: "/v1/briefing", label: "简报", identity: "简报", Error: BriefingClientError, maxBytes: 32 * 1024, postStatus: 200 },
+  reminder: { scope: "reminder_create", path: "/v1/reminders", label: "提醒", identity: "提醒", Error: ReminderClientError, maxBytes: 1024, postStatus: 200 },
 } as const;
 type Endpoint = typeof endpoints[keyof typeof endpoints];
 
@@ -86,7 +88,7 @@ async function call(endpoint: Endpoint, port: number, agent: Agent, signal: Abor
       req.end(operation?.payload);
     });
   });
-  if (response.statusCode !== (operation?.payload === undefined ? 200 : 202)) {
+  if (response.statusCode !== (operation?.payload === undefined ? 200 : endpoint.postStatus)) {
     response.destroy();
     throw new endpoint.Error(`Runtime 拒绝${endpoint.label}请求 (HTTP ${response.statusCode})`);
   }

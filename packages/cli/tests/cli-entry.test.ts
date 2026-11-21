@@ -57,3 +57,29 @@ it("briefing 不接受参数，不输出收到的参数或借用状态凭证", (
   expect(missing.stdout).toBe("");
   expect(missing.stderr.trim()).toBe("需要可读的已配对 briefing_read 凭证文件");
 });
+
+it("remind 拒绝重复或无效参数，不回显提醒内容且只读取专属凭证", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
+  fixtures.push(dir);
+  const otherCredential = join(dir, "other-client.json");
+  writeFileSync(otherCredential, JSON.stringify({
+    instanceId: "rt-test12345678", clientId: "client-aa0000000001", token: "a".repeat(43),
+  }));
+  const command = (...args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, "../dist/main.js"), "remind", ...args], {
+    env: { ...process.env, MANEKI_RUNTIME_URL: "http://127.0.0.1:1", MANEKI_TOKEN_FILE: otherCredential,
+      MANEKI_BRIEFING_TOKEN_FILE: otherCredential, MANEKI_REMINDER_TOKEN_FILE: undefined },
+    encoding: "utf8", timeout: 5000, windowsHide: true,
+  });
+  const valid = ["--message", "private-text", "--request-id", "user-1", "--after-seconds", "1"];
+  for (const args of [[...valid, "--request-id", "other"], [...valid, "--token", "private-token"],
+    [...valid, "private-positional"], valid.slice(0, 4), [...valid.slice(0, 5), "0x10"]]) {
+    const result = command(...args);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr.trim()).toBe("usage: maneki remind --request-id <id> --after-seconds <n> --message <text>");
+  }
+  const missing = command(...valid);
+  expect(missing.status).toBe(1);
+  expect(missing.stdout).toBe("");
+  expect(missing.stderr.trim()).toBe("需要可读的已配对 reminder_create 凭证文件");
+});

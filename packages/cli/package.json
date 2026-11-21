@@ -6,7 +6,8 @@
   "bin": {
     "maneki": "./dist/main.js",
     "maneki-state-mcp": "./dist/state-mcp.js",
-    "maneki-briefing-mcp": "./dist/briefing-mcp.js"
+    "maneki-briefing-mcp": "./dist/briefing-mcp.js",
+    "maneki-reminder-mcp": "./dist/reminder-mcp.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

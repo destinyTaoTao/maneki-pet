@@ -5,7 +5,7 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { createBriefingClient, createExpressionClient } from "../src/index.js";
+import { createBriefingClient, createExpressionClient, createReminderClient, type AgentReminderInput } from "../src/index.js";
 
 let dir: string;
 let tokenFile: string;
@@ -23,7 +23,9 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function healthProof(req: IncomingMessage, capability: "expression" | "briefing" = "expression", domain = capability) {
+type Capability = "expression" | "briefing" | "reminder";
+
+function healthProof(req: IncomingMessage, capability: Capability = "expression", domain = capability) {
   const key = createHash("sha256").update(credential.token).digest();
   const proof = createHmac("sha256", key).update(JSON.stringify([
     `maneki-${domain}-proof-v1`, req.headers[`x-maneki-${capability}-client`],
@@ -44,7 +46,7 @@ async function serve(listener: RequestListener): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-async function serveVerified(listener: RequestListener, capability: "expression" | "briefing" = "expression"): Promise<string> {
+async function serveVerified(listener: RequestListener, capability: Capability = "expression"): Promise<string> {
   const verified = new WeakSet<Socket>();
   return serve((req, res) => {
     if (req.url === "/v1/health" && !req.headers.authorization) {
@@ -208,4 +210,63 @@ it("简报请求在授权撤销、取消和等待正文超时时返回脱敏错�
   controller.abort(new Error("private reason"));
   await expect(pending).rejects.toThrow(/^简报请求已取消$/);
   await expect(client.getBriefing()).rejects.toThrow(/^Runtime 简报请求超时$/);
+});
+
+const reminderMessage = "提醒🐈\tA<&>\r\nB";
+const reminder = { requestId: "task-1", afterSeconds: 60, message: "  " + reminderMessage + "  " };
+const receipt = { requestId: reminder.requestId, reminderId: "ab000000-0000-4000-a000-000000000001", remindAt: 1700000060000 };
+
+it("发送前校验提醒的严格字段、秒数和 UTF-16 文本长度", async () => {
+  let calls = 0;
+  const baseUrl = await serve((_req, res) => { calls++; res.end(); });
+  const client = createReminderClient({ baseUrl, tokenFile });
+  expect(Object.keys(client)).toEqual(["createReminder"]);
+  for (const invalid of [null, [], {}, { ...reminder, token: "private" }, { ...reminder, requestId: "bad/id" },
+    { ...reminder, requestId: "x".repeat(81) }, { ...reminder, afterSeconds: 0 }, { ...reminder, afterSeconds: 31622401 },
+    { ...reminder, afterSeconds: 1.5 }, { ...reminder, afterSeconds: "1" }, { ...reminder, message: "  " },
+    { ...reminder, message: "🐈".repeat(257) }]) {
+    await expect(client.createReminder(invalid as AgentReminderInput)).rejects.toThrow(/^无效的提醒参数$/);
+  }
+  for (const character of ["\u0000", "\b", "\v", "\f", "\u000E", "\u001F", "\uD800", "\uDFFF", "\uFFFE", "\uFFFF"]) {
+    await expect(client.createReminder({ ...reminder, message: "A" + character + "B" })).rejects.toThrow(/^无效的提醒参数$/);
+  }
+  expect(calls).toBe(0);
+});
+
+it.each(["错误能力的证明", "证明后断开"])("提醒%s时不发送凭证", async (reason) => {
+  const requests: Array<[string | undefined, string | undefined]> = [];
+  const baseUrl = await serve((req, res) => {
+    requests.push([req.url, req.headers.authorization]);
+    expect(req.headers["x-maneki-reminder-client"]).toBe(credential.clientId);
+    expect(req.headers["x-maneki-briefing-challenge"]).toBeUndefined();
+    if (reason === "证明后断开") res.setHeader("connection", "close");
+    res.end(JSON.stringify(healthProof(req, "reminder", reason === "证明后断开" ? "reminder" : "briefing")));
+  });
+  await expect(createReminderClient({ baseUrl, tokenFile }).createReminder(reminder)).rejects.toThrow("无法验证 Runtime 的提醒身份");
+  expect(requests).toEqual([["/v1/health", undefined]]);
+});
+
+it("在已验证的同一连接提交规范化参数，仅接受 200 和对应请求的有效回执", async () => {
+  let body = JSON.stringify(receipt);
+  let status = 200;
+  const baseUrl = await serveVerified(async (req, res) => {
+    expect([req.method, req.url]).toEqual(["POST", "/v1/reminders"]);
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    expect(JSON.parse(Buffer.concat(chunks).toString("utf8"))).toEqual({ ...reminder, message: reminderMessage });
+    res.writeHead(status).end(body);
+  }, "reminder");
+  const client = createReminderClient({ baseUrl, tokenFile });
+  expect(await client.createReminder(reminder)).toEqual(receipt);
+  for (const invalid of [{ requestId: "other" }, { reminderId: "id" }, { remindAt: 0.1 }, { remindAt: -1 },
+    { remindAt: null }, { remindAt: 8640000000000001 }, { unexpected: "private" }]) {
+    body = JSON.stringify({ ...receipt, ...invalid });
+    await expect(client.createReminder(reminder)).rejects.toThrow(/^Runtime 提醒回执格式无效$/);
+  }
+  body = " ".repeat(1025);
+  await expect(client.createReminder(reminder)).rejects.toThrow(/^Runtime 响应过大$/);
+  for (status of [202, 403, 409]) {
+    body = "private response";
+    await expect(client.createReminder(reminder)).rejects.toThrow(`Runtime 拒绝提醒请求 (HTTP ${status})`);
+  }
 });
