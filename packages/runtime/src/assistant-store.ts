@@ -466,9 +466,14 @@ export class AssistantStore {
       )
       .get(client, id) as { hash: string; result: string } | undefined;
   }
-  /** 与提醒和回执共用事务。回拨时创建沿用已记账小时，改期拒绝新请求。 */
-  consumeAgentReminderQuota(operation: "creation" | "reschedule", client: string, now: number): void {
-    const key = operation === "creation" ? `reminderCreationQuota.${client}` : `reminderRescheduleQuota.${client}`;
+  /** 与提醒和回执共用事务。回拨时仅保留旧版单次创建的行为。 */
+  consumeAgentReminderQuota(operation: "creation" | "reschedule" | "daily_creation", client: string, now: number): void {
+    const keys = {
+      creation: "reminderCreationQuota",
+      reschedule: "reminderRescheduleQuota",
+      daily_creation: "dailyReminderCreationQuota.v1",
+    };
+    const key = `${keys[operation]}.${client}`;
     const hour = Math.floor(now / 3_600_000);
     const saved = this.get(key);
     let previous = { hour, count: 0 };
@@ -479,7 +484,7 @@ export class AssistantStore {
     if (!previous || !Number.isSafeInteger(previous.hour) || !Number.isInteger(previous.count) ||
         previous.count < 0 || previous.count > MAX_AGENT_REMINDERS_PER_HOUR) throw new AssistantError(503, "reminder_quota_unavailable");
     const count = hour > previous.hour ? 0 : previous.count;
-    if (count >= MAX_AGENT_REMINDERS_PER_HOUR || (operation === "reschedule" && hour < previous.hour)) {
+    if (count >= MAX_AGENT_REMINDERS_PER_HOUR || (operation !== "creation" && hour < previous.hour)) {
       throw new AssistantError(429, `reminder_${operation}_quota`);
     }
     this.set(key, JSON.stringify({ hour: Math.max(hour, previous.hour), count: count + 1 }));

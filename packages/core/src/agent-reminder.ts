@@ -3,6 +3,9 @@ export const AGENT_REMINDER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
 export const MAX_AGENT_REMINDER_DELAY_SECONDS = 366 * 24 * 60 * 60;
 export const MAX_AGENT_REMINDER_MESSAGE_LENGTH = 512;
 export const MAX_AGENT_REMINDER_LIST_ITEMS = 200;
+export const DAILY_REMINDER_TIME_PATTERN = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
+export const MAX_DAILY_REMINDERS_PER_CLIENT = 8;
+export const MAX_DAILY_REMINDERS = 64;
 // Unicode 模式按码点匹配，完整的代理对仍可作为一个补充平面字符传递。
 const invalidReminderCharacter = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/u;
 
@@ -49,6 +52,37 @@ export interface AgentReminderRescheduleReceipt extends AgentReminderReceipt {
   version: number;
 }
 
+export interface DailyReminderInput {
+  requestId: string;
+  localTime: string;
+  message: string;
+}
+
+export interface DailyReminderReceipt {
+  requestId: string;
+  seriesId: string;
+  localTime: string;
+  timeZone: string;
+  nextAt: number;
+}
+
+export interface DailyReminderSummary extends Omit<DailyReminderReceipt, "requestId"> {
+  message: string;
+}
+
+export interface DailyReminderList {
+  reminders: DailyReminderSummary[];
+}
+
+export interface DailyReminderCancelInput {
+  requestId: string;
+  seriesId: string;
+}
+
+export interface DailyReminderCancelReceipt extends DailyReminderCancelInput {
+  cancelled: true;
+}
+
 function validReminderDelay(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_AGENT_REMINDER_DELAY_SECONDS;
 }
@@ -83,8 +117,36 @@ export function normalizeAgentReminder(input: unknown): AgentReminderInput | nul
   if (keys.length !== 3 || !keys.includes("requestId") || !keys.includes("afterSeconds") || !keys.includes("message")) return null;
   const { requestId, afterSeconds, message } = input as Record<string, unknown>;
   if (typeof requestId !== "string" || !AGENT_REMINDER_ID_PATTERN.test(requestId) ||
-      !validReminderDelay(afterSeconds) || typeof message !== "string") return null;
+      !validReminderDelay(afterSeconds)) return null;
+  const text = normalizeAgentReminderMessage(message);
+  return text === null ? null : { requestId, afterSeconds, message: text };
+}
+
+export function normalizeAgentReminderMessage(message: unknown): string | null {
+  if (typeof message !== "string") return null;
   const text = message.trim();
   if (text.length === 0 || text.length > MAX_AGENT_REMINDER_MESSAGE_LENGTH || invalidReminderCharacter.test(text)) return null;
-  return { requestId, afterSeconds, message: text };
+  return text;
+}
+
+/** 每日规则只接受固定的本地时间，时区由 Runtime 在受理时确定。 */
+export function normalizeDailyReminderInput(input: unknown): DailyReminderInput | null {
+  if (typeof input !== "object" || !input || Array.isArray(input)) return null;
+  const keys = Object.keys(input);
+  if (keys.length !== 3 || !keys.includes("requestId") || !keys.includes("localTime") || !keys.includes("message")) return null;
+  const { requestId, localTime, message } = input as Record<string, unknown>;
+  if (typeof requestId !== "string" || !AGENT_REMINDER_ID_PATTERN.test(requestId) ||
+      typeof localTime !== "string" || !DAILY_REMINDER_TIME_PATTERN.test(localTime)) return null;
+  const text = normalizeAgentReminderMessage(message);
+  return text === null ? null : { requestId, localTime, message: text };
+}
+
+export function normalizeDailyReminderCancelInput(input: unknown): DailyReminderCancelInput | null {
+  if (typeof input !== "object" || !input || Array.isArray(input)) return null;
+  const keys = Object.keys(input);
+  if (keys.length !== 2 || !keys.includes("requestId") || !keys.includes("seriesId")) return null;
+  const { requestId, seriesId } = input as Record<string, unknown>;
+  if (typeof requestId !== "string" || !AGENT_REMINDER_ID_PATTERN.test(requestId) ||
+      typeof seriesId !== "string" || !AGENT_REMINDER_UUID_PATTERN.test(seriesId)) return null;
+  return { requestId, seriesId };
 }

@@ -11,6 +11,7 @@ import {
   NAMED_CLIENT_SCOPES,
   REMINDER_CANCEL_SCOPE,
   REMINDER_READ_SCOPE,
+  REMINDER_RECURRING_SCOPE,
   REMINDER_RESCHEDULE_SCOPE,
   REMINDER_SCOPE,
   REMINDER_SCOPES,
@@ -22,6 +23,7 @@ import {
   generateToken,
   hashToken,
   parseBearer,
+  recurringReminderIdentityProof,
   reminderCancelIdentityProof,
   reminderIdentityProof,
   reminderReadIdentityProof,
@@ -49,6 +51,7 @@ const clientProofs = {
   "reminder-read": { scope: REMINDER_READ_SCOPE, sign: reminderReadIdentityProof },
   "reminder-cancel": { scope: REMINDER_CANCEL_SCOPE, sign: reminderCancelIdentityProof },
   "reminder-reschedule": { scope: REMINDER_RESCHEDULE_SCOPE, sign: reminderRescheduleIdentityProof },
+  "reminder-recurring": { scope: REMINDER_RECURRING_SCOPE, sign: recurringReminderIdentityProof },
 } as const;
 const reminderRoutes = {
   [REMINDER_SCOPE]: { identity: "/v1/reminders/identity", method: "POST", operation: "/v1/reminders" },
@@ -57,12 +60,18 @@ const reminderRoutes = {
   [REMINDER_RESCHEDULE_SCOPE]: { identity: "/v1/reminders/reschedule/identity", method: "POST", operation: "/v1/reminders/reschedule" },
 } as const;
 const reminderManagementScopes = [REMINDER_READ_SCOPE, REMINDER_CANCEL_SCOPE, REMINDER_RESCHEDULE_SCOPE] as const;
+const recurringRemindersPath = "/v1/recurring-reminders";
+const recurringRemindersIdentityPath = recurringRemindersPath + "/identity";
+const recurringRemindersCancelPath = recurringRemindersPath + "/cancel";
+const recurringAdminListPath = "/v1/admin/recurring-reminders/list";
+const recurringAdminCancelPath = "/v1/admin/recurring-reminders/cancel";
 const revokeRoutes = new Map<string, Exclude<keyof typeof clientProofs, "expression">>([
   ["/v1/admin/briefing/revoke", "briefing"],
   ["/v1/admin/reminders/revoke", "reminder"],
   ["/v1/admin/reminders/read/revoke", "reminder-read"],
   ["/v1/admin/reminders/cancel/revoke", "reminder-cancel"],
   ["/v1/admin/reminders/reschedule/revoke", "reminder-reschedule"],
+  ["/v1/admin/recurring-reminders/revoke", "reminder-recurring"],
 ]);
 
 export interface LocalHttpApiDeps {
@@ -202,9 +211,11 @@ export class LocalHttpApi {
       const reminderReadProof = this.clientProof(req, "reminder-read", boundPort);
       const reminderCancelProof = this.clientProof(req, "reminder-cancel", boundPort);
       const reminderRescheduleProof = this.clientProof(req, "reminder-reschedule", boundPort);
-      if (reminderReadProof || reminderCancelProof || reminderRescheduleProof) res.setHeader("cache-control", "no-store");
+      const recurringReminderProof = this.clientProof(req, "reminder-recurring", boundPort);
+      if (reminderReadProof || reminderCancelProof || reminderRescheduleProof || recurringReminderProof) res.setHeader("cache-control", "no-store");
       this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version,
-        ...proof, ...speechProof, expressionProof, briefingProof, reminderProof, reminderReadProof, reminderCancelProof, reminderRescheduleProof });
+        ...proof, ...speechProof, expressionProof, briefingProof, reminderProof, reminderReadProof, reminderCancelProof,
+        reminderRescheduleProof, recurringReminderProof });
       return;
     }
 
@@ -214,6 +225,11 @@ export class LocalHttpApi {
       return;
     }
     const client = auth.client;
+    if (hasScope(client, REMINDER_RECURRING_SCOPE) || url === recurringRemindersPath ||
+        url === recurringRemindersIdentityPath || url === recurringRemindersCancelPath) {
+      await this.handleRecurringReminders(req, res, client, method, url);
+      return;
+    }
     const reminderScope = REMINDER_SCOPES.find(scope => hasScope(client, scope));
     if (reminderScope) {
       await this.handleAgentReminders(req, res, client, reminderScope, method, url);
@@ -395,8 +411,15 @@ export class LocalHttpApi {
         createdAt: new Date().toISOString(),
       });
       this.deps.store.audit("client.paired", clientId, { name: checked.value.name, scopes: requested }, new Date().toISOString());
-      if (reminderManagementScopes.some(scope => scope === namedScope)) res.setHeader("cache-control", "no-store");
+      if (namedScope === REMINDER_RECURRING_SCOPE || reminderManagementScopes.some(scope => scope === namedScope)) {
+        res.setHeader("cache-control", "no-store");
+      }
       this.sendJson(res, 200, { clientId, token });
+      return;
+    }
+
+    if (method === "POST" && (url === recurringAdminListPath || url === recurringAdminCancelPath)) {
+      await this.handleRecurringAdmin(req, res, client, url === recurringAdminCancelPath);
       return;
     }
 
@@ -413,7 +436,9 @@ export class LocalHttpApi {
       const target = this.deps.store.findNamedClient(body.name, scope);
       if (!target) { this.sendJson(res, 404, { error: `${purpose}_client_not_found` }); return; }
       if (!target.revokedAt) this.revokeClient(target.clientId, client.clientId);
-      if (reminderManagementScopes.some(managementScope => managementScope === scope)) res.setHeader("cache-control", "no-store");
+      if (scope === REMINDER_RECURRING_SCOPE || reminderManagementScopes.some(managementScope => managementScope === scope)) {
+        res.setHeader("cache-control", "no-store");
+      }
       this.sendJson(res, 200, { revoked: target.clientId });
       return;
     }
@@ -605,6 +630,72 @@ export class LocalHttpApi {
     }
 
     this.sendJson(res, 404, { error: "not found" });
+  }
+
+  private async handleRecurringAdmin(req: IncomingMessage, res: ServerResponse, client: AuthedClient, cancelling: boolean): Promise<void> {
+    res.setHeader("cache-control", "no-store");
+    if (!hasScope(client, ADMIN_SCOPE)) {
+      this.forbidden(res, "recurring reminder administration requires admin scope");
+      return;
+    }
+    const assistant = this.deps.assistant;
+    if (!assistant) { this.sendJson(res, 503, { error: "assistant_unavailable" }); return; }
+    const body = await this.readJson(req, res);
+    if (!body) return;
+    const { name, ...input } = body;
+    if (typeof name !== "string" || !NAMED_CLIENT_NAME.test(name) || (!cancelling && Object.keys(input).length !== 0)) {
+      this.sendJson(res, 400, { error: "recurring_reminder_admin_input_invalid" });
+      return;
+    }
+    const owner = this.deps.store.findNamedClient(name, REMINDER_RECURRING_SCOPE);
+    if (!owner) { this.sendJson(res, 404, { error: "recurring_reminder_client_not_found" }); return; }
+    try {
+      const result = cancelling
+        ? assistant.cancelDailyReminder(owner.clientId, input)
+        : assistant.listDailyReminders(owner.clientId);
+      this.sendJson(res, 200, result);
+    } catch (error) {
+      if (!(error instanceof AssistantError)) throw error;
+      this.sendJson(res, error.status, { error: error.code });
+    }
+  }
+
+  private async handleRecurringReminders(
+    req: IncomingMessage, res: ServerResponse, client: AuthedClient, method: string, url: string,
+  ): Promise<void> {
+    res.setHeader("cache-control", "no-store");
+    if (client.scopes.length !== 1 || !hasScope(client, REMINDER_RECURRING_SCOPE)) {
+      this.forbidden(res, "reminder_recurring requires a dedicated client");
+      return;
+    }
+    if (method === "GET" && url === recurringRemindersIdentityPath) {
+      this.sendJson(res, 200, { clientId: client.clientId, name: client.name });
+      return;
+    }
+    const listing = method === "GET" && url === recurringRemindersPath;
+    const creating = method === "POST" && url === recurringRemindersPath;
+    const cancelling = method === "POST" && url === recurringRemindersCancelPath;
+    if (!listing && !creating && !cancelling) {
+      this.forbidden(res, "reminder_recurring client is restricted to recurring reminder routes");
+      return;
+    }
+    const assistant = this.deps.assistant;
+    if (!assistant) { this.sendJson(res, 503, { error: "assistant_unavailable" }); return; }
+    try {
+      if (listing) {
+        this.sendJson(res, 200, assistant.listDailyReminders(client.clientId));
+        return;
+      }
+      const body = await this.readJson(req, res);
+      if (!body) return;
+      const result = creating
+        ? assistant.createDailyReminder(client.clientId, body)
+        : assistant.cancelDailyReminder(client.clientId, body);
+      this.sendJson(res, 200, result);
+    } catch (error) {
+      if (!(error instanceof AssistantError)) throw error;
+      this.sendJson(res, error.status, { error: error.code });
+    }
   }
 
   private async handleAgentReminders(

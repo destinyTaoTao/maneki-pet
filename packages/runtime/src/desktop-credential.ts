@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { DesktopCredentialError, openAdminSession } from "./admin-session.js";
 import { InstanceLock } from "./lifecycle.js";
-import { BRIEFING_SCOPE, REMINDER_CANCEL_SCOPE, REMINDER_READ_SCOPE, REMINDER_RESCHEDULE_SCOPE, REMINDER_SCOPE } from "./auth.js";
+import { BRIEFING_SCOPE, REMINDER_CANCEL_SCOPE, REMINDER_READ_SCOPE, REMINDER_RECURRING_SCOPE, REMINDER_RESCHEDULE_SCOPE, REMINDER_SCOPE } from "./auth.js";
 export { DesktopCredentialError } from "./admin-session.js";
 
 /** 仅供 native 管理入口；固定回环地址，不启动 Runtime 或打开数据库。 */
@@ -52,6 +52,7 @@ const namedIdentityRoutes: Readonly<Record<string, string>> = {
   [REMINDER_READ_SCOPE]: "/v1/reminders/read/identity",
   [REMINDER_CANCEL_SCOPE]: "/v1/reminders/cancel/identity",
   [REMINDER_RESCHEDULE_SCOPE]: "/v1/reminders/reschedule/identity",
+  [REMINDER_RECURRING_SCOPE]: "/v1/recurring-reminders/identity",
 };
 
 function credentialProbe(scopes: string): string {

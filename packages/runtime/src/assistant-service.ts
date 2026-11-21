@@ -36,6 +36,7 @@ import {
 } from "./assistant-settings.js";
 import { HttpChatProvider } from "./chat-http-provider.js";
 import { ReminderScheduler } from "./reminder-scheduler.js";
+import { DailyReminders } from "./daily-reminders.js";
 import type { EventFeed } from "./events.js";
 import type { NotificationBudget } from "./quota.js";
 import { validateObject } from "./validate.js";
@@ -113,6 +114,7 @@ export class AssistantService {
       }
     | undefined;
   private readonly scheduler: ReminderScheduler;
+  private readonly dailyReminders: DailyReminders;
   private readonly confirmations = new Map<
     string,
     {
@@ -149,6 +151,7 @@ export class AssistantService {
       cancelChat: (client, id) => this.cancel(client, id),
       ...deps.speech,
     });
+    this.dailyReminders = new DailyReminders(this.store, this.now);
     this.scheduler = new ReminderScheduler(
       this.store,
       deps.notifier,
@@ -156,6 +159,7 @@ export class AssistantService {
       deps.dnd,
       deps.feed,
       this.now,
+      this.dailyReminders,
     );
     this.scheduler.wake();
   }
@@ -303,6 +307,19 @@ export class AssistantService {
     if (!target) throw new AssistantError(404, "reminder_not_found");
     if (target.version !== version) throw new AssistantError(409, "version_conflict");
     if (target.status !== "pending" || target.attempts !== 0) throw new AssistantError(409, "reminder_not_pending");
+  }
+  createDailyReminder(clientId: string, raw: unknown) {
+    const receipt = this.dailyReminders.create(clientId, raw);
+    this.scheduler.wake();
+    return receipt;
+  }
+  listDailyReminders(clientId: string) {
+    return this.dailyReminders.list(clientId);
+  }
+  cancelDailyReminder(clientId: string, raw: unknown) {
+    const receipt = this.dailyReminders.cancel(clientId, raw);
+    this.scheduler.wake();
+    return receipt;
   }
   private applyMutation(
     client: string,
