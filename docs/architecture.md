@@ -838,7 +838,7 @@ Maneki MCP Server 初始提供表达工具，不提供执行/审批工具：
 
 MCP 调用按客户端身份授权、校验参数与限流；提醒是有持久化副作用的能力，需独立 scope 与用户授权，不把模型工具调用本身当用户同意。v1 不提供删除其他来源提醒、派发任务、修改策略或代批操作的 MCP 工具。
 
-初始使用 harness 启动的 stdio MCP 桥，将表达请求转发给现有 Runtime；桥不启动另一份数据库/助理。stdout 只写 MCP 消息，日志走 stderr；启动凭证不放命令行。需要远程 HTTP 传输时另行评估，本项目仍只允许本机回环。普通 HTTP/WS 不是 MCP 传输的替代命名。第一步复用已交付的状态租约接口：源码工作区的 Node SDK 和 CLI 支持读取聚合状态、以稳定 sourceId 更新状态；独立 stdio 桥只公布可转发的 maneki_set_state。三者均由调用方提供已配对的 express 凭证，仅连接本机 Runtime。现有进程内四工具模式保留。[MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+初始使用 harness 启动的 stdio MCP 桥，将表达请求转发给现有 Runtime；桥不启动另一份数据库/助理。stdout 只写 MCP 消息，日志走 stderr；启动凭证不放命令行。需要远程 HTTP 传输时另行评估，本项目仍只允许本机回环。普通 HTTP/WS 不是 MCP 传输的替代命名。第一步复用已交付的状态租约接口：源码工作区的 Node SDK 和 CLI 支持读取聚合状态、以稳定 sourceId 更新状态；独立 stdio 桥只公布可转发的 maneki_set_state。三者均由调用方提供已配对的 express 凭证，仅连接本机 Runtime。现有进程内四工具模式保留。源码 SDK、状态 CLI 与独立 MCP 共用显式配对的客户端文件（instanceId、clientId、token）。在发送 Bearer 前，先以客户端 ID 和随机 challenge 请求健康接口的表达身份证明，HMAC 绑定用途、客户端、challenge、实例 ID、实际端口，密钥取该客户端令牌的 SHA-256。每次请求须在已核验的同一 TCP 连接上发送；旧 Runtime 缺此证明时返回不可用，不回退。受信配对工具沿用管理连接的 root 身份校验，调用方只获得自己的 express 凭证路径。旧 dsh 手工观察配置继续兼容。[MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 
 **MCP 表达接入不等于任务派发适配。** 当前工具集覆盖 harness → 宠物；反向派发/回答/取消必须由具备对应能力的 Adapter 实现；本设计不预设其他 MCP 功能自动提供这些能力。
 
