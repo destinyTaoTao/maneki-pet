@@ -1058,6 +1058,23 @@ Runtime 复用现有调度与通知预算。规则持久保存下一次对应的
 
 SDK `createRecurringReminderClient(...)` 提供 `createDailyReminder(input,signal?)`、`listDailyReminders(signal?)`、`cancelDailyReminder(input,signal?)`。CLI 对应 `remind-daily --request-id <id> --at <HH:mm> --message <text>`、`daily-reminders`、`cancel-daily-reminder --request-id <id> --series-id <uuid>`。独立 stdio 桥 `reminder-recurring-mcp.js` 公布 `maneki_remind_daily`、`maneki_list_daily_reminders`、`maneki_cancel_daily_reminder`，仅取 `MANEKI_RUNTIME_URL` 与 `MANEKI_REMINDER_RECURRING_TOKEN_FILE`。dsh 显式加载对应 patch。
 
+<a id="daily-reminder-reschedule"></a>
+
+#### Personal agent 精确改期每日提醒
+
+管理员单独给已有同名 `reminder_recurring` 登记签发 `reminder_recurring_reschedule`。改期权限只允许查看同一创建身份的活跃改期目标和修改其时刻。沿用创建身份的固定 clientId，管理员可独立撤销改期权限，规则及其他凭证的生命周期各自管理。凭证探针 `GET /v1/recurring-reminders/reschedule/identity`，管理撤销 `POST /v1/admin/recurring-reminders/reschedule/revoke` 接收 `{name}`。回环同连接握手能力名为 `reminder-recurring-reschedule`，响应字段 `recurringReminderRescheduleProof`。
+
+| 路由 | 成功响应 |
+|---|---|
+| `GET /v1/recurring-reminders/reschedule/targets` | `{reminders:[{seriesId,message,localTime,timeZone,nextAt,version}]}`，按 nextAt、ID 升序。 |
+| `POST /v1/recurring-reminders/reschedule` | 输入严格 `{requestId,seriesId,version,localTime}`，返回 `{requestId,seriesId,localTime,timeZone,nextAt,version}`，version 为新版本。 |
+
+取消请求 ID 文法、系列 UUID 与每日时刻格式沿用每日规则，version 是查询得到的正安全整数。外部改期仅修改原规则的本地时刻、下一日期和版本，沿用原系列 ID、正文和时区。更新、调度认领及取消以同一 SQLite 事务边界串行。改期的下一次取严格晚于受理时刻、且位于原规则持久调度日期当天或以后的第一个有效本地时刻。已经认领过的日期不能回退，含已开始投递、结果未知和重启。今天九点已认领时，改到十点从下一个有效日期起。今天未认领且十点还没到时，可安排今天十点。旧时刻被替换，已认领的投递无法撤回。
+
+同一改期身份原参数重放原回执，日期和版本不重新计算。不同请求提交旧版本、复用已成功的请求 ID 换参数或改到相同时刻返回 409。不存在与归属不符统一 404。每个改期身份每个 UTC 整点小时最多成功更新 30 次，回拨到旧小时拒绝新操作，重放不计数。旧规则默认版本 1；版本在独立有界 SQLite KV 保存，改期与原规则更新、版本、配额及首次回执原子提交。原有每日列表和存储行形状保持兼容，无数据库迁移。成功响应为 HTTP 200，`Cache-Control: no-store`。
+
+SDK `createRecurringReminderRescheduleClient(...).listTargets(signal?)` 和 `.rescheduleDailyReminder(input,signal?)` 共用上述契约。CLI `daily-reschedule-targets`、`reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>`。独立 stdio 桥 `reminder-recurring-reschedule-mcp.js` 的工具为 `maneki_list_daily_reschedule_targets`、`maneki_reschedule_daily_reminder`，使用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE`。dsh 显式加载独立改期 patch。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
