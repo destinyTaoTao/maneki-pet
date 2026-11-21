@@ -89,7 +89,7 @@ Windows、Node 24.12.0、dsh `0.2.2-rc.1` 的隔离 profile 已验证工具发�
 
 ## 让 dsh 安排一次提醒
 
-在已配置模型的 dsh 中输入「半小时后提醒我休息」。工具调用成功后，小招返回提醒 ID 和到期时间。可以退出 dsh，保持小招后台运行，到期时由它投递通知。小招的个人助手面板可查看、改期和取消提醒。dsh 可按下节单独启用查询和取消。
+在已配置模型的 dsh 中输入「半小时后提醒我休息」。工具调用成功后，小招返回提醒 ID 和到期时间。可以退出 dsh，保持小招后台运行，到期时由它投递通知。小招的个人助手面板可查看、改期和取消提醒。dsh 也可分别启用查询、改期和取消。
 
 先从源码构建并启动 Runtime。以下示例在仓库根目录运行，使用接入指南的演示目录和端口。`reminder_create` 允许这个具名客户端安排多条提醒，提醒文字会出现在本机通知中。为每个需要使用它的 profile 单独命名和授权。[启动示例](../../README.md#接入小招)
 
@@ -142,6 +142,30 @@ node packages/runtime/scripts/pair-reminder-cancel-client.mjs "$runtimeDir" $por
 ```
 
 从已构建的仓库运行 `node scripts/acceptance-dsh-reminder-management.mjs`，可用隔离 profile、真实 dsh 原生对话循环和本地确定性 Provider 检查两轮场景。脚本检查同名提醒的精确选择、版本冲突、回执重试和撤销隔离，并用注入的通知器核对到期投递。脚本也接受 dsh 的 `lib/bin.js` 绝对路径。[验收脚本](../../scripts/acceptance-dsh-reminder-management.mjs)
+
+## 让 dsh 改期自己安排的提醒
+
+在 dsh 安排「半小时后提醒我休息」后，可以继续说「把刚才那个休息提醒改到一小时后」。`reminder_reschedule` 单独授权，允许改期同名创建身份尚未开始投递的提醒。先更新 Runtime 和 CLI，再沿用上文 `dsh-web` 的创建和查询凭证、`$reminderPatch`、`$readPatch`、`$runtimeDir`、`$port` 及 `MANEKI_REMINDER_URL`。改期场景只需配对创建、查询、改期这三项。
+
+```powershell
+$env:MANEKI_REMINDER_RESCHEDULE_BRIDGE = (Resolve-Path packages/cli/dist/reminder-reschedule-mcp.js).Path
+$env:MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-reschedule-client.mjs "$runtimeDir" $port dsh-web --allow-reminder-reschedule
+if ($LASTEXITCODE -ne 0) { throw '提醒改期配对失败' }
+$reschedulePatch = (Resolve-Path apps/dsh-plugin/reminder-reschedule.patch.example.yml).Path
+dsh --profile web --patch "$reminderPatch" --patch "$readPatch" --patch "$reschedulePatch"
+```
+
+dsh 注册工具 `mcp__maneki_reminder_reschedule__maneki_reschedule_reminder`。先查询，结合上一轮创建回执找出同一条记录，再提交完整 `reminderId`、当前 `version`、新 `requestId` 和 `afterSeconds: 3600`。同名仍无法区分时请用户确认。版本冲突时重新查询并确认。成功时保留原提醒 ID 与正文，从本次受理时间起计算新到期时间，并返回新版本。超时或回执丢失后使用完全相同的四个参数重取原回执。[改期契约](../../docs/architecture.md#agent-reminder-reschedule)
+
+撤销改期权限后，其他权限和已安排的时间继续有效。
+
+```powershell
+node packages/runtime/scripts/pair-reminder-reschedule-client.mjs "$runtimeDir" $port dsh-web --revoke-reminder-reschedule
+```
+
+Windows 上的 dsh `0.2.2-rc.1` 已通过两轮隔离验收。本地确定性 Provider 经原生对话循环调用三个 MCP 桥。用注入的通知器验证原到期点只投递同名对照，改期的目标只在新到期点投递一次。在线模型的自主工具选择与 Windows 系统通知横幅仍待验证。
+
+从已构建的仓库运行 `node scripts/acceptance-dsh-reminder-reschedule.mjs` 可重跑，也可附上本机 dsh 的 `lib/bin.js` 绝对路径。[验收脚本](../../scripts/acceptance-dsh-reminder-reschedule.mjs)
 
 ## 旧手工凭证模式（继续兼容）
 

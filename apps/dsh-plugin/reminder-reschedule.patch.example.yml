@@ -1,0 +1,13 @@
+# 由用户按需加载。桥及提醒改期凭证都使用绝对路径。
+- insert:
+    - id: maneki-reminder-reschedule
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: maneki_reminder_reschedule
+        transport: stdio
+        command: !!js process.execPath
+        args:
+          - !!js process.env.MANEKI_REMINDER_RESCHEDULE_BRIDGE
+        env:
+          MANEKI_RUNTIME_URL: !!js process.env.MANEKI_REMINDER_URL || 'http://127.0.0.1:18100'
+          MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE: !!js process.env.MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE
