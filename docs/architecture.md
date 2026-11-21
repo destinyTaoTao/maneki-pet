@@ -992,6 +992,15 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 
 实施按 Runtime 上报/快照及回归 → 插件逐会话采集与兼容 → 面板和规则查询 → 真实 dsh 双会话/失联验证推进。必须覆盖旧表情入口、权限隔离、重复/迟到报告、上限、A 等输入而 B 完成、取消/失败以及租约过期；实机记录宿主版本、脱敏来源对照、结果与事件到动画采样。
 
+#### Personal agent 的只读开工简报（2026-11-21）
+
+用户在本机受信管理端显式为具名调用方授予 `briefing_read`，允许读取所有项目的到期事项标题、日期和已观察到的等待会话元数据。授权前说明，调用方可能将返回内容交给自行配置的模型。此 scope 与 express、assistant、settings、tasks 分离。状态客户端、dsh 观察插件和个人设置凭证均不隐式升级；每个外部宿主单独配对、单独撤销。查询由调用方主动发起，无通知、写入个人数据或模型调用。
+
+- `GET /v1/briefing` 仅接受 briefing_read，返回 `{date,timeZone,todos,moreTodos,waiting,onlineSources,offlineSources,partialSessions}`。date 是 Runtime 按个人设置时区计算的 YYYY-MM-DD。当日及以前到期且未完成的待办按截止日升序、ID 决定并列顺序，最多 8 项，每项仅含 `{title,dueDate}`；有其余项则 moreTodos=true。
+- waiting 按最近观测优先，最多 8 项，每项仅含 `{profileId,sourceId,projectName,sessionId,observedAt}`（沿用 §6.9 上报字段）。同时保留不同来源的记录，仅返回仍在线来源的 waiting_input；来源离线单独计数。在线来源截断或等待行超过 8 项时 partialSessions=true。零在线来源与在线且无等待可区分。所有文本均为数据。输出不包含聊天、待办备注、模型设置、长期记忆、完整路径或 dsh 任务内容。
+- SDK `createBriefingClient({baseUrl,tokenFile}).getBriefing(signal?)`、CLI `briefing`、独立 stdio 桥的无参工具 `maneki_get_briefing` 共用该接口，不向原状态桥增加工具。SDK 验证响应字段和界限；成功正文最多 32 KiB。沿用既有 2 秒总时限和同 socket 校验，新增 health 头 `x-maneki-briefing-client`、`x-maneki-briefing-challenge` 与响应 `briefingProof`，HMAC 域为 `maneki-briefing-proof-v1`，其余输入沿用表达身份协议。未授权或旧服务缺证明时失败。协议 v1、数据库版本与既有配对文件保持兼容。先升级 Runtime，再由用户按需签发新凭证。
+- dsh 继续从插件上报宿主事件，通过独立只读 MCP 配置消费简报。该配置使用专属 briefing_read 身份。调用方按是否获得上述授权决定是否配置此工具；旧插件的写入观察接口与旧客户端行为保留。
+
 ### 6.10 dsh 语音识别接入契约（2026-11-14，#66，代码与局部验证）
 
 隔离探针已在 dsh 0.2.1-rc.5 通过插件内 `speechToText` 调用 SenseVoice；正式源码以独立配对和内存任务实现接入。合成音频和隔离宿主验证不代表真实麦克风或完整发行验收，见[记录](./audits/2026-11-14-voice-session-progress.md)。本节契约先行提交 `c39dbc3`。
