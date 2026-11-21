@@ -1,6 +1,5 @@
 import { CompanionStore } from "./companion-store.js";
 import {
-  existsSync,
   readFileSync,
   rmSync,
   statSync,
@@ -222,6 +221,7 @@ export function saveAssistantSettings(
   store: AssistantStore,
   dir: string,
   raw: Record<string, unknown>,
+  onCommitted?: () => void,
 ): AssistantSettings {
   const { chat: rawChat, voice: rawVoice, companion: rawCompanion, memory:rawMemory, ...flat } = raw;
   if (Object.hasOwn(raw,"companion") && !validateObject(rawCompanion, {murmurEnabled:{type:"boolean",required:true}}).ok)
@@ -271,7 +271,10 @@ export function saveAssistantSettings(
         writeFileSync(join(dir, created), key, { mode: 0o600, flag: "wx" });
         settings.chat.apiKeyRef = created;
       }
-    } else if (old.chat.apiKeyRef) settings.chat.apiKeyRef = old.chat.apiKeyRef;
+    } else if (old.chat.apiKeyRef && old.chat.baseUrl && selected.baseUrl &&
+      new URL(old.chat.baseUrl).origin === new URL(selected.baseUrl).origin) {
+      settings.chat.apiKeyRef = old.chat.apiKeyRef;
+    }
     if (raw.speechApiKey !== undefined) {
       const key = String(raw.speechApiKey).trim();
       if (key) {
@@ -298,19 +301,19 @@ export function saveAssistantSettings(
     if (speechCreated) rmSync(join(dir, speechCreated), { force: true });
     throw error;
   }
-  if (
-    old.chat.apiKeyRef &&
-    old.chat.apiKeyRef !== settings.chat.apiKeyRef &&
-    /^assistant-key-[0-9a-f-]{36}$/.test(old.chat.apiKeyRef) &&
-    existsSync(join(dir, old.chat.apiKeyRef))
-  )
-    rmSync(join(dir, old.chat.apiKeyRef), { force: true });
-  if (
-    old.speechApiKeyRef &&
-    old.speechApiKeyRef !== settings.speechApiKeyRef &&
-    /^assistant-speech-key-[0-9a-f-]{36}$/.test(old.speechApiKeyRef)
-  )
-    rmSync(join(dir, old.speechApiKeyRef), { force: true });
+  // 旧引用已由 readAssistantSettings 校验。提交后清理失败也必须使旧设置失效。
+  let cleanupFailed = false;
+  for (const [previous, current] of [
+    [old.chat.apiKeyRef, settings.chat.apiKeyRef],
+    [old.speechApiKeyRef, settings.speechApiKeyRef],
+  ]) {
+    if (previous && previous !== current) {
+      try { rmSync(join(dir, previous), { force: true }); }
+      catch { cleanupFailed = true; }
+    }
+  }
+  onCommitted?.();
+  if (cleanupFailed) throw new AssistantError(500, "settings_key_cleanup_failed");
   return settings;
 }
 function checkedVoice(

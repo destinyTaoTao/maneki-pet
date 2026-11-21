@@ -1073,18 +1073,20 @@ export function createAssistantPanel(
         save.disabled = true;
         try {
           await voice.cancel(false);
-          await assistantCall<AssistantSettingsView>(
-            token!,
-            "/settings",
-            next,
-            "PUT",
-          );
+          let cleanupWarning: AssistantClientError | undefined;
+          try {
+            await assistantCall<AssistantSettingsView>(token!, "/settings", next, "PUT");
+          } catch (error) {
+            if (!(error instanceof AssistantClientError) || error.code !== "settings_key_cleanup_failed") throw error;
+            cleanupWarning = error;
+          }
           key.input.value = "";
           speechKey.input.value = "";
           settingsDirty = false;
           await refresh();
           renderSettings();
-          notice.textContent = t.stored;
+          if (cleanupWarning) showError(cleanupWarning);
+          else notice.textContent = t.stored;
         } finally {
           save.disabled = false;
         }

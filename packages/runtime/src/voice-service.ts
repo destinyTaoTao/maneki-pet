@@ -544,17 +544,22 @@ export class VoiceService {
     };
   }
   async stop() {
-    this.invalidate();
     this.stopped = true;
     clearTimeout(this.timer);
-    const done = this.job?.done;
-    if (done)
-      await Promise.race([
-        done.catch(() => undefined),
-        new Promise((resolve) => {
-          const timer = setTimeout(resolve, 1000);
-          timer.unref();
-        }),
-      ]);
+    const job = this.job;
+    try {
+      this.invalidate();
+    } finally {
+      if (job) {
+        job.controller.abort();
+        await Promise.race([
+          job.done.catch(() => undefined),
+          new Promise((resolve) => {
+            const timer = setTimeout(resolve, 1000);
+            timer.unref();
+          }),
+        ]);
+      }
+    }
   }
 }

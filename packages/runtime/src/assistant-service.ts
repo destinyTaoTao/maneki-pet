@@ -185,13 +185,15 @@ export class AssistantService {
       this.store,
       this.deps.configDir,
       raw,
+      () => {
+        this.voice.invalidate();
+        this.invalidateMemory();
+        this.dialogue.invalidate();
+        this.cancelActive("provider_changed");
+        this.changed();
+        this.companion?.policyChanged();
+      },
     );
-    this.voice.invalidate();
-    this.invalidateMemory();
-    this.dialogue.invalidate();
-    this.cancelActive("provider_changed");
-    this.changed();
-    this.companion?.policyChanged();
     return settingsView(settings, new CompanionStore(this.store));
   }
   snapshot() {
@@ -883,15 +885,23 @@ export class AssistantService {
   }
   async stop(): Promise<void> {
     this.stopped = true;
-    this.companion?.stop();
-    this.dialogue.invalidate();
-    this.invalidateMemory();
-    this.cancelActive("runtime_stopped");
-    const memoryStop=this.memory.stop().then(()=>undefined,error=>error as unknown);
-    await this.voice.stop();
-    await this.scheduler.stop();
-    await this.activeChat?.done;
-    const memoryError=await memoryStop;
-    if(memoryError)throw memoryError;
+    const active = this.activeChat;
+    const stops = [
+      () => this.companion?.stop(),
+      () => this.dialogue.invalidate(),
+      () => this.invalidateMemory(),
+      () => {
+        try { this.cancelActive("runtime_stopped"); }
+        finally { active?.controller.abort(); }
+      },
+      () => this.memory.stop(),
+      () => this.voice.stop(),
+      () => this.scheduler.stop(),
+      () => active?.done,
+    ];
+    // 按顺序发起停止；在途提醒、聊天完成写回后，外层才能关闭 SQLite。
+    const results = await Promise.allSettled(stops.map(async stop => stop()));
+    if (results.some(result => result.status === "rejected"))
+      throw new AssistantError(500, "assistant_cleanup_failed");
   }
 }

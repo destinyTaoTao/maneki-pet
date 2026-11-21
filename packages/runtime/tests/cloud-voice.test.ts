@@ -61,6 +61,7 @@ it("云端关/无独立密钥时不开麦，检测不联网；旧设置保留选
   r.assistant.updateSettings({
     ...online(r),
     cloudEnabled: false,
+    chat: { ...input(r).chat, baseUrl: "http://127.0.0.1:8080/v1" },
     apiKey: "chat-test-secret",
   });
   expect(() =>

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
@@ -95,7 +95,9 @@ it("正式 HTTP 对话可查询、改单和续接提醒时间，观察凭证不�
   ).toEqual([]);
 });
 it("配置的本机兼容端点贯通真实 HTTP Provider，模型文本不能创建待办", async () => {
-  const model = createServer((_req, res) =>
+  const receivedAuth: (string | undefined)[] = [];
+  const model = createServer((req, res) => {
+    receivedAuth.push(req.headers.authorization);
     res.end(
       JSON.stringify({
         choices: [
@@ -103,8 +105,8 @@ it("配置的本机兼容端点贯通真实 HTTP Provider，模型文本不能�
         ],
         usage: { prompt_tokens: 50, completion_tokens: 20 },
       }),
-    ),
-  );
+    );
+  });
   await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
   try {
     const { call, token } = await setup();
@@ -115,9 +117,14 @@ it("配置的本机兼容端点贯通真实 HTTP Provider，模型文本不能�
       baseUrl: `http://127.0.0.1:${(model.address() as { port: number }).port}/v1`,
       model: "fixture",
     };
-    expect(
-      (await call(prefix + "/settings", settings, token, "PUT")).status,
-    ).toBe(200);
+    const original = await call(prefix + "/settings", {
+      ...settings,
+      chat: { ...settings.chat, baseUrl: "http://127.0.0.1:1/v1" },
+      apiKey: "fixture-old-origin",
+    }, token, "PUT");
+    expect(original.status).toBe(200);
+    const switched = await call(prefix + "/settings", { ...settings, version: original.body.version }, token, "PUT");
+    expect(switched.status).toBe(200);
     await call(
       prefix + "/chat",
       { requestId: "http-model", text: "你好" },
@@ -131,6 +138,7 @@ it("配置的本机兼容端点贯通真实 HTTP Provider，模型文本不能�
     const snapshot = (await call(prefix + "/snapshot", undefined, token)).body;
     expect(snapshot.messages.at(-1).text).toBe("待办：这只是回答");
     expect(snapshot.todos).toEqual([]);
+    expect(receivedAuth).toEqual([undefined]);
   } finally {
     model.closeAllConnections();
     await new Promise<void>((resolve) => model.close(() => resolve()));
@@ -453,6 +461,108 @@ it("模型密钥不回显，关闭自身云端能力后不调用 Provider，预�
       )
     ).status,
   ).toBe(409);
+});
+
+it("对话密钥按规范化的端点 origin 保留，跨端点须显式替换", async () => {
+  const { call, token, dir } = await setup();
+  const { schemaVersion: _, ...settings } = defaultAssistantSettings();
+  let version = 0;
+  const save = async (baseUrl: string, apiKey?: string) => {
+    const result = await call(prefix + "/settings", {
+      ...settings, version, apiKey, chat: { ...settings.chat, locality: "cloud", baseUrl },
+    }, token, "PUT");
+    expect(result.status).toBe(200);
+    version = result.body.version;
+    return result.body.chat.apiKeyConfigured;
+  };
+  const keys = () => readdirSync(dir).filter(name => name.startsWith("assistant-key-"));
+  expect(await save("https://A.example.test:443/v1", "fixture-A")).toBe(true);
+  const original = keys();
+  expect(original).toHaveLength(1);
+  expect(await save("https://a.example.test/v2")).toBe(true);
+  expect(keys()).toEqual(original);
+  expect(await save("https://a.example.test:444/v2")).toBe(false);
+  expect(keys()).toEqual([]);
+  expect(await save("https://a.example.test/v2", "fixture-A")).toBe(true);
+  expect(await save("https://b.example.test/v2")).toBe(false);
+  expect(keys()).toEqual([]);
+  expect(await save("https://b.example.test/v2", "fixture-B")).toBe(true);
+  expect(await save("https://c.example.test/v2", "fixture-C")).toBe(true);
+  expect(keys()).toHaveLength(1);
+  expect(readFileSync(join(dir, keys()[0]!), "utf8")).toBe("fixture-C");
+  expect(await save("https://c.example.test/v2", "")).toBe(false);
+  expect(keys()).toEqual([]);
+  expect(await save("", "fixture-unbound")).toBe(true);
+  expect(await save("https://a.example.test/v1")).toBe(false);
+  expect(keys()).toEqual([]);
+});
+
+it("清理旧密钥失败仍提交新设置并取消旧 Provider 的在途请求", async () => {
+  let signal: AbortSignal | undefined;
+  const { call, token, dir } = await setup({
+    configDir: "",
+    chatProvider: () => ({
+      info: { id: "fixture", apiVersion: 1, locality: "local" },
+      reply: (_input, context) => {
+        signal = context.signal;
+        return new Promise<ChatReply>(() => undefined);
+      },
+    }),
+  });
+  const { schemaVersion: _, ...settings } = defaultAssistantSettings();
+  const chat = { ...settings.chat, enabled: true, model: "fixture", baseUrl: "http://127.0.0.1:8080/v1" };
+  const saved = await call(prefix + "/settings", { ...settings, chat, apiKey: "fixture-A" }, token, "PUT");
+  expect(saved.status).toBe(200);
+  await call(prefix + "/chat", { requestId: "pending", text: "你好" }, token);
+  await vi.waitFor(() => expect(signal?.aborted).toBe(false));
+  const oldFile = join(dir, readdirSync(dir).find(name => name.startsWith("assistant-key-"))!);
+  renameSync(oldFile, oldFile + ".fixture");
+  mkdirSync(oldFile);
+  const result = await call(prefix + "/settings", {
+    ...settings, version: saved.body.version, chat: { ...chat, baseUrl: "https://127.0.0.1:8080/v1" },
+  }, token, "PUT");
+  expect(result).toEqual({ status: 500, body: { error: "settings_key_cleanup_failed" } });
+  expect(signal?.aborted).toBe(true);
+  expect((await call(prefix + "/chat/pending", undefined, token)).body.code).toBe("provider_changed");
+  expect((await call(prefix + "/settings", undefined, token)).body).toMatchObject({
+    version: saved.body.version + 1, chat: { baseUrl: "https://127.0.0.1:8080/v1", apiKeyConfigured: false },
+  });
+});
+
+it("语音停止失败时仍等待提醒投递完成再结束助理清理", async () => {
+  let finishDelivery!: () => void;
+  const delivery = new Promise<{ status: "accepted" }>(resolve => {
+    finishDelivery = () => resolve({ status: "accepted" });
+  });
+  const notify = vi.fn(() => delivery);
+  const { runtime, token, call } = await setup({ configDir: "", notifier: { notify } });
+  const reminder = await call(prefix + "/mutations", {
+    requestId: "stop-reminder", action: "reminder.create", message: "合成提醒", remindAt: Date.now() + 150,
+  }, token);
+  expect(reminder.status).toBe(200);
+  await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+  const stoppedVoice = vi.fn(() => { throw new Error("private fixture details"); });
+  const unsubscribe = runtime.feed.subscribe(event => {
+    if (event.kind === "assistant.voice.stop") stoppedVoice();
+  });
+  try {
+    let settled = false;
+    const stopping = runtime.assistant.stop().then(
+      () => { settled = true; return "ok"; },
+      (error: Error) => { settled = true; return error.message; },
+    );
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(stoppedVoice).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+    finishDelivery();
+    expect(await stopping).toBe("assistant_cleanup_failed");
+    expect(runtime.assistant.snapshot().reminders).toContainEqual(expect.objectContaining({
+      id: reminder.body.reminderId, status: "accepted",
+    }));
+  } finally {
+    unsubscribe();
+    finishDelivery();
+  }
 });
 
 it("撤销调用端会取消在途请求；Provider 忽略中止也不阻塞退出或写回结果", async () => {
