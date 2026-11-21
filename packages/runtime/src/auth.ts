@@ -6,8 +6,10 @@ export const NOTIFY_SCOPE = "notify";
 export const SETTINGS_SCOPE = "settings";
 export const ASSISTANT_SCOPE = "assistant";
 export const BRIEFING_SCOPE = "briefing_read";
-export const BRIEFING_CLIENT_NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
-export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE, "tasks", SETTINGS_SCOPE, ASSISTANT_SCOPE, BRIEFING_SCOPE] as const;
+export const REMINDER_SCOPE = "reminder_create";
+export const NAMED_CLIENT_NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+export const BRIEFING_CLIENT_NAME = NAMED_CLIENT_NAME;
+export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE, "tasks", SETTINGS_SCOPE, ASSISTANT_SCOPE, BRIEFING_SCOPE, REMINDER_SCOPE] as const;
 
 /** 安装期随机令牌：32 字节 base64url；存储只保留 SHA-256。 */
 export function generateToken(): string {
@@ -33,6 +35,10 @@ export function expressionIdentityProof(tokenHash: string, clientId: string, cha
 
 export function briefingIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
   return clientIdentityProof("maneki-briefing-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
+}
+
+export function reminderIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
+  return clientIdentityProof("maneki-reminder-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
 }
 
 function clientIdentityProof(purpose: string, tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {

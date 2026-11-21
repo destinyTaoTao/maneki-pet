@@ -1,7 +1,7 @@
 import { copyFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { AssistantStore, ASSISTANT_SCHEMA } from "./assistant-store.js";
-import { BRIEFING_SCOPE } from "./auth.js";
+import { BRIEFING_SCOPE, type REMINDER_SCOPE } from "./auth.js";
 
 import type { BrokerTask, QuotaLedger, TaskBrokerStore } from "@maneki-pet/core";
 
@@ -184,9 +184,13 @@ export class RuntimeStore {
   }
 
   findNamedBriefingClient(name: string): Pick<ClientRecord, "clientId" | "revokedAt"> | undefined {
+    return this.findNamedClient(name, BRIEFING_SCOPE);
+  }
+
+  findNamedClient(name: string, scope: typeof BRIEFING_SCOPE | typeof REMINDER_SCOPE): Pick<ClientRecord, "clientId" | "revokedAt"> | undefined {
     return this.db.prepare(
       "SELECT client_id AS clientId,revoked_at AS revokedAt FROM clients WHERE name=? AND scopes=? LIMIT 1",
-    ).get(name, JSON.stringify([BRIEFING_SCOPE])) as Pick<ClientRecord, "clientId" | "revokedAt"> | undefined;
+    ).get(name, JSON.stringify([scope])) as Pick<ClientRecord, "clientId" | "revokedAt"> | undefined;
   }
 
   revokeClient(clientId: string, revokedAt: string): void {

@@ -6,6 +6,7 @@ import { CompanionReferences } from "./companion-references.js";
 import { AssistantError, defaultAssistantSettings } from "./assistant-settings.js";
 
 export const MEMORY_WRITE_UNKNOWN_NOTICE = "此次保存结果未知，请到 EverNook 核实；不会自动重试。";
+const MAX_AGENT_REMINDERS_PER_HOUR = 30;
 
 export const ASSISTANT_SCHEMA = `
 CREATE TABLE assistant_todos(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,due_date TEXT,completed INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -405,6 +406,22 @@ export class AssistantStore {
         "SELECT hash,result FROM assistant_mutations WHERE client_id=? AND request_id=?",
       )
       .get(client, id) as { hash: string; result: string } | undefined;
+  }
+  /** 与提醒和回执共用事务。时钟回拨时沿用已记账的小时，避免重复发放额度。 */
+  consumeReminderCreationQuota(client: string, now: number): void {
+    const key = `reminderCreationQuota.${client}`;
+    const hour = Math.floor(now / 3_600_000);
+    const saved = this.get(key);
+    let previous = { hour, count: 0 };
+    if (saved !== null) {
+      try { previous = JSON.parse(saved); }
+      catch { throw new AssistantError(503, "reminder_quota_unavailable"); }
+    }
+    if (!previous || !Number.isSafeInteger(previous.hour) || !Number.isInteger(previous.count) ||
+        previous.count < 0 || previous.count > MAX_AGENT_REMINDERS_PER_HOUR) throw new AssistantError(503, "reminder_quota_unavailable");
+    const count = hour > previous.hour ? 0 : previous.count;
+    if (count >= MAX_AGENT_REMINDERS_PER_HOUR) throw new AssistantError(429, "reminder_creation_quota");
+    this.set(key, JSON.stringify({ hour: Math.max(hour, previous.hour), count: count + 1 }));
   }
   rememberMutation(
     client: string,

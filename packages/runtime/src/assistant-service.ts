@@ -7,12 +7,14 @@ import {
   ChatCallBudget,
   ConversationContextAssembler,
   localTimeToUtc,
+  normalizeAgentReminder,
   todoText,
   validDateOnly,
   sessionProgressReply,
   type SessionObservationSource,
   type ChatMessage,
   type ChatProvider,
+  type AgentReminderReceipt,
   type DailyQuotaPolicy,
   type PersonalReminder,
   type PersonalTodo,
@@ -220,8 +222,22 @@ export class AssistantService {
     client: string,
     raw: Record<string, unknown>,
   ): Record<string, unknown> {
+    return this.applyMutation(client, raw);
+  }
+  createAgentReminder(client: string, raw: unknown): Record<string, unknown> {
+    const input = normalizeAgentReminder(raw);
+    if (!input) throw new AssistantError(400, "reminder_input_invalid");
+    const { requestId, message, afterSeconds } = input;
+    return this.applyMutation(client, { action: "reminder.create", requestId, message }, afterSeconds);
+  }
+  private applyMutation(
+    client: string,
+    raw: Record<string, unknown>,
+    afterSeconds?: number,
+  ): Record<string, unknown> {
     const id = requestId(raw.requestId);
-    const hash = fingerprint(raw);
+    // 相对提醒绑定原始延时，只在首次创建的事务内取当前时间。
+    const hash = fingerprint(afterSeconds === undefined ? raw : { ...raw, afterSeconds });
     const cached = this.store.mutation(client, id);
     if (cached) {
       if (cached.hash !== hash)
@@ -376,6 +392,8 @@ export class AssistantService {
         } else {
           if (current && current.status !== "pending")
             throw new AssistantError(409, "reminder_not_pending");
+          const now = this.now();
+          if (afterSeconds !== undefined) this.store.consumeReminderCreationQuota(client, now);
           if (creating && this.store.reminders().length >= 200)
             throw new AssistantError(409, "reminder_limit");
           const todoId =
@@ -392,8 +410,9 @@ export class AssistantService {
           }
           if (raw.remindAt !== undefined && raw.remindLocal !== undefined)
             throw new AssistantError(400, "time_invalid");
-          const remindAt =
-            raw.remindLocal !== undefined
+          const remindAt = afterSeconds !== undefined
+            ? now + afterSeconds * 1000
+            : raw.remindLocal !== undefined
               ? localTimeToUtc(String(raw.remindLocal), settings.timeZone)
               : raw.remindAt !== undefined
                 ? Number(raw.remindAt)
@@ -401,8 +420,8 @@ export class AssistantService {
           if (
             remindAt === null ||
             !Number.isSafeInteger(remindAt) ||
-            remindAt <= this.now() ||
-            remindAt > this.now() + 366 * 86400000
+            remindAt <= now ||
+            remindAt > now + 366 * 86400000
           )
             throw new AssistantError(400, "future_time_required");
           const item: PersonalReminder = {
@@ -417,7 +436,8 @@ export class AssistantService {
             version: (current?.version ?? 0) + 1,
           };
           this.store.saveReminder(item);
-          result = { reminderId: item.id };
+          result = afterSeconds === undefined ? { reminderId: item.id }
+            : { requestId: id, reminderId: item.id, remindAt } satisfies AgentReminderReceipt;
         }
       }
       this.store.rememberMutation(client, id, hash, result);

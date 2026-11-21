@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { DesktopCredentialError, openAdminSession } from "./admin-session.js";
 import { InstanceLock } from "./lifecycle.js";
-import { BRIEFING_SCOPE } from "./auth.js";
+import { BRIEFING_SCOPE, REMINDER_SCOPE } from "./auth.js";
 export { DesktopCredentialError } from "./admin-session.js";
 
 /** 仅供 native 管理入口；固定回环地址，不启动 Runtime 或打开数据库。 */
@@ -26,7 +26,8 @@ export async function clientCredential(configDir: string, port: number, fileId: 
         throw new DesktopCredentialError("invalid_config");
       }
       const probe = await session.request(credentialProbe(scopes), undefined, saved.token);
-      if (probe.status !== 200 || (scopes === BRIEFING_SCOPE && (probe.body.clientId !== saved.clientId || probe.body.name !== name))) {
+      const named = scopes === BRIEFING_SCOPE || scopes === REMINDER_SCOPE;
+      if (probe.status !== 200 || (named && (probe.body.clientId !== saved.clientId || probe.body.name !== name))) {
         throw new DesktopCredentialError("credential_rejected");
       }
       return { token: saved.token, clientId: saved.clientId };
@@ -47,6 +48,7 @@ export async function clientCredential(configDir: string, port: number, fileId: 
 
 function credentialProbe(scopes: string): string {
   if (scopes === BRIEFING_SCOPE) return "/v1/briefing/identity";
+  if (scopes === REMINDER_SCOPE) return "/v1/reminders/identity";
   if (scopes === "speech_host") return "/v1/speech-host/identity";
   if (scopes.split(",").includes("assistant")) return "/v1/assistant/settings";
   return "/v1/limits";
