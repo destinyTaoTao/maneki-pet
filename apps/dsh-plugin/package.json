@@ -23,6 +23,7 @@
     "reminder-cancel.patch.example.yml",
     "reminder-reschedule.patch.example.yml",
     "reminder-recurring.patch.example.yml",
+    "reminder-recurring-reschedule.patch.example.yml",
     "README.md"
   ],
   "scripts": {
