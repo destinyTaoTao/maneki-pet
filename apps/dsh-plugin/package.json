@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "dsh": "0.2.1-rc.5",
+    "dsh": "0.2.1-rc.5 || 0.2.2-rc.1",
     "node": ">=22"
   },
   "exports": {
@@ -17,6 +17,7 @@
     "dist/index.js",
     "dist/index.d.ts",
     "cordis.patch.yml",
+    "briefing.patch.example.yml",
     "README.md"
   ],
   "scripts": {

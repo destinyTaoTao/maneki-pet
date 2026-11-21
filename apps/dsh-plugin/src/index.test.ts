@@ -20,6 +20,22 @@ const context: DshPluginContext = {
 };
 afterEach(async () => { await dispose?.(); dispose = undefined; command = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
+it("新版宿主以 Cordis effect 卸载观察插件，立即将来源标为离线", async () => {
+  let release: (() => Promise<void>) | undefined;
+  const connected: boolean[] = [];
+  vi.mocked(controlAssistant).mockResolvedValue({ state: "ready", token: "client-test-token-that-is-long-enough" });
+  vi.stubGlobal("fetch", vi.fn(async (url, options) => {
+    if (String(url).endsWith("/observations/sessions")) connected.push(JSON.parse(options.body).connected);
+    return new Response(null, { status: 202 });
+  }));
+  await apply({ ...context, effect(setup) { release = setup(); } }, { showOnConnect: false });
+  await vi.waitFor(() => expect(connected).toEqual([true]));
+  expect(dispose).toBeUndefined();
+  await release!();
+  expect(connected).toEqual([true, false]);
+  expect(unregister).toHaveBeenCalledOnce();
+});
+
 it("首连失败不影响 dsh；只有人类配对命令启用观察，不把 token 写入命令结果", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 202 })));
   const log = vi.spyOn(console, "error").mockImplementation(() => undefined);

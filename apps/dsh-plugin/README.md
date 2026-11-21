@@ -56,9 +56,38 @@ dsh plugin --profile web add C:/maneki-lab/maneki-pet-dsh-plugin-0.3.0.tgz
 
 插件仍为 `0.3.0`，桌面与 Runtime 须一起更新到 `0.2.0-alpha.2`；管理入口先核验身份与精确发行版本，不复用旧后台。当前数据库为 v6，升级前按源版本备份 `runtime.db.bak-<版本>`，旧 Runtime 拒绝新库；回退须停止后台并恢复对应备份。既有表达凭证不扩权，撤销的 `assistant-client.json` 不自动重新签发。对话管理增量不增加插件权限，查询/修改/澄清仍在 `/maneki assistant` 的独立个人入口办理。
 
-已验证宿主：Windows、Node 24、dsh `0.2.1-rc.5`。其他版本与 macOS/Linux 未验证。无需语音、LLM Provider 或外部记忆配置；dsh 自身模型配置和数据去向独立于 Maneki。
+Windows 上的基础插件和语音验收记录对应 dsh `0.2.1-rc.5`。源码版额外声明兼容 `0.2.2-rc.1`，下节列出该版本已验证的场景。macOS/Linux 尚待验证。
 
-### 旧手工凭证模式（继续兼容）
+## 让 dsh 读取开工简报
+
+在已配对的观察插件上，dsh 向小招上报会话事件。要让 dsh 查询到期待办和仍在等待的会话，须另行为这个 dsh profile 授予 `briefing_read`。授权范围包含**所有项目**的到期待办标题、日期和等待会话标识；dsh 可以把工具结果交给它配置的模型。
+
+先按[仓库接入指南](../../README.md#接入小招)构建源码并启动 Runtime。以下 PowerShell 示例在仓库根目录执行，使用指南的独立 Runtime 目录和端口。在其他目录启动 dsh 时保留已解析的绝对路径，便可继续在原项目工作。
+
+```powershell
+$runtimeDir = Join-Path $env:LOCALAPPDATA 'ManekiIntegrationDemo'
+$port = 18101
+$env:MANEKI_BRIEFING_URL = "http://127.0.0.1:$port"
+$env:MANEKI_BRIEFING_BRIDGE = (Resolve-Path packages/cli/dist/briefing-mcp.js).Path
+$env:MANEKI_BRIEFING_TOKEN_FILE = node packages/runtime/scripts/pair-briefing-client.mjs "$runtimeDir" $port dsh-web --allow-briefing-read
+if ($LASTEXITCODE -ne 0) { throw '简报配对失败' }
+$briefingPatch = (Resolve-Path apps/dsh-plugin/briefing.patch.example.yml).Path
+dsh --profile web --patch "$briefingPatch"
+```
+
+dsh 原生 MCP 客户端使用 stdio 加载桥，注册无参工具 `mcp__maneki__maneki_get_briefing`。可向已配置的 dsh 助手提问「今天有哪些到期事项，哪个会话在等我？」。观察插件须连接同一个 Runtime，当前宿主的等待会话才会出现在结果中。`onlineSources` 是在线的上报来源数，零表示当前没有在线来源可供判断。
+
+退出这次带 patch 的 dsh 即停用该入口。要使已运行的桥也失去读取权，在相同目录和端口上撤销该名称的凭证。
+
+```powershell
+node packages/runtime/scripts/pair-briefing-client.mjs "$runtimeDir" $port dsh-web --revoke-briefing-read
+```
+
+Windows、Node 24.12.0、dsh `0.2.2-rc.1` 的隔离 profile 已验证工具发现、读取和撤销。由测试驱动的 turn 调用 dsh 内置提问工具，等待期间简报列出对应会话，答复并结束后等待列表清空；宿主退出后来源标记为离线。该版本另验了人类命令注册与未配置 Provider 的语音服务加载。模型的自主工具选择、原生管理弹窗及实际录音在这个版本上仍待验。[验收记录](../../docs/audits/2026-11-21-work-briefing.md)
+
+从仓库根目录构建后，运行 `node scripts/acceptance-dsh-briefing.mjs` 可用本机 npm 安装的 dsh `0.2.2-rc.1` 重跑这条简报链路，也可在命令末尾传入 dsh 的 `lib/bin.js` 绝对路径。脚本创建临时 profile 和 Runtime，结束时清理凭证与目录。
+
+## 旧手工凭证模式（继续兼容）
 
 先从仓库构建：`pnpm -r build`。桌面和 Runtime 必须使用本轮构建，旧安装版没有新的状态接口。构建原生壳可运行 `pnpm --filter @maneki-pet/desktop tauri build --no-bundle`；它使用已准备的本地动作包。
 

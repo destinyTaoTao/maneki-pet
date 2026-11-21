@@ -7,9 +7,20 @@ import type { HarnessEvent, PetState, ObservedSession, SessionPhase } from "@man
 import { controlAssistant, type ControlAction } from "./assistant-control.js";
 import { startSpeechHost, type DshSpeechService } from "./speech-host.js";
 
+interface DshLifecycle {
+  effect?(setup: () => () => Promise<void>): unknown;
+  on(event: "dispose", listener: () => Promise<void>): unknown;
+}
+
+/** 支持 Cordis 的 effect 析构，以及使用 dispose 事件的旧宿主。 */
+function onUnload(ctx: DshLifecycle, release: () => Promise<void>): void {
+  if (ctx.effect) ctx.effect(() => release);
+  else ctx.on("dispose", release);
+}
+
 /** 仅使用已安装 dsh 的事件订阅面，无运行时宿主依赖或执行钩子。 */
-export interface DshPluginContext {
-  inject?(services: string[], callback: (child: { speechToText: DshSpeechService; on(event: "dispose", listener: () => Promise<void>): unknown }) => void): unknown;
+export interface DshPluginContext extends DshLifecycle {
+  inject?(services: string[], callback: (child: DshLifecycle & { speechToText: DshSpeechService }) => void): unknown;
   on(event: "session/event", listener: (session: { id: string; header?: { cwd?: string } }, event: DshSessionEvent["event"]) => void): () => void;
   on(event: "dispose", listener: () => Promise<void>): () => void;
   commands: { register(definition: { name: string; description: string; input: { hint: string }; recordInput: boolean; handler(invocation: { rawInput: string; signal: AbortSignal }): Promise<{ kind: "success" | "error"; text: string }> }): () => void };
@@ -62,9 +73,17 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
   let controlPending: Promise<void> | undefined;
   let stopSpeech: (() => Promise<void>) | undefined;
   let speechService: DshSpeechService | undefined;
+  const releaseSpeech = async (): Promise<void> => {
+    const stop = stopSpeech;
+    stopSpeech = undefined;
+    await stop?.();
+  };
   ctx.inject?.(["speechToText"], (child) => {
     speechService = child.speechToText;
-    child.on("dispose", async () => { speechService = undefined; await stopSpeech?.(); stopSpeech = undefined; });
+    onUnload(child, async () => {
+      speechService = undefined;
+      await releaseSpeech();
+    });
   });
 
   const current = (): PetState => {
@@ -184,7 +203,8 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
     if (action === "speech-connect" || action === "speech-pair") {
       if (!speechService) throw new Error("dsh 语音识别服务尚未启用，请先在宿主准备语音组件");
       if (!result.token || !result.clientId) throw new Error("语音配对凭证不可用");
-      await stopSpeech?.();
+      await releaseSpeech();
+      if (closed || !speechService) throw new Error("dsh 语音识别服务已断开");
       stopSpeech = startSpeechHost(base, result.token, result.clientId, sourceId, () => speechService, speechInstanceSecret);
       return "dsh 语音服务已连接；请在小招语音设置中选择此来源";
     }
@@ -219,14 +239,14 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
       catch (error) { return { kind: "error", text: error instanceof Error ? error.message : "助手管理操作失败" }; }
     },
   });
-  ctx.on("dispose", async () => {
+  onUnload(ctx, async () => {
     closed = true;
     unregister();
     stop();
     clearInterval(heartbeat);
     clearTimeout(pulseTimer);
     controller.abort();
-    await stopSpeech?.();
+    await releaseSpeech();
     await controlPending?.catch(() => undefined);
     await pending;
     if (token) try { await postObservations(false, AbortSignal.timeout(2_000)); } catch { /* 最迟 15 秒标记来源失联。 */ }
