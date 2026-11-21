@@ -992,8 +992,6 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 
 实施按 Runtime 上报/快照及回归 → 插件逐会话采集与兼容 → 面板和规则查询 → 真实 dsh 双会话/失联验证推进。必须覆盖旧表情入口、权限隔离、重复/迟到报告、上限、A 等输入而 B 完成、取消/失败以及租约过期；实机记录宿主版本、脱敏来源对照、结果与事件到动画采样。
 
-<a id="work-briefing"></a>
-
 <a id="agent-reminders"></a>
 
 #### Personal agent 创建一次提醒
@@ -1005,6 +1003,10 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 该 scope 只能单独签发，名称、管理端复用校验与幂等撤销沿用简报机制，名称唯一性按 scope 隔离。提醒身份只允许上述 POST 和 `GET /v1/reminders/identity`；管理员使用 `POST /v1/admin/reminders/revoke` 与 `{name}` 撤销。按以下简报握手协议，将能力名替换为 `reminder`（头 x-maneki-reminder-client/challenge，响应 reminderProof，HMAC 域 maneki-reminder-proof-v1）；每次发送凭证前在同一 socket 完成校验。
 
 SDK `createReminderClient({baseUrl,tokenFile}).createReminder(input,signal?)`、CLI `remind --request-id <id> --after-seconds <n> --message <text>` 和独立 stdio 工具 `maneki_remind` 共用此契约。桥读取 `MANEKI_RUNTIME_URL`、`MANEKI_REMINDER_TOKEN_FILE`。状态和简报入口维持原有工具表。dsh 通过原生 MCP 客户端显式加载提醒桥。升级 Runtime 和对应客户端后单独授权，旧凭证、协议主版本及数据库格式兼容。
+
+不同调用方分别计创建配额：每个 reminder_create 身份每个 UTC 整点小时最多成功创建 30 条新提醒，满额返回 429。使用原请求重取回执不占配额；创建失败不扣减。计数与提醒在同一事务持久化，重启继续生效。它与实际显示通知的全局预算独立。
+
+<a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
 
