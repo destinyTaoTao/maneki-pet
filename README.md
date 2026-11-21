@@ -2,7 +2,7 @@
 
 一只陪你工作、替你留意 dsh 会话的桌宠。两个项目同时运行时，你可以直接问「哪个会话在等我？」。小招会根据宿主事件回答，工程操作和审批仍留在 dsh。关掉桌宠窗口后，后台继续照看提醒。
 
-[Windows 安装指南](./docs/install-windows.md) · [dsh 插件](./apps/dsh-plugin/README.md) · [架构设计](./docs/architecture.md) · [路线图与验收](./docs/roadmap.md) · [MIT](./LICENSE) · [外部提醒验收](./docs/audits/2026-11-21-agent-reminders.md)
+[Windows 安装指南](./docs/install-windows.md) · [dsh 插件](./apps/dsh-plugin/README.md) · [架构设计](./docs/architecture.md) · [路线图与验收](./docs/roadmap.md) · [MIT](./LICENSE) · [提醒查询与取消验收](./docs/audits/2026-11-21-agent-reminder-management.md)
 
 ## 现在能用什么
 
@@ -14,6 +14,7 @@
 | 形象、动作与轻陪伴 | 源码支持动作包、点播、模板气泡、「来一句」及暂停。自动台词遵守勿扰和独立预算。正式素材另行准备；长时间节奏、真实休眠及多屏观感待验。[轻陪伴验证](./docs/audits/2026-11-14-template-companionship.md) |
 | 长期记忆 | EverNook 的保存与召回分别授权，记忆有来源，tokenizer 在本地匹配模型。已做隔离身份联验，跨天自然问句的产品体验仍在验收。[配置与证据](./packages/adapters/evernook/README.md) |
 | 让 personal agent 安排休息 | 对已授权的 agent 说「半小时后提醒我休息」。小招保存一次提醒，宿主退出后，仍由后台到点投递。[配对与重试示例](#agent-reminders) |
+| 让 personal agent 查询并取消提醒 | 分别授权后，agent 可列出自己安排且尚未开始投递的提醒，并精确取消其中一条。[查询与取消示例](#agent-reminder-management) |
 | 让 personal agent 整理开工简报 | 单独授权后，agent 可通过 SDK、HTTP、CLI 或 MCP 一次查询到期待办和等待回应的 dsh 会话。[接入示例](#让-personal-agent-帮你开工) |
 
 安装包是封存的本地预览。下文的 SDK、CLI 与独立 MCP 桥使用同一版 `main` 源码构建。Windows x64 是本轮验证平台，macOS/Linux 仍是目标平台。
@@ -24,7 +25,7 @@
 flowchart TB
     Shell["桌宠与个人助手面板"] -->|HTTP / WebSocket| Runtime["共享 Runtime<br/>身份、权限、生命周期"]
     Dsh["dsh 插件"] -->|状态租约与会话观察| Runtime
-    Agent["外部 Agent"] -->|stdio| MCP["独立 MCP 桥<br/>表现状态 / 开工简报 / 创建提醒"]
+    Agent["外部 Agent"] -->|stdio| MCP["独立 MCP 桥<br/>表现状态 / 开工简报 / 提醒"]
     CLI["命令行"] --> SDK["Node SDK"]
     MCP --> SDK
     SDK -->|本机 HTTP| Runtime
@@ -35,7 +36,7 @@ flowchart TB
     Ports --> Cloud["用户启用的云端服务"]
 ```
 
-多个 Shell 共享一个 Runtime 和一个数据库拥有者。Core 定义规则与端口，Runtime 负责 IO 与装配。表情租约表达的是某个来源当前想展示的状态；个人会话的任务进度另有来源、序列和时效。personal agent 可将自己的工作进度显示在桌宠上，也可以分别获授权读取开工简报、创建一次性提醒。要接入可执行任务，仍须单独实现并验收 Adapter 的审批、取消和恢复。[模块分工与接口](./docs/architecture.md)
+多个 Shell 共享一个 Runtime 和一个数据库拥有者。Core 定义规则与端口，Runtime 负责 IO 与装配。表情租约表达的是某个来源当前想展示的状态；个人会话的任务进度另有来源、序列和时效。personal agent 可将自己的工作进度显示在桌宠上，也可以分别获授权读取开工简报及创建、查询、取消一次性提醒。要接入可执行任务，仍须单独实现并验收 Adapter 的审批、取消和恢复。[模块分工与接口](./docs/architecture.md)
 
 ## 接入小招
 
@@ -43,9 +44,9 @@ flowchart TB
 | --- | --- | --- |
 | dsh 插件 | 人类在宿主输入 `/maneki pair`、`show`、`assistant` | 首个宿主，观察已收到的会话事件；配对与退出经原生管理入口 |
 | 本机 API / WebSocket | 非 Node 客户端、原生桌面或订阅实时事件 | HTTP v1 固定回环、按 scope 鉴权；WS 使用一次性短期票据。[本地接口](./docs/architecture.md#61-runtime-应用接口) |
-| Node SDK | 在 Node agent 中显示进度、查询简报或安排提醒 | 源码 workspace 包 `@maneki-pet/sdk`，状态、简报与提醒各自配对，提供 `getState()`、`setState()`、`getBriefing()`、`createReminder()`。[SDK 源码](./packages/sdk/src/index.ts) |
-| CLI | 脚本安排提醒、查询简报、读取或更新表现状态 | `remind`、`briefing`、`state get`、`state set`；已有平台草稿、导出和离线诊断命令继续可用 |
-| MCP stdio | 支持 MCP 的外部宿主连接已运行的小招 | 状态桥提供 `maneki_set_state`，简报桥提供 `maneki_get_briefing`，提醒桥提供 `maneki_remind`。每个桥使用自己的凭证。[MCP 契约](./docs/architecture.md#55-mcp-与各-harness-的接入策略) |
+| Node SDK | 在 Node agent 中显示进度、查询简报或管理自己的提醒 | 源码 workspace 包 `@maneki-pet/sdk`，提供 `getState()`、`setState()`、`getBriefing()`、`createReminder()`、`listReminders()`、`cancelReminder()`。[SDK 源码](./packages/sdk/src/index.ts) |
+| CLI | 脚本管理提醒、查询简报、读取或更新表现状态 | `remind`、`reminders`、`cancel-reminder`、`briefing`、`state get`、`state set`；已有平台草稿、导出和离线诊断命令继续可用 |
+| MCP stdio | 支持 MCP 的外部宿主连接已运行的小招 | 状态桥提供 `maneki_set_state`，简报桥提供 `maneki_get_briefing`，提醒桥分别提供 `maneki_remind`、`maneki_list_reminders`、`maneki_cancel_reminder`。每个桥使用自己的凭证。[MCP 契约](./docs/architecture.md#55-mcp-与各-harness-的接入策略) |
 
 **从源码试用。** Windows 构建使用 Node 24.12.0 x64、Corepack、Rust 1.88+、MSVC 和 PATH 中的 FFmpeg、ffprobe。干净检出会生成开发占位形象。正式角色包的导入、许可证与构建配方另见[角色素材说明](./apps/desktop/recipes/catgirl-signature-v2.md)。
 
@@ -100,7 +101,7 @@ MCP 宿主将 `command` 设为 `node`，`args` 填入 `packages/cli/dist/state-m
 | --- | --- |
 | 查看今天到期和已经逾期的待办 | 简报返回标题与截止日；备注、未来事项、无截止日事项以及已完成项留在助手内 |
 | 找到等待回应的 dsh 会话 | 简报返回项目目录名、会话 ID、观测时间及来源标识。项目名和标题均按数据处理 |
-| 安排一次提醒 | 另外授权创建提醒后可调用 `maneki_remind`。修改、取消已安排的提醒或管理待办，请使用个人助手面板 |
+| 安排一次提醒 | 另外授权创建提醒后可调用 `maneki_remind`。查询和取消自己的提醒需另行授权；管理待办、更改已保存的提醒使用个人助手面板 |
 | 调模型、用麦克风、读长期记忆或执行工程任务 | 各有单独的入口与授权；工程派发仍受原生审批和恢复验收限制 |
 
 **授权一次，查询多次。** 以下沿用上面已启动的示例 Runtime。该权限覆盖所有项目。配对前请核对实际调用方及它使用的模型：如果 agent 接入云端，返回的标题和项目名可能随其上下文发往该服务。每个 agent 使用独立名称，同名重复配对复用既有身份。
@@ -135,7 +136,7 @@ node packages/runtime/scripts/pair-briefing-client.mjs "$demoDir" 18101 personal
 
 ## 让 personal agent 到点提醒你
 
-对已配置提醒工具的 dsh 说「半小时后提醒我休息」。agent 将这条意图转换成 1800 秒和正文「休息」，小招以首次成功受理的时间为起点，保存后返回提醒 ID 和到期时间。关闭 dsh 后请让 Runtime 继续运行。勿扰期间到期的提醒按现有调度规则延后投递。[dsh 配置示例](./apps/dsh-plugin/reminder.patch.example.yml) · [dsh 使用指南](./apps/dsh-plugin/README.md)
+对已配置提醒工具的 dsh 说「半小时后提醒我休息」。agent 将这条意图转换成 1800 秒和正文「休息」，小招以首次成功受理的时间为起点，保存后返回提醒 ID 和到期时间。关闭 dsh 后请让 Runtime 继续运行。勿扰期间到期的提醒按现有调度规则延后投递。[dsh 配置示例](./apps/dsh-plugin/reminder.patch.example.yml) · [创建与 Windows 投递验收](./docs/audits/2026-11-21-agent-reminders.md)
 
 在上文启动示例 Runtime 的第二个 PowerShell 终端中，**为实际调用方单独授权**。该权限允许这个 agent 安排多条一次性提醒，正文会出现在本机通知上。
 
@@ -159,6 +160,33 @@ node packages/cli/dist/main.js remind --request-id $requestId --after-seconds 18
 ```powershell
 node packages/runtime/scripts/pair-reminder-client.mjs "$demoDir" 18101 personal-agent --revoke-reminder-create
 ```
+
+<a id="agent-reminder-management"></a>
+
+## 让 personal agent 查询和取消提醒
+
+对已授权的 dsh 说「帮我看看还有哪些提醒，把刚才那个休息提醒取消掉」。agent 先查询自己安排且尚未开始投递的提醒，再用上次创建回执中的 ID 确认「刚才那个」，并带上列表中的版本取消。若只知道标题且有多条同名记录，请先让用户确认具体时间和条目。小招按 ID 和版本处理每次取消。[dsh 查询与取消配置](./apps/dsh-plugin/README.md#让-dsh-查询和取消自己安排的提醒)
+
+先为实际调用方配对创建权限，再用**同一登记名**分别授权查询和取消。查询权限可读取该身份所建提醒的正文和时间。由 agent 使用的模型也可能收到这些字段。其他 agent 和桌面创建的提醒可在小招个人助手面板管理。以下沿用上文的演示 Runtime、端口和名称。
+
+```powershell
+$env:MANEKI_REMINDER_READ_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-read-client.mjs "$demoDir" 18101 personal-agent --allow-reminder-read
+if ($LASTEXITCODE -ne 0) { throw '查询提醒配对失败' }
+$env:MANEKI_REMINDER_CANCEL_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-cancel-client.mjs "$demoDir" 18101 personal-agent --allow-reminder-cancel
+if ($LASTEXITCODE -ne 0) { throw '取消提醒配对失败' }
+node packages/cli/dist/main.js reminders
+```
+
+从列表确认 `reminderId` 和 `version` 后，为这次取消生成一个新的 `requestId`。如响应丢失，原样保留这三个值重试。相同请求会返回首次回执。成功后，拿同一个请求 ID 改取消另一条会被拒绝。若版本变化或投递已开始，读取最新状态并向用户说明。
+
+| 入口 | 查询 | 取消 |
+| --- | --- | --- |
+| SDK | `createReminderReadClient(...).listReminders()` | `createReminderCancelClient(...).cancelReminder({ requestId, reminderId, version })` |
+| HTTP | `GET /v1/reminders/pending` | `POST /v1/reminders/cancel`，提交三个取消字段 |
+| CLI | `maneki reminders` | `maneki cancel-reminder --request-id <id> --reminder-id <uuid> --version <n>` |
+| MCP stdio | `reminder-read-mcp.js` 提供 `maneki_list_reminders` | `reminder-cancel-mcp.js` 提供 `maneki_cancel_reminder` |
+
+分别用相应配对脚本的 `--revoke-reminder-read` 和 `--revoke-reminder-cancel` 撤销权限。撤销对已连接的桥的下一次调用也生效。[身份校验及响应格式](./docs/architecture.md#agent-reminder-management)
 
 ## 模型与数据
 
