@@ -838,7 +838,7 @@ Maneki MCP Server 初始提供表达工具，不提供执行/审批工具：
 
 MCP 调用按客户端身份授权、校验参数与限流；提醒是有持久化副作用的能力，需独立 scope 与用户授权，不把模型工具调用本身当用户同意。v1 不提供删除其他来源提醒、派发任务、修改策略或代批操作的 MCP 工具。
 
-初始使用 harness 启动的 stdio MCP 桥，将表达请求转发给现有 Runtime；桥不启动另一份数据库/助理。stdout 只写 MCP 消息，日志走 stderr；启动凭证不放命令行。需要远程 HTTP 传输时另行评估，本项目仍只允许本机回环。普通 HTTP/WS 不是 MCP 传输的替代命名。[MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+初始使用 harness 启动的 stdio MCP 桥，将表达请求转发给现有 Runtime；桥不启动另一份数据库/助理。stdout 只写 MCP 消息，日志走 stderr；启动凭证不放命令行。需要远程 HTTP 传输时另行评估，本项目仍只允许本机回环。普通 HTTP/WS 不是 MCP 传输的替代命名。第一步复用已交付的状态租约接口：源码工作区的 Node SDK 和 CLI 支持读取聚合状态、以稳定 sourceId 更新状态；独立 stdio 桥只公布可转发的 maneki_set_state。三者均由调用方提供已配对的 express 凭证，仅连接本机 Runtime。现有进程内四工具模式保留。[MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 
 **MCP 表达接入不等于任务派发适配。** 当前工具集覆盖 harness → 宠物；反向派发/回答/取消必须由具备对应能力的 Adapter 实现；本设计不预设其他 MCP 功能自动提供这些能力。
 
@@ -899,7 +899,7 @@ generic-cli 仅供受信配置使用：固定 executable + argv，以 stdin 传�
 - 新增 `/v1/assistant` 命名空间：`GET /snapshot` 返回有界主会话、待办和提醒；`POST /chat` 接收 `{requestId,text}` 并返回受理/结果标识，`GET /chat/<requestId>` 查询本客户端请求，`POST /chat/<requestId>/cancel` 取消本客户端在途请求；所有客户端共享主会话但不能取消他人请求。全局一次模型交互，不无界排队；重发同 ID/同内容返回原结果，换内容拒绝，重启不重发未完成的模型调用。
 - `POST /mutations` 使用 `{requestId,action,...参数}` 执行个人待办/提醒 CRUD；每个客户端的幂等键独立，稳定对象 ID 与版本用于修改/删除，冲突返回 409。个人待办包含标题、备注、完成状态和可选截止日期，日期本身不创建提醒；独立或关联的提醒保存 UTC 时间和原始时区。`GET /history?before=<seq>` 按页读取完整聊天历史，不以有界模型上下文替代持久历史。
 - 清空聊天或全部待办采用 `POST /clear-preview` 与 `POST /clear` 两步，预览确认标识绑定客户端、对象范围与版本，短期单次有效；数据变化后须重新预览。清空聊天推进主会话 epoch 并中止在途响应，删除消息及衍生摘要，保留不含原文的请求墓碑防止迟到重试重建旧历史；不删除独立待办/提醒/工程任务。
-- `GET/PUT /settings` 管理 Runtime 拥有的时区、人设和对话 Provider。首个 Provider 使用非流式 Chat Completions 兼容 HTTP：显式配置端点与模型，默认 disabled；local 仅允许回环地址，cloud 仅 HTTPS 且需单独开启自身云端能力，不跟随重定向或自动切换服务。API 密钥保存在用户私有文件并以引用关联，接口只回显是否已配置，日志不写原文/密钥。关闭/更换 Provider 立即取消在途调用，迟到结果不写回。用量按保守输入估算与输出上限预留并明示非真实账单，无自动重试或主动收费调用。
+- `GET/PUT /settings` 管理 Runtime 拥有的时区、人设和对话 Provider。首个 Provider 使用非流式 Chat Completions 兼容 HTTP：显式配置端点与模型，默认 disabled；local 仅允许回环地址，cloud 仅 HTTPS 且需单独开启自身云端能力，不跟随重定向或自动切换服务。API 密钥保存在用户私有文件并以引用关联，接口只回显是否已配置，日志不写原文/密钥。省略对话密钥仅在相同 URL origin（协议、主机、有效端口）内沿用；切换 origin 时清除旧引用，需要认证的新服务须重新输入密钥。显式空串仍清除密钥，已保存设置无需迁移。关闭/更换 Provider 立即取消在途调用，迟到结果不写回。用量按保守输入估算与输出上限预留并明示非真实账单，无自动重试或主动收费调用。
 - 文字命令和表单共用 Core 规则；首版支持明确的“待办：…”、“…后提醒我…”、完整单次日期时间、按唯一名称完成/删除待办。时间/目标有歧义先澄清，不让模型自由执行工具；普通模型回答、引用、宿主输出不能创建或修改记录。缺模型仍可用结构化待办/提醒入口。历史摘要采用有界本地摘录，作为数据输入，不提升为系统权限指令。
 - SQLite 从 v3 备份迁移至 v4，由原 Runtime 连接单独拥有个人助理表；旧程序遇到 v4 拒绝写入，回退须显式恢复备份，不能将新库交回旧程序。迁移与助手 mutation 同事务；旧 config.json/HTTP/Adapter 与原观察客户端保持兼容，新客户端显式取得新 scope。
 - 提醒由 Runtime 调度并持久化待投递状态，不依赖桌宠在线。正常到点经通知端口调用系统，桌宠有私有订阅时同步展示；勿扰/通知预算阻塞时保留待投递，启动/休眠/时钟变化补扫并合并逾期项。并发完成/删除与认领原子判定；在途通知不承诺撤回。恢复未完成的投递允许重试，使用稳定 occurrence/channel ID 去重，不宣称 OS 严格一次或用户已看到。
