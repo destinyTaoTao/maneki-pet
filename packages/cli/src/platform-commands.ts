@@ -89,7 +89,6 @@ export async function runDraftFlowInteractive(
     cover: "封面建议（构图要点；图片由你提供）",
   };
   while (!flow.complete) {
-    process.stderr.write(`[trace] loop top, step=${String(flow.currentStep)}\n`);
     const step = flow.currentStep as DraftStep;
     const value = await io.question(`${stepPrompts[step]}：`);
     applyDraftField(flow.draft, step, value);

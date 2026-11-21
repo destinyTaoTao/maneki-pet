@@ -31,6 +31,7 @@ for (const [format, content] of [["envelope", { draft }], ["legacy-interactive",
     const result = spawnSync(process.execPath, [join(import.meta.dirname, "../dist/main.js"), "platform", "package", "--draft", draftFile, "--video", video, "--cover", cover, "--out", out], { encoding: "utf8", timeout: 5000 });
 
     expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).not.toContain(draft.title);
     expect(JSON.parse(readFileSync(join(out, "metadata.json"), "utf8"))).toMatchObject({ title: draft.title, intro: draft.intro, tags: draft.tags });
     expect(existsSync(join(out, "video", "video.mp4"))).toBe(true);
   });

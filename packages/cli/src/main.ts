@@ -116,7 +116,6 @@ async function main(): Promise<void> {
         // 文件模式输出带 draft 信封；旧交互模式输出裸草稿，两者均可继续导出。
         const draft = "draft" in parsedDraftFile ? parsedDraftFile.draft : parsedDraftFile;
         const flow = { complete: true, draft };
-        process.stderr.write(`[trace] package: title=${JSON.stringify(draft?.title)}\n`);
         const result = adapter2.exportPackage({
           outDir: requireValue(values.out, "out"),
           videoSource: requireValue(values.video, "video"),
