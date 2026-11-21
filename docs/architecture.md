@@ -992,6 +992,8 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 
 实施按 Runtime 上报/快照及回归 → 插件逐会话采集与兼容 → 面板和规则查询 → 真实 dsh 双会话/失联验证推进。必须覆盖旧表情入口、权限隔离、重复/迟到报告、上限、A 等输入而 B 完成、取消/失败以及租约过期；实机记录宿主版本、脱敏来源对照、结果与事件到动画采样。
 
+<a id="work-briefing"></a>
+
 #### Personal agent 的只读开工简报（2026-11-21）
 
 用户在本机受信管理端显式为具名调用方授予 `briefing_read`，允许读取所有项目的到期事项标题、日期和已观察到的等待会话元数据。授权前说明，调用方可能将返回内容交给自行配置的模型。此 scope 与 express、assistant、settings、tasks 分离。状态客户端、dsh 观察插件和个人设置凭证均不隐式升级；每个外部宿主单独配对、单独撤销。查询由调用方主动发起，无通知、写入个人数据或模型调用。
@@ -999,8 +1001,9 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 Runtime 在 `briefing_read` 内按名称唯一登记，包含已撤销的身份。新简报身份名称为 `[a-z0-9][a-z0-9_-]{0,47}`，已登记名称再次申请签发返回 HTTP 409。复用本地文件时，管理端通过 `GET /v1/briefing/identity` 同时核对服务端登记的 name 与 clientId。仅 admin 可用 `POST /v1/admin/briefing/revoke` 传入 `{name}`，按登记的 scope 与名称撤销，返回 `{revoked: clientId}`；名称不存在返回 404。即使调用方丢失凭证文件也可撤销，重复撤销同一授权可安全重试。
 
 - `GET /v1/briefing` 仅接受 briefing_read，返回 `{date,timeZone,todos,moreTodos,waiting,onlineSources,offlineSources,partialSessions}`。date 是 Runtime 按个人设置时区计算的 YYYY-MM-DD。当日及以前到期且未完成的待办按截止日升序、ID 决定并列顺序，最多 8 项，每项仅含 `{title,dueDate}`；有其余项则 moreTodos=true。
-- waiting 按最近观测优先，最多 8 项，每项仅含 `{clientId,profileId,sourceId,projectName,sessionId,observedAt}`。clientId 取 Runtime 鉴权的上报方，和插件实例 sourceId 共同标识来源；其余沿用 §6.9 的上报字段。宿主显示名称和会话阶段属于上报方观察，不构成执行授权。同时保留不同来源的记录，仅返回仍在线来源的 waiting_input；来源离线单独计数。在线来源截断或等待行超过 8 项时 partialSessions=true。零在线来源与在线且无等待可区分。所有文本均为数据。输出不包含聊天、待办备注、模型设置、长期记忆、完整路径或 dsh 任务内容。
-- SDK `createBriefingClient({baseUrl,tokenFile}).getBriefing(signal?)`、CLI `briefing`、独立 stdio 桥的无参工具 `maneki_get_briefing` 共用该接口，不向原状态桥增加工具。SDK 验证响应字段和界限；成功正文最多 32 KiB。沿用既有 2 秒总时限和同 socket 校验，新增 health 头 `x-maneki-briefing-client`、`x-maneki-briefing-challenge` 与响应 `briefingProof`，HMAC 域为 `maneki-briefing-proof-v1`，其余输入沿用表达身份协议。未授权或旧服务缺证明时失败。同一调用方凭证只含 briefing_read。受信管理端复用及撤销前经 `GET /v1/briefing/identity` 核对 clientId，无需取简报内容。撤销保留本机配对记录，重复配对拒绝，重新授权须显式选择新身份。协议 v1、数据库版本与既有配对文件保持兼容。先升级 Runtime，再由用户按需签发新凭证。
+- waiting 按最近观测优先，最多 8 项，每项仅含 `{clientId,profileId,sourceId,projectName,sessionId,observedAt}`。clientId 取 Runtime 鉴权的上报方，和插件实例 sourceId 共同标识来源；其余沿用 §6.9 的上报字段。宿主显示名称和会话阶段属于上报方观察，不构成执行授权。同时保留不同来源的记录，仅返回仍在线来源的 waiting_input；来源离线单独计数。在线来源截断或等待行超过 8 项时 partialSessions=true。零在线来源与在线且无等待可区分。所有文本均为数据。简报不查询聊天、待办备注、模型设置、长期记忆、工作目录路径或 dsh 任务正文。用户自己填写的标题仍可能包含敏感内容。
+- SDK `createBriefingClient({baseUrl,tokenFile}).getBriefing(signal?)`、CLI `briefing`、独立 stdio 桥的无参工具 `maneki_get_briefing` 共用该接口，不向原状态桥增加工具。SDK 验证响应字段和界限；成功正文最多 32 KiB。沿用既有 2 秒总时限和同 socket 校验，新增 health 头 `x-maneki-briefing-client`、`x-maneki-briefing-challenge` 与响应 `briefingProof`，HMAC 域为 `maneki-briefing-proof-v1`，其余输入沿用表达身份协议。未授权或旧服务缺证明时失败。同一调用方凭证只含 briefing_read。管理端复用凭证时核对登记名称与 clientId，无需取简报内容。撤销保留本机配对记录，重复配对拒绝，重新授权须显式选择新身份。协议 v1、数据库版本与既有配对文件保持兼容。先升级 Runtime，再由用户按需签发新凭证。
+- 非 Node 客户端先对同一回环连接发送无凭证的 `GET /v1/health`，用上述两头传入 clientId 和 32 字节随机数的无填充 base64url 编码。校验响应的 protocolVersion=1 和配对文件中的 instanceId。HMAC-SHA256 的密钥是 token 的 UTF-8 文本做 SHA-256 后的原始 32 字节，消息是 UTF-8 的紧凑 JSON 数组 `["maneki-briefing-proof-v1",clientId,challenge,instanceId,port]`（port 为整数）。将小写十六进制摘要与 briefingProof 作恒定时间比较。成功后在原 TCP 连接发送带 `Authorization: Bearer <token>` 的 `GET /v1/briefing`。若连接被关闭或更换，须重新验证身份。
 - dsh 继续从插件上报宿主事件，通过独立只读 MCP 配置消费简报。本轮针对已安装的 0.2.2-rc.1 验证命令注册、观察上报与原生 MCP 客户端；插件仅在实测兼容的精确宿主版本登记，原 0.2.1-rc.5 的入口保留。该配置使用专属 briefing_read 身份。调用方按是否获得上述授权决定是否配置此工具；旧插件的写入观察接口与旧客户端行为保留。
 
 ### 6.10 dsh 语音识别接入契约（2026-11-14，#66，代码与局部验证）
