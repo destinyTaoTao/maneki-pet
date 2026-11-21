@@ -53,10 +53,12 @@ it("上报保留 A 等待与 B 终态，定位只包含目录名，卸载标记�
   await vi.waitFor(() => expect(reports.at(-1)?.sessions.map((row) => row.phase)).toEqual(["waiting_input", "completed"]));
   expect(reports.at(-1)?.sessions[0]?.projectName).toBe("project-A");
   expect(JSON.stringify(reports)).not.toContain("private-parent");
+  sessionListener!({ id: "C" }, { seq: 0, type: "turn/start", data: { turn: 1 } });
+  await vi.waitFor(() => expect(reports.at(-1)?.sessions.find((row) => row.sessionId === "C")?.projectName).toBe(""));
   emit("B", 1, "step/start", { turn: 1 });
   await dispose!(); dispose = undefined;
   expect(reports.at(-1)?.connected).toBe(false);
-  expect(reports.at(-1)?.sessions.map((row) => row.phase)).toEqual(["waiting_input", "completed"]);
+  expect(reports.at(-1)?.sessions.map((row) => row.phase)).toEqual(["waiting_input", "completed", "working"]);
 });
 
 it("容量满时淘汰最早完成的 B，保留先启动但最近才完成的 A", async () => {

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { win32 } from "node:path";
 
 import { DshAdapter, type DshSessionEvent } from "@maneki-pet/adapter-dsh";
 import type { HarnessEvent, PetState, ObservedSession, SessionPhase } from "@maneki-pet/core";
@@ -161,7 +161,7 @@ export async function apply(ctx: DshPluginContext, config: Config = {}): Promise
   const adapter = new DshAdapter({
     eventSource: {
       subscribe: (listener) => ctx.on("session/event", (session, event) => {
-        const directory = basename(session.header?.cwd ?? process.cwd()).replace(/[\r\n]/g, " ").slice(0, 80);
+        const directory = win32.basename(session.header?.cwd ?? "").replace(/[\r\n]/g, " ").slice(0, 80);
         projects.delete(session.id);
         projects.set(session.id, directory);
         if (projects.size > 128) projects.delete(projects.keys().next().value!);
