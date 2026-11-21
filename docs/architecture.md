@@ -1006,6 +1006,8 @@ SDK `createReminderClient({baseUrl,tokenFile}).createReminder(input,signal?)`、
 
 不同调用方分别计创建配额：每个 reminder_create 身份每个 UTC 整点小时最多成功创建 30 条新提醒，满额返回 429。使用原请求重取回执不占配额；创建失败不扣减。计数与提醒在同一事务持久化，重启继续生效。它与实际显示通知的全局预算独立。
 
+校验去除首尾空白后的正文长度和字符。为使 SQLite 与 Windows XML 通知能无损传递文字，正文须为合法 Unicode，拒绝孤立代理码元、U+FFFE、U+FFFF，以及除制表、换行、回车外的 C0 控制字符（包括 NUL）。普通中英文、表情符号和 XML 标点按文字处理。无效参数返回 HTTP 400，未保存提醒。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
