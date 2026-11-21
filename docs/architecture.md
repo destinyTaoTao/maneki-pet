@@ -1058,6 +1058,24 @@ Runtime 复用现有调度与通知预算。规则持久保存下一次对应的
 
 SDK `createRecurringReminderClient(...)` 提供 `createDailyReminder(input,signal?)`、`listDailyReminders(signal?)`、`cancelDailyReminder(input,signal?)`。CLI 对应 `remind-daily --request-id <id> --at <HH:mm> --message <text>`、`daily-reminders`、`cancel-daily-reminder --request-id <id> --series-id <uuid>`。独立 stdio 桥 `reminder-recurring-mcp.js` 公布 `maneki_remind_daily`、`maneki_list_daily_reminders`、`maneki_cancel_daily_reminder`，仅取 `MANEKI_RUNTIME_URL` 与 `MANEKI_REMINDER_RECURRING_TOKEN_FILE`。dsh 显式加载对应 patch。
 
+<a id="weekday-reminders"></a>
+
+#### 工作日提醒
+
+工作日规则沿用具名 `reminder_recurring` 和 `reminder-recurring` 回环证明。它与每日规则按同一身份授权，使用独立路由辨认规则种类。工作日表示规则时区内的周一至周五，不查询节假日或调休日历。固定创建时个人助理的时区。日期、高水位、跨日本地补发、DST 无效时刻、持久认领和发送中断的语义沿用每日规则。周末不认领，也不补发周五；下一次只选择有效的周一至周五本地时刻。
+
+| 路由 | 契约 |
+|---|---|
+| `POST /v1/recurring-reminders/weekdays` | 输入 `{requestId,localTime,message}`，返回 `{requestId,seriesId,localTime,timeZone,nextAt}`。 |
+| `GET /v1/recurring-reminders/weekdays` | 返回本身份工作日规则 `{reminders:[{seriesId,localTime,message,timeZone,nextAt}]}`。 |
+| `POST /v1/recurring-reminders/weekdays/cancel` | 输入 `{requestId,seriesId}`，返回 `{requestId,seriesId,cancelled:true}`。 |
+
+原有每日路由、工具表、版本改期目标和持久规则不受影响。工作日规则使用独立的 v1 SQLite KV。降级旧 Runtime 时旧版只识别每日目录，工作日记录留待升级后调度。请求 ID 在同一身份的每日、工作日创建和取消之间共用，已提交 ID 换操作、参数或种类返回冲突。工作日规则也有全局 64 条、每身份 8 条活跃上限，两类共用每身份每 UTC 整点小时 30 次创建预算、通知预算和单一调度计时器。损坏的独立规则存储仅停用对应周期。取消后不会再认领该规则，已在途投递不能撤回。无数据库迁移。
+
+本机 admin 仍可通过 `POST /v1/admin/recurring-reminders/weekdays/list` 与 `POST /v1/admin/recurring-reminders/weekdays/cancel` 按登记名管理，输入沿用每日管理接口。管理脚本 `manage-daily-reminders.mjs` 使用 `list-weekdays` 与 `cancel-weekday <seriesId> <requestId>`。
+
+SDK `createRecurringReminderClient(...)` 新增 `createWeekdayReminder`、`listWeekdayReminders` 和 `cancelWeekdayReminder`。CLI 为 `remind-weekdays --request-id <id> --at <HH:mm> --message <text>`、`weekday-reminders`、`cancel-weekday-reminder --request-id <id> --series-id <uuid>`。独立 stdio 桥 `reminder-weekdays-mcp.js` 使用相同的 `MANEKI_REMINDER_RECURRING_TOKEN_FILE` 与 `MANEKI_RUNTIME_URL`，提供 `maneki_remind_weekdays`、`maneki_list_weekday_reminders`、`maneki_cancel_weekday_reminder`。dsh 可按需加载该 patch。
+
 <a id="daily-reminder-reschedule"></a>
 
 #### Personal agent 精确改期每日提醒
