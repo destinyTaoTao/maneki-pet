@@ -5,7 +5,7 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { createExpressionClient } from "../src/index.js";
+import { createBriefingClient, createExpressionClient } from "../src/index.js";
 
 let dir: string;
 let tokenFile: string;
@@ -23,13 +23,13 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function healthProof(req: IncomingMessage) {
+function healthProof(req: IncomingMessage, capability: "expression" | "briefing" = "expression", domain = capability) {
   const key = createHash("sha256").update(credential.token).digest();
-  const expressionProof = createHmac("sha256", key).update(JSON.stringify([
-    "maneki-expression-proof-v1", req.headers["x-maneki-expression-client"],
-    req.headers["x-maneki-expression-challenge"], credential.instanceId, req.socket.localPort,
+  const proof = createHmac("sha256", key).update(JSON.stringify([
+    `maneki-${domain}-proof-v1`, req.headers[`x-maneki-${capability}-client`],
+    req.headers[`x-maneki-${capability}-challenge`], credential.instanceId, req.socket.localPort,
   ])).digest("hex");
-  return { protocolVersion: 1, instanceId: credential.instanceId, expressionProof };
+  return { protocolVersion: 1, instanceId: credential.instanceId, [`${capability}Proof`]: proof };
 }
 
 async function serve(listener: RequestListener): Promise<string> {
@@ -44,12 +44,12 @@ async function serve(listener: RequestListener): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-async function serveVerified(listener: RequestListener): Promise<string> {
+async function serveVerified(listener: RequestListener, capability: "expression" | "briefing" = "expression"): Promise<string> {
   const verified = new WeakSet<Socket>();
   return serve((req, res) => {
     if (req.url === "/v1/health" && !req.headers.authorization) {
       verified.add(req.socket);
-      res.end(JSON.stringify(healthProof(req)));
+      res.end(JSON.stringify(healthProof(req, capability)));
     } else if (verified.has(req.socket) && req.headers.authorization === `Bearer ${credential.token}`) {
       listener(req, res);
     } else {
@@ -132,4 +132,80 @@ it("等待正文时仍可取消，响应超时受限", async () => {
   controller.abort(new Error("private abort reason"));
   await expect(pending).rejects.toThrow(/^状态请求已取消$/);
   await expect(client.getState()).rejects.toThrow(/^Runtime 状态请求超时$/);
+});
+
+it.each(["旧服务", "错误能力的 HMAC", "证明后断开"])("简报校验遇到%s时，凭证不会离开客户端", async (reason) => {
+  const requests: Array<[string | undefined, string | undefined]> = [];
+  const baseUrl = await serve((req, res) => {
+    requests.push([req.url, req.headers.authorization]);
+    expect(req.headers["x-maneki-briefing-client"]).toBe(credential.clientId);
+    expect(req.headers["x-maneki-expression-challenge"]).toBeUndefined();
+    if (reason === "证明后断开") res.setHeader("connection", "close");
+    const body = reason === "旧服务" ? healthProof(req) :
+      healthProof(req, "briefing", reason === "错误能力的 HMAC" ? "expression" : "briefing");
+    res.end(JSON.stringify(body));
+  });
+  await expect(createBriefingClient({ baseUrl, tokenFile }).getBriefing()).rejects.toThrow("无法验证 Runtime 的简报身份");
+  expect(requests).toEqual([["/v1/health", undefined]]);
+});
+
+const due = { title: "合成待办", dueDate: "2026-11-21" };
+const waiting = { clientId: "client-bb0000000001", profileId: "web", sourceId: "00000000-0000-0000-0000-000000000001",
+  projectName: "合成项目", sessionId: "work-1", observedAt: 123 };
+const briefing = { date: due.dueDate, timeZone: "Asia/Shanghai", todos: [due], moreTodos: false,
+  waiting: [waiting], onlineSources: 1, offlineSources: 0, partialSessions: false };
+
+it("在已验证的连接读取简报，按字段、条数、日期、投影和来源上限检查成功响应", async () => {
+  let body = JSON.stringify(briefing);
+  const baseUrl = await serveVerified((req, res) => {
+    expect([req.method, req.url]).toEqual(["GET", "/v1/briefing"]);
+    res.end(body);
+  }, "briefing");
+  const client = createBriefingClient({ baseUrl, tokenFile });
+  expect(Object.keys(client)).toEqual(["getBriefing"]);
+  expect(await client.getBriefing()).toEqual(briefing);
+  for (const invalid of [
+    { date: "2026-02-30" }, { timeZone: "not a time zone" }, { private: "private-response" }, { moreTodos: 0 },
+    { todos: [{ ...due, notes: "private-response" }] }, { todos: Array(9).fill(due) },
+    { todos: [{ ...due, title: "x".repeat(201) }] }, { todos: [{ ...due, dueDate: "2026-11-22" }] },
+    { todos: [due, { ...due, dueDate: "2026-11-20" }] }, { moreTodos: true },
+    { waiting: Array(9).fill(waiting) }, { waiting: [{ ...waiting, phase: "working" }] },
+    { waiting: [{ ...waiting, projectName: "private/path" }] }, { waiting: [{ ...waiting, sessionId: "a".repeat(161) }] },
+    { waiting: [{ ...waiting, clientId: "root" }] }, { waiting: [{ ...waiting, sourceId: "" }] }, { waiting: [{ ...waiting, profileId: "bad/id" }] },
+    { waiting: [{ ...waiting, observedAt: 0.1 }] }, { waiting: [waiting, { ...waiting, observedAt: 124 }] },
+    { waiting: [waiting, waiting] }, { waiting: [waiting, { ...waiting, clientId: "client-bb0000000002" }] },
+    { onlineSources: 0 }, { offlineSources: 64 }, { offlineSources: -1 }, { partialSessions: null },
+  ]) {
+    body = JSON.stringify({ ...briefing, ...invalid });
+    await expect(client.getBriefing()).rejects.toThrow(/^Runtime 简报响应格式无效$/);
+  }
+  body = JSON.stringify(briefing);
+  body += " ".repeat(32 * 1024 - Buffer.byteLength(body));
+  expect(Buffer.byteLength(body)).toBe(32 * 1024);
+  expect(await client.getBriefing()).toEqual(briefing);
+  body += " ";
+  await expect(client.getBriefing()).rejects.toThrow(/^Runtime 响应过大$/);
+});
+
+it("简报请求在授权撤销、取消和等待正文超时时返回脱敏错误", async () => {
+  let deny = true;
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const baseUrl = await serveVerified((_req, res) => {
+    if (deny) {
+      res.writeHead(403).end("private-response");
+    } else {
+      res.write("{");
+      markStarted();
+    }
+  }, "briefing");
+  const client = createBriefingClient({ baseUrl, tokenFile });
+  await expect(client.getBriefing()).rejects.toThrow(/^Runtime 拒绝简报请求 \(HTTP 403\)$/);
+  deny = false;
+  const controller = new AbortController();
+  const pending = client.getBriefing(controller.signal);
+  await started;
+  controller.abort(new Error("private reason"));
+  await expect(pending).rejects.toThrow(/^简报请求已取消$/);
+  await expect(client.getBriefing()).rejects.toThrow(/^Runtime 简报请求超时$/);
 });

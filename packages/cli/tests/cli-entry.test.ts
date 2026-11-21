@@ -36,3 +36,24 @@ for (const [format, content] of [["envelope", { draft }], ["legacy-interactive",
     expect(existsSync(join(out, "video", "video.mp4"))).toBe(true);
   });
 }
+
+it("briefing 不接受参数，不输出收到的参数或借用状态凭证", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
+  fixtures.push(dir);
+  const stateFile = join(dir, "state.json");
+  writeFileSync(stateFile, JSON.stringify({
+    instanceId: "rt-test12345678", clientId: "client-aa0000000001", token: "a".repeat(43),
+  }));
+  const command = (...args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, "../dist/main.js"), "briefing", ...args], {
+    env: { ...process.env, MANEKI_RUNTIME_URL: "http://127.0.0.1:1", MANEKI_TOKEN_FILE: stateFile, MANEKI_BRIEFING_TOKEN_FILE: "" },
+    encoding: "utf8", timeout: 5000, windowsHide: true,
+  });
+  const extra = command("--private-argument");
+  expect(extra.status).toBe(2);
+  expect(extra.stdout).toBe("");
+  expect(extra.stderr.trim()).toBe("usage: maneki briefing");
+  const missing = command();
+  expect(missing.status).toBe(1);
+  expect(missing.stdout).toBe("");
+  expect(missing.stderr.trim()).toBe("需要可读的已配对 briefing_read 凭证文件");
+});
