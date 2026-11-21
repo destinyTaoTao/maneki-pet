@@ -8,7 +8,11 @@ import {
   BRIEFING_SCOPE,
   EXPRESS_SCOPE,
   NAMED_CLIENT_NAME,
+  NAMED_CLIENT_SCOPES,
+  REMINDER_CANCEL_SCOPE,
+  REMINDER_READ_SCOPE,
   REMINDER_SCOPE,
+  REMINDER_SCOPES,
   SETTINGS_SCOPE,
   briefingIdentityProof,
   checkHost,
@@ -17,7 +21,9 @@ import {
   generateToken,
   hashToken,
   parseBearer,
+  reminderCancelIdentityProof,
   reminderIdentityProof,
+  reminderReadIdentityProof,
   runtimeIdentityProof,
   speechHostIdentityProof,
   TicketIssuer,
@@ -38,7 +44,20 @@ const clientProofs = {
   expression: { scope: EXPRESS_SCOPE, sign: expressionIdentityProof },
   briefing: { scope: BRIEFING_SCOPE, sign: briefingIdentityProof },
   reminder: { scope: REMINDER_SCOPE, sign: reminderIdentityProof },
+  "reminder-read": { scope: REMINDER_READ_SCOPE, sign: reminderReadIdentityProof },
+  "reminder-cancel": { scope: REMINDER_CANCEL_SCOPE, sign: reminderCancelIdentityProof },
 } as const;
+const reminderRoutes = {
+  [REMINDER_SCOPE]: { identity: "/v1/reminders/identity", method: "POST", operation: "/v1/reminders" },
+  [REMINDER_READ_SCOPE]: { identity: "/v1/reminders/read/identity", method: "GET", operation: "/v1/reminders/pending" },
+  [REMINDER_CANCEL_SCOPE]: { identity: "/v1/reminders/cancel/identity", method: "POST", operation: "/v1/reminders/cancel" },
+} as const;
+const revokeRoutes = new Map<string, Exclude<keyof typeof clientProofs, "expression">>([
+  ["/v1/admin/briefing/revoke", "briefing"],
+  ["/v1/admin/reminders/revoke", "reminder"],
+  ["/v1/admin/reminders/read/revoke", "reminder-read"],
+  ["/v1/admin/reminders/cancel/revoke", "reminder-cancel"],
+]);
 
 export interface LocalHttpApiDeps {
   assistant?: AssistantService;
@@ -174,7 +193,11 @@ export class LocalHttpApi {
       const expressionProof = this.clientProof(req, "expression", boundPort);
       const briefingProof = this.clientProof(req, "briefing", boundPort);
       const reminderProof = this.clientProof(req, "reminder", boundPort);
-      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version, ...proof, ...speechProof, expressionProof, briefingProof, reminderProof });
+      const reminderReadProof = this.clientProof(req, "reminder-read", boundPort);
+      const reminderCancelProof = this.clientProof(req, "reminder-cancel", boundPort);
+      if (reminderReadProof || reminderCancelProof) res.setHeader("cache-control", "no-store");
+      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version,
+        ...proof, ...speechProof, expressionProof, briefingProof, reminderProof, reminderReadProof, reminderCancelProof });
       return;
     }
 
@@ -184,30 +207,17 @@ export class LocalHttpApi {
       return;
     }
     const client = auth.client;
-    if (hasScope(client, REMINDER_SCOPE)) {
-      res.setHeader("cache-control", "no-store");
-      if (client.scopes.length !== 1) { this.forbidden(res, "reminder_create requires a dedicated client"); return; }
-      if (method === "GET" && url === "/v1/reminders/identity") {
-        this.sendJson(res, 200, { clientId: client.clientId, name: client.name });
-        return;
-      }
-      if (method !== "POST" || url !== "/v1/reminders") {
-        this.forbidden(res, "reminder client can only create reminders");
-        return;
-      }
-      if (!this.deps.assistant) { this.sendJson(res, 503, { error: "assistant_unavailable" }); return; }
-      const body = await this.readJson(req, res);
-      if (!body) return;
-      try {
-        this.sendJson(res, 200, this.deps.assistant.createAgentReminder(client.clientId, body));
-      } catch (error) {
-        if (!(error instanceof AssistantError)) throw error;
-        this.sendJson(res, error.status, { error: error.code });
-      }
+    const reminderScope = REMINDER_SCOPES.find(scope => hasScope(client, scope));
+    if (reminderScope) {
+      await this.handleAgentReminders(req, res, client, reminderScope, method, url);
       return;
     }
-    if (url === "/v1/reminders" || url === "/v1/reminders/identity") {
-      this.forbidden(res, "reminder_create scope required");
+    const requiredReminderScope = REMINDER_SCOPES.find(scope => {
+      const route = reminderRoutes[scope];
+      return route.identity === url || route.operation === url;
+    });
+    if (requiredReminderScope) {
+      this.forbidden(res, `${requiredReminderScope} scope required`);
       return;
     }
     if (hasScope(client, BRIEFING_SCOPE)) {
@@ -345,7 +355,7 @@ export class LocalHttpApi {
         return;
       }
       const requested = (checked.value.scopes as string).split(",").map((scope) => scope.trim());
-      const namedScope = requested.find(scope => scope === BRIEFING_SCOPE || scope === REMINDER_SCOPE);
+      const namedScope = NAMED_CLIENT_SCOPES.find(scope => requested.includes(scope));
       if (namedScope) {
         const name = checked.value.name as string;
         if (requested.length !== 1 || !NAMED_CLIENT_NAME.test(name)) {
@@ -357,8 +367,13 @@ export class LocalHttpApi {
           this.sendJson(res, 409, { error: namedScope === BRIEFING_SCOPE ? "briefing_name_already_registered" : "reminder_name_already_registered" });
           return;
         }
+        if ((namedScope === REMINDER_READ_SCOPE || namedScope === REMINDER_CANCEL_SCOPE) &&
+            !this.deps.store.findNamedClient(name, REMINDER_SCOPE)) {
+          this.sendJson(res, 409, { error: "reminder_creator_not_registered" });
+          return;
+        }
       }
-      const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE, "assistant", "speech_host", BRIEFING_SCOPE, REMINDER_SCOPE].includes(scope));
+      const invalid = requested.find((scope) => !["express", "notify", "tasks", SETTINGS_SCOPE, "assistant", "speech_host", ...NAMED_CLIENT_SCOPES].includes(scope));
       if (invalid !== undefined) {
         this.sendJson(res, 400, { error: `unknown scope "${invalid}"` });
         return;
@@ -373,15 +388,16 @@ export class LocalHttpApi {
         createdAt: new Date().toISOString(),
       });
       this.deps.store.audit("client.paired", clientId, { name: checked.value.name, scopes: requested }, new Date().toISOString());
+      if (namedScope === REMINDER_READ_SCOPE || namedScope === REMINDER_CANCEL_SCOPE) res.setHeader("cache-control", "no-store");
       this.sendJson(res, 200, { clientId, token });
       return;
     }
 
-    if (method === "POST" && (url === "/v1/admin/briefing/revoke" || url === "/v1/admin/reminders/revoke")) {
+    const purpose = revokeRoutes.get(url);
+    if (method === "POST" && purpose) {
       if (!hasScope(client, ADMIN_SCOPE)) { this.forbidden(res, "revocation requires admin scope"); return; }
       const body = await this.readJson(req, res);
       if (!body) return;
-      const purpose = url === "/v1/admin/briefing/revoke" ? "briefing" : "reminder";
       if (Object.keys(body).length !== 1 || typeof body.name !== "string" || !NAMED_CLIENT_NAME.test(body.name)) {
         this.sendJson(res, 400, { error: `${purpose}_name_invalid` });
         return;
@@ -389,6 +405,7 @@ export class LocalHttpApi {
       const target = this.deps.store.findNamedClient(body.name, clientProofs[purpose].scope);
       if (!target) { this.sendJson(res, 404, { error: `${purpose}_client_not_found` }); return; }
       if (!target.revokedAt) this.revokeClient(target.clientId, client.clientId);
+      if (purpose === "reminder-read" || purpose === "reminder-cancel") res.setHeader("cache-control", "no-store");
       this.sendJson(res, 200, { revoked: target.clientId });
       return;
     }
@@ -582,6 +599,44 @@ export class LocalHttpApi {
     this.sendJson(res, 404, { error: "not found" });
   }
 
+  private async handleAgentReminders(
+    req: IncomingMessage, res: ServerResponse, client: AuthedClient,
+    scope: typeof REMINDER_SCOPES[number], method: string, url: string,
+  ): Promise<void> {
+    res.setHeader("cache-control", "no-store");
+    if (client.scopes.length !== 1) { this.forbidden(res, `${scope} requires a dedicated client`); return; }
+    const route = reminderRoutes[scope];
+    if (method === "GET" && url === route.identity) {
+      this.sendJson(res, 200, { clientId: client.clientId, name: client.name });
+      return;
+    }
+    if (method !== route.method || url !== route.operation) {
+      this.forbidden(res, scope === REMINDER_SCOPE ? "reminder client can only create reminders" : `${scope} client is restricted to its reminder routes`);
+      return;
+    }
+    const assistant = this.deps.assistant;
+    if (!assistant) { this.sendJson(res, 503, { error: "assistant_unavailable" }); return; }
+    try {
+      if (scope === REMINDER_SCOPE) {
+        const body = await this.readJson(req, res);
+        if (body) this.sendJson(res, 200, assistant.createAgentReminder(client.clientId, body));
+        return;
+      }
+      // 名称登记保留到撤销之后；管理身份只对应此创建身份的历史回执。
+      const owner = this.deps.store.findNamedClient(client.name, REMINDER_SCOPE);
+      if (!owner) { this.forbidden(res, "reminder creator is not registered"); return; }
+      if (scope === REMINDER_READ_SCOPE) {
+        this.sendJson(res, 200, assistant.listAgentReminders(owner.clientId));
+        return;
+      }
+      const body = await this.readJson(req, res);
+      if (body) this.sendJson(res, 200, assistant.cancelAgentReminder(client.clientId, owner.clientId, body));
+    } catch (error) {
+      if (!(error instanceof AssistantError)) throw error;
+      this.sendJson(res, error.status, { error: error.code });
+    }
+  }
+
   private revokeClient(targetId: string, actorId: string): void {
     const at = new Date().toISOString();
     this.deps.store.revokeClient(targetId, at);
@@ -597,7 +652,7 @@ export class LocalHttpApi {
         typeof challenge !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) return undefined;
     const client = this.deps.store.findClient(clientId);
     const { scope, sign } = clientProofs[purpose];
-    if (!client || client.revokedAt || !client.scopes.includes(scope) || (purpose === "reminder" && client.scopes.length !== 1)) return undefined;
+    if (!client || client.revokedAt || !client.scopes.includes(scope) || (purpose.startsWith("reminder") && client.scopes.length !== 1)) return undefined;
     return sign(client.tokenHash, clientId, challenge, this.deps.instanceId, boundPort);
   }
 

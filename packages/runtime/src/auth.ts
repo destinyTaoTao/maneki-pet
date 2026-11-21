@@ -7,9 +7,14 @@ export const SETTINGS_SCOPE = "settings";
 export const ASSISTANT_SCOPE = "assistant";
 export const BRIEFING_SCOPE = "briefing_read";
 export const REMINDER_SCOPE = "reminder_create";
+export const REMINDER_READ_SCOPE = "reminder_read";
+export const REMINDER_CANCEL_SCOPE = "reminder_cancel";
+export const REMINDER_SCOPES = [REMINDER_SCOPE, REMINDER_READ_SCOPE, REMINDER_CANCEL_SCOPE] as const;
+export const NAMED_CLIENT_SCOPES = [BRIEFING_SCOPE, ...REMINDER_SCOPES] as const;
+export type NamedClientScope = typeof NAMED_CLIENT_SCOPES[number];
 export const NAMED_CLIENT_NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 export const BRIEFING_CLIENT_NAME = NAMED_CLIENT_NAME;
-export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE, "tasks", SETTINGS_SCOPE, ASSISTANT_SCOPE, BRIEFING_SCOPE, REMINDER_SCOPE] as const;
+export const ALL_SCOPES = [ADMIN_SCOPE, EXPRESS_SCOPE, NOTIFY_SCOPE, "tasks", SETTINGS_SCOPE, ASSISTANT_SCOPE, ...NAMED_CLIENT_SCOPES] as const;
 
 /** 安装期随机令牌：32 字节 base64url；存储只保留 SHA-256。 */
 export function generateToken(): string {
@@ -39,6 +44,14 @@ export function briefingIdentityProof(tokenHash: string, clientId: string, chall
 
 export function reminderIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
   return clientIdentityProof("maneki-reminder-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
+}
+
+export function reminderReadIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
+  return clientIdentityProof("maneki-reminder-read-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
+}
+
+export function reminderCancelIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
+  return clientIdentityProof("maneki-reminder-cancel-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
 }
 
 function clientIdentityProof(purpose: string, tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {

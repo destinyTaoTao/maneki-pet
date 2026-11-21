@@ -8,6 +8,7 @@ import {
   ConversationContextAssembler,
   localTimeToUtc,
   normalizeAgentReminder,
+  normalizeAgentReminderCancelInput,
   todoText,
   validDateOnly,
   sessionProgressReply,
@@ -15,6 +16,8 @@ import {
   type ChatMessage,
   type ChatProvider,
   type AgentReminderReceipt,
+  type AgentReminderCancelReceipt,
+  type AgentReminderList,
   type DailyQuotaPolicy,
   type PersonalReminder,
   type PersonalTodo,
@@ -229,6 +232,34 @@ export class AssistantService {
     if (!input) throw new AssistantError(400, "reminder_input_invalid");
     const { requestId, message, afterSeconds } = input;
     return this.applyMutation(client, { action: "reminder.create", requestId, message }, afterSeconds);
+  }
+  listAgentReminders(creator: string): AgentReminderList {
+    return { reminders: this.store.listAgentReminders(creator) };
+  }
+  cancelAgentReminder(client: string, creator: string, raw: unknown): AgentReminderCancelReceipt {
+    const input = normalizeAgentReminderCancelInput(raw);
+    if (!input) throw new AssistantError(400, "reminder_cancel_input_invalid");
+    const { requestId, reminderId, version } = input;
+    const hash = fingerprint({ action: "reminder.cancel", ...input });
+    const receipt = { requestId, reminderId, cancelled: true } satisfies AgentReminderCancelReceipt;
+    const changed = this.store.transaction(() => {
+      const cached = this.store.mutation(client, requestId);
+      if (cached) {
+        if (cached.hash !== hash) throw new AssistantError(409, "request_id_conflict");
+        if (cached.result !== JSON.stringify(receipt)) throw new AssistantError(503, "reminder_cancel_receipt_unavailable");
+        return false;
+      }
+      const target = this.store.agentReminderForCancellation(creator, reminderId);
+      if (!target) throw new AssistantError(404, "reminder_not_found");
+      if (target.version !== version) throw new AssistantError(409, "version_conflict");
+      if (target.status !== "pending" || target.attempts !== 0) throw new AssistantError(409, "reminder_not_pending");
+      this.store.deleteReminder(reminderId);
+      this.store.rememberMutation(client, requestId, hash, receipt);
+      this.store.changed();
+      return true;
+    });
+    if (changed) this.changed();
+    return receipt;
   }
   private applyMutation(
     client: string,

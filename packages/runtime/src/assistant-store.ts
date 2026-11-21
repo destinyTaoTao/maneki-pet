@@ -1,5 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
-import { MAX_BRIEFING_ITEMS, validTimeZone, type WorkBriefing } from "@maneki-pet/core";
+import {
+  AGENT_REMINDER_ID_PATTERN,
+  AGENT_REMINDER_UUID_PATTERN,
+  MAX_AGENT_REMINDER_LIST_ITEMS,
+  MAX_BRIEFING_ITEMS,
+  validTimeZone,
+  type AgentReminderReceipt,
+  type AgentReminderSummary,
+  type WorkBriefing,
+} from "@maneki-pet/core";
 import type { PersonalTodo, PersonalReminder } from "@maneki-pet/core";
 import type { CompanionReference } from "@maneki-pet/core";
 import { CompanionReferences } from "./companion-references.js";
@@ -7,6 +16,25 @@ import { AssistantError, defaultAssistantSettings } from "./assistant-settings.j
 
 export const MEMORY_WRITE_UNKNOWN_NOTICE = "此次保存结果未知，请到 EverNook 核实；不会自动重试。";
 const MAX_AGENT_REMINDERS_PER_HOUR = 30;
+
+interface AgentReminderRow extends AgentReminderSummary {
+  status: PersonalReminder["status"];
+  attempts: number;
+  requestId: string;
+  hash: string;
+  result: string;
+}
+
+function hasCreationReceipt(row: AgentReminderRow): boolean {
+  if (typeof row.requestId !== "string" || !AGENT_REMINDER_ID_PATTERN.test(row.requestId) ||
+      !AGENT_REMINDER_UUID_PATTERN.test(row.reminderId) || typeof row.hash !== "string" || !/^[0-9a-f]{64}$/.test(row.hash) ||
+      typeof row.result !== "string") return false;
+  // SQL 已过滤无法解析的 JSON；保留旧版创建回执的完整格式，拒绝其它 mutation 或残缺回执。
+  const receipt = JSON.parse(row.result) as Partial<AgentReminderReceipt>;
+  return receipt.requestId === row.requestId && receipt.reminderId === row.reminderId &&
+    typeof receipt.remindAt === "number" && Number.isSafeInteger(receipt.remindAt) && receipt.remindAt > 0 &&
+    row.result === JSON.stringify({ requestId: row.requestId, reminderId: row.reminderId, remindAt: receipt.remindAt });
+}
 
 export const ASSISTANT_SCHEMA = `
 CREATE TABLE assistant_todos(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,due_date TEXT,completed INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -212,6 +240,34 @@ export class AssistantStore {
   }
   reminder(id: string): PersonalReminder | undefined {
     return this.reminders().find((item) => item.id === id);
+  }
+  private agentReminderRows(creatorId: string, id?: string): Iterable<AgentReminderRow> {
+    // 先用 mutation 主键前缀限定来源，再用回执中的 UUID 与提醒主键关联。
+    // 失效回执不参与关联。查询只看未认领的提醒，取消需区分不存在与已认领。
+    return this.db.prepare(`
+      SELECT r.id AS reminderId, r.message, r.remind_at AS remindAt, r.version, r.status, r.attempts,
+        m.request_id AS requestId, m.hash, m.result
+      FROM assistant_mutations m
+      JOIN assistant_reminders r ON r.id=CASE WHEN json_valid(m.result) THEN json_extract(m.result,'$.reminderId') END
+      WHERE m.client_id=? AND ${id === undefined ? "r.status='pending' AND r.attempts=0" : "r.id=?"}
+      ORDER BY r.remind_at,r.id
+    `).iterate(creatorId, ...(id === undefined ? [] : [id])) as unknown as Iterable<AgentReminderRow>;
+  }
+  listAgentReminders(creatorId: string): AgentReminderSummary[] {
+    const reminders = new Map<string, AgentReminderSummary>();
+    for (const row of this.agentReminderRows(creatorId)) {
+      if (!hasCreationReceipt(row)) continue;
+      const { reminderId, message, remindAt, version } = row;
+      reminders.set(reminderId, { reminderId, message, remindAt, version });
+      if (reminders.size >= MAX_AGENT_REMINDER_LIST_ITEMS) break;
+    }
+    return [...reminders.values()];
+  }
+  agentReminderForCancellation(creatorId: string, id: string): Pick<AgentReminderRow, "version" | "status" | "attempts"> | undefined {
+    for (const row of this.agentReminderRows(creatorId, id)) {
+      if (hasCreationReceipt(row)) return { version: row.version, status: row.status, attempts: row.attempts };
+    }
+    return undefined;
   }
   saveReminder(item: PersonalReminder): void {
     this.db
