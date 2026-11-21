@@ -137,3 +137,39 @@ it("提醒改期要求完整 ID、版本和整数延时，并且只读取改期�
   const result = command(...valid);
   expect([result.status, result.stdout, result.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_reschedule 凭证文件"]);
 });
+
+it("每日提醒命令拒绝重复或多余参数、非规范时间与模糊 ID，并只读取每日提醒凭证", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
+  fixtures.push(dir);
+  const oneTimeCredential = join(dir, "one-time-client.json");
+  writeFileSync(oneTimeCredential, JSON.stringify({
+    instanceId: "rt-test12345678", clientId: "client-aa0000000001", token: "a".repeat(43),
+  }));
+  const command = (...args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, "../dist/main.js"), ...args], {
+    env: { ...process.env, MANEKI_RUNTIME_URL: "http://127.0.0.1:1", MANEKI_REMINDER_TOKEN_FILE: oneTimeCredential,
+      MANEKI_REMINDER_READ_TOKEN_FILE: oneTimeCredential, MANEKI_REMINDER_CANCEL_TOKEN_FILE: oneTimeCredential,
+      MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE: oneTimeCredential, MANEKI_REMINDER_RECURRING_TOKEN_FILE: undefined },
+    encoding: "utf8", timeout: 5000, windowsHide: true,
+  });
+  const create = ["remind-daily", "--request-id", "daily-1", "--message", "private-text"];
+  const cancel = ["cancel-daily-reminder", "--request-id", "cancel-1"];
+  const seriesId = "ab000000-0000-4000-a000-000000000001";
+  const createUsage = "maneki remind-daily --request-id <id> --at <HH:mm> --message <text>";
+  const cancelUsage = "maneki cancel-daily-reminder --request-id <id> --series-id <uuid>";
+  for (const [args, usage] of [
+    [[...create, "--at", "8:00"], createUsage], [[...create, "--at", "24:00"], createUsage],
+    [[...create, "--at", "08:00", "--at", "09:00"], createUsage],
+    [[...create, "--at", "08:00", "--time-zone", "UTC"], createUsage],
+    [["daily-reminders", "--message", "private-text"], "maneki daily-reminders"],
+    [[...cancel, "--series-id", "ab000000"], cancelUsage],
+    [[...cancel, "--series-id", seriesId.toUpperCase()], cancelUsage],
+    [[...cancel, "--series-id", seriesId, "--message", "private-text"], cancelUsage],
+  ] as const) {
+    const invalid = command(...args);
+    expect([invalid.status, invalid.stdout, invalid.stderr.trim()]).toEqual([2, "", `usage: ${usage}`]);
+  }
+  for (const args of [[...create, "--at", "08:00"], ["daily-reminders"], [...cancel, "--series-id", seriesId]]) {
+    const unpaired = command(...args);
+    expect([unpaired.status, unpaired.stdout, unpaired.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_recurring 凭证文件"]);
+  }
+});

@@ -18,7 +18,8 @@ import { douyinReadiness } from "./douyin-readiness.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  args: ["state", "briefing", "remind", "reminders", "cancel-reminder", "reschedule-reminder"].includes(process.argv[2] ?? "")
+  args: ["state", "briefing", "remind", "reminders", "cancel-reminder", "reschedule-reminder",
+    "remind-daily", "daily-reminders", "cancel-daily-reminder"].includes(process.argv[2] ?? "")
     ? process.argv.slice(2, 3) : process.argv.slice(2),
   options: {
     python: { type: "string", default: "python" },
@@ -73,6 +74,12 @@ async function main(): Promise<void> {
     case "reschedule-reminder": {
       const { runReminderRescheduleCommand } = await import("./reminder-command.js");
       return runReminderRescheduleCommand(process.argv.slice(3));
+    }
+    case "remind-daily":
+    case "daily-reminders":
+    case "cancel-daily-reminder": {
+      const { runDailyReminderCommand } = await import("./daily-reminder-command.js");
+      return runDailyReminderCommand(command, process.argv.slice(3));
     }
     case "briefing": {
       const { runBriefingCommand } = await import("./briefing-command.js");
@@ -184,7 +191,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      process.stderr.write("usage: maneki state get|set | briefing | remind | reminders | cancel-reminder | reschedule-reminder | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
+      process.stderr.write("usage: maneki state get|set | briefing | remind | reminders | cancel-reminder | reschedule-reminder | remind-daily | daily-reminders | cancel-daily-reminder | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
       process.exit(2);
   }
 }

@@ -10,7 +10,8 @@
     "maneki-reminder-mcp": "./dist/reminder-mcp.js",
     "maneki-reminder-read-mcp": "./dist/reminder-read-mcp.js",
     "maneki-reminder-cancel-mcp": "./dist/reminder-cancel-mcp.js",
-    "maneki-reminder-reschedule-mcp": "./dist/reminder-reschedule-mcp.js"
+    "maneki-reminder-reschedule-mcp": "./dist/reminder-reschedule-mcp.js",
+    "maneki-reminder-recurring-mcp": "./dist/reminder-recurring-mcp.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
