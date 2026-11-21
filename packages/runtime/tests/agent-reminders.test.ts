@@ -4,7 +4,7 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AgentReminderReceipt } from "@maneki-pet/core";
+import type { AgentReminderReceipt, AgentReminderRescheduleReceipt } from "@maneki-pet/core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AssistantStore } from "../src/assistant-store.js";
 import type { StartedRuntime } from "../src/runtime.js";
@@ -40,7 +40,7 @@ function call(path: string, token?: string, body?: unknown) {
 async function pair(name: string, scopes = "reminder_create") {
   const res = await call("/pair", runtime.rootToken, { name, scopes });
   expect(res.status).toBe(200);
-  if (scopes === "reminder_read" || scopes === "reminder_cancel") expect(res.headers.get("cache-control")).toBe("no-store");
+  if (["reminder_read", "reminder_cancel", "reminder_reschedule"].includes(scopes)) expect(res.headers.get("cache-control")).toBe("no-store");
   return await res.json() as { token: string; clientId: string };
 }
 async function create(token: string, args = input): Promise<AgentReminderReceipt> {
@@ -194,9 +194,10 @@ it("按当前到期时间和 ID 查询自有提醒，准确取消同名目标并
   ] });
 });
 
-it("取消严格校验输入与当前版本，认领之后即使恢复为 pending 也拒绝取消", async () => {
+it("严格校验取消输入与版本，认领之后即使恢复为 pending 也拒绝取消和改期", async () => {
   const creator = await pair("race");
   const reader = await pair("race", "reminder_read"), canceller = await pair("race", "reminder_cancel");
+  const rescheduler = await pair("race", "reminder_reschedule");
   const removal = await create(creator.token);
   const delivery = await create(creator.token, { ...input, requestId: "delivery" });
   const requestBody = { requestId: "cancel-race", reminderId: removal.reminderId, version: 1 };
@@ -219,10 +220,16 @@ it("取消严格校验输入与当前版本，认领之后即使恢复为 pendin
   expect(await (await call("/reminders/pending", reader.token)).json()).toEqual({ reminders: [] });
   const late = { requestId: "cancel-after-claim", reminderId: delivery.reminderId, version: 2 };
   expect((await call("/reminders/cancel", canceller.token, late)).status).toBe(409);
+  const lateReschedule = { ...late, afterSeconds: 3600 };
+  expect((await call("/reminders/reschedule", rescheduler.token, lateReschedule)).status).toBe(409);
   store.recover();
   expect(store.reminder(delivery.reminderId)).toMatchObject({ status: "pending", attempts: 1, version: 2 });
   expect(await (await call("/reminders/pending", reader.token)).json()).toEqual({ reminders: [] });
   expect((await call("/reminders/cancel", canceller.token, late)).status).toBe(409);
+  const recoveredReschedule = await call("/reminders/reschedule", rescheduler.token, lateReschedule);
+  expect(recoveredReschedule.status).toBe(409);
+  expect(await recoveredReschedule.json()).toEqual({ error: "reminder_not_pending" });
+  expect(store.mutation(rescheduler.clientId, lateReschedule.requestId)).toBeUndefined();
   now = delivery.remindAt;
   runtime.assistant.wake();
   await vi.waitFor(() => expect(store.reminder(delivery.reminderId)?.status).toBe("accepted"));
@@ -498,4 +505,268 @@ it("撤销发生在读请求体期间则拒绝创建，已安排的提醒继续�
   await vi.waitFor(() => expect(store.reminder(scheduled.reminderId)).toMatchObject({ attempts: 1, status: "accepted" }));
   expect(notify).toHaveBeenCalledTimes(1);
   expect(notify).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining(input.message) }));
+});
+
+const rescheduleRoute = "/reminders/reschedule";
+const rescheduleScope = "reminder_reschedule";
+
+it("改期独立签发和撤销，仅同名创建登记授权成立", async () => {
+  const name = "reschedule-auth";
+  const identityRoute = `${rescheduleRoute}/identity`;
+  const revokeRoute = "/admin/reminders/reschedule/revoke";
+  const signup = { name, scopes: rescheduleScope };
+  const prereq = await call("/pair", runtime.rootToken, signup);
+  expect(prereq.status).toBe(409);
+  expect(await prereq.json()).toEqual({ error: "reminder_creator_not_registered" });
+  const creator = await pair(name);
+  const original = await create(creator.token);
+  const reader = await pair(name, "reminder_read");
+  const canceller = await pair(name, "reminder_cancel");
+  for (const scopes of [`${rescheduleScope},reminder_read`, `${rescheduleScope},assistant`, `${rescheduleScope},${rescheduleScope}`]) {
+    expect((await call("/pair", runtime.rootToken, { name, scopes })).status).toBe(400);
+  }
+  expect((await revoke(name)).status).toBe(200);
+  const rescheduler = await pair(name, rescheduleScope);
+  const args = { requestId: "reschedule-auth", reminderId: original.reminderId, version: 1, afterSeconds: 3600 };
+  const probe = await call(identityRoute, rescheduler.token);
+  expect(probe.status).toBe(200);
+  expect(probe.headers.get("cache-control")).toBe("no-store");
+  expect(await probe.json()).toEqual({ clientId: rescheduler.clientId, name });
+  for (const token of [reader.token, canceller.token, runtime.rootToken]) {
+    expect((await call(identityRoute, token)).status).toBe(403);
+    expect((await call(rescheduleRoute, token, args)).status).toBe(403);
+  }
+  for (const [route, body] of [
+    ["/reminders/pending"], ["/reminders", input], ["/reminders/cancel", args],
+    ["/assistant/snapshot"], ["/ws-ticket", {}], [revokeRoute, { name }],
+  ] as const) {
+    expect((await call(route, rescheduler.token, body)).status).toBe(403);
+  }
+  const nonce = randomBytes(32).toString("base64url");
+  const headers: Record<string, string> = {};
+  for (const purpose of ["reminder", "reminder-read", "reminder-cancel", "reminder-reschedule"]) {
+    headers[`x-maneki-${purpose}-client`] = rescheduler.clientId;
+    headers[`x-maneki-${purpose}-challenge`] = nonce;
+  }
+  const proof = await fetch(`http://127.0.0.1:${runtime.port}/v1/health`, { headers });
+  expect(proof.headers.get("cache-control")).toBe("no-store");
+  const expectedProof = createHmac("sha256", createHash("sha256").update(rescheduler.token).digest())
+    .update(JSON.stringify(["maneki-reminder-reschedule-proof-v1", rescheduler.clientId, nonce, runtime.instanceId, runtime.port])).digest("hex");
+  const health = await proof.json() as Record<string, unknown>;
+  expect(health.reminderRescheduleProof).toBe(expectedProof);
+  for (const field of ["reminderProof", "reminderReadProof", "reminderCancelProof"]) {
+    expect(health[field]).toBeUndefined();
+  }
+  const res = await call(rescheduleRoute, rescheduler.token, args);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  expect(await res.json()).toEqual({ requestId: args.requestId, reminderId: original.reminderId, remindAt: now + 3_600_000, version: 2 });
+
+  const paused = await postDuring(rescheduleRoute, rescheduler.token, { ...args, requestId: "revoking", version: 2 }, async () => {
+    const revoked = await call(revokeRoute, runtime.rootToken, { name });
+    expect(revoked.status).toBe(200);
+    expect(revoked.headers.get("cache-control")).toBe("no-store");
+    expect(await revoked.json()).toEqual({ revoked: rescheduler.clientId });
+    const count = runtime.store.auditCount();
+    expect(await (await call(revokeRoute, runtime.rootToken, { name })).json()).toEqual({ revoked: rescheduler.clientId });
+    expect(runtime.store.auditCount()).toBe(count);
+  });
+  expect(paused).toBe(401);
+  expect((await call(identityRoute, rescheduler.token)).status).toBe(401);
+  expect((await call(rescheduleRoute, rescheduler.token, args)).status).toBe(401);
+  const healthAfter = await fetch(`http://127.0.0.1:${runtime.port}/v1/health`, { headers });
+  expect((await healthAfter.json() as Record<string, unknown>).reminderRescheduleProof).toBeUndefined();
+  expect((await call("/pair", runtime.rootToken, signup)).status).toBe(409);
+  expect((await call("/reminders/cancel/identity", canceller.token)).status).toBe(200);
+  expect(await (await call("/reminders/pending", reader.token)).json()).toEqual({ reminders: [
+    { reminderId: original.reminderId, message: input.message, remindAt: now + 3_600_000, version: 2 },
+  ] });
+});
+
+it("只改原提醒的到期时间和版本，跨后续改期、取消和重启重放首次回执", async () => {
+  const name = "reschedule-replay";
+  const creator = await pair(name);
+  const original = await create(creator.token);
+  const rescheduler = await pair(name, rescheduleScope);
+  const canceller = await pair(name, "reminder_cancel");
+  const reader = await pair(name, "reminder_read");
+  const sameTitle = await create(creator.token, { ...input, requestId: "same-title", afterSeconds: 180 });
+  const store = runtime.store.assistantStore();
+  const reminder = store.reminder(original.reminderId);
+  const rev = store.revision();
+  const args = { requestId: input.requestId, reminderId: original.reminderId, version: 1, afterSeconds: 3600 };
+  const receipt = { requestId: args.requestId, reminderId: args.reminderId, remindAt: now + 3_600_000, version: 2 };
+  for (const res of await Promise.all([1, 2].map(() => call(rescheduleRoute, rescheduler.token, args)))) {
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(receipt);
+  }
+  expect(store.revision()).toBe(rev + 1);
+  expect(store.reminder(args.reminderId)).toEqual({ ...reminder, remindAt: receipt.remindAt, version: 2 });
+  expect(await create(creator.token)).toEqual(original);
+  expect(await (await call("/reminders/pending", reader.token)).json()).toEqual({ reminders: [
+    { reminderId: sameTitle.reminderId, message: input.message, remindAt: sameTitle.remindAt, version: 1 },
+    { reminderId: original.reminderId, message: input.message, remindAt: receipt.remindAt, version: 2 },
+  ] });
+  for (const change of [{ reminderId: sameTitle.reminderId }, { version: 2 }, { afterSeconds: 3599 }]) {
+    const conflict = await call(rescheduleRoute, rescheduler.token, { ...args, ...change });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ error: "request_id_conflict" });
+  }
+  expect((await call("/reminders/cancel", canceller.token, { requestId: "first-cancel", reminderId: args.reminderId, version: 1 })).status).toBe(409);
+  now += 1000;
+  const second = await call(rescheduleRoute, rescheduler.token, { ...args, requestId: "second-date", version: 2 });
+  expect(second.status).toBe(200);
+  expect(await second.json()).toEqual({ ...receipt, requestId: "second-date", remindAt: now + 3_600_000, version: 3 });
+  expect(await (await call(rescheduleRoute, rescheduler.token, args)).json()).toEqual(receipt);
+  expect((await call("/reminders/cancel", canceller.token, { requestId: "first-cancel", reminderId: args.reminderId, version: 3 })).status).toBe(200);
+  expect(await (await call(rescheduleRoute, rescheduler.token, args)).json()).toEqual(receipt);
+  const fresh = await call(rescheduleRoute, rescheduler.token, { ...args, requestId: "now-missing", version: 3 });
+  expect(fresh.status).toBe(404);
+  expect(store.revision()).toBe(rev + 3);
+  await runtime.stop();
+  runtime = await start();
+  expect(await (await call(rescheduleRoute, rescheduler.token, args)).json()).toEqual(receipt);
+  expect(runtime.store.assistantStore().revision()).toBe(rev + 3);
+  expect(runtime.store.assistantStore().reminders().map(row => row.id)).toEqual([sameTitle.reminderId]);
+});
+
+it("调度器跳过旧到期时间并在新到期时间只投递一次", async () => {
+  const name = "reschedule-dispatch";
+  const creator = await pair(name);
+  const rescheduler = await pair(name, rescheduleScope);
+  const original = await create(creator.token, { ...input, afterSeconds: 30 });
+  const store = runtime.store.assistantStore();
+  const due = vi.spyOn(AssistantStore.prototype, "due");
+  runtime.assistant.wake();
+  await vi.waitFor(() => expect(due).toHaveBeenCalledWith(now));
+  now += 1000;
+  const args = { requestId: "change-time", reminderId: original.reminderId, version: 1, afterSeconds: 60 };
+  const res = await call(rescheduleRoute, rescheduler.token, args);
+  expect(res.status).toBe(200);
+  const updated = await res.json() as AgentReminderRescheduleReceipt;
+  expect(updated.remindAt).toBe(now + 60_000);
+  await vi.waitFor(() => expect(due).toHaveBeenCalledWith(now));
+
+  now = original.remindAt;
+  runtime.assistant.wake();
+  await vi.waitFor(() => expect(due).toHaveBeenCalledWith(original.remindAt));
+  expect(store.reminder(original.reminderId)).toMatchObject({ attempts: 0, status: "pending" });
+  expect(notify).not.toHaveBeenCalled();
+
+  now = updated.remindAt;
+  runtime.assistant.wake();
+  await vi.waitFor(() => expect(store.reminder(original.reminderId)).toMatchObject({ attempts: 1, status: "accepted" }));
+  expect(notify).toHaveBeenCalledTimes(1);
+  expect(notify).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining(input.message) }));
+  expect(await (await call(rescheduleRoute, rescheduler.token, args)).json()).toEqual(updated);
+  now++;
+  runtime.assistant.wake();
+  await vi.waitFor(() => expect(due).toHaveBeenCalledWith(updated.remindAt + 1));
+  expect(notify).toHaveBeenCalledTimes(1);
+});
+
+it("拒绝越权、非法参数和无法递增的版本，同版本取消与改期最多一项成功", async () => {
+  const name = "reschedule-race";
+  const creator = await pair(name);
+  const rescheduler = await pair(name, rescheduleScope);
+  const canceller = await pair(name, "reminder_cancel");
+  const other = await pair("other-race");
+  const reminder = await create(creator.token);
+  const otherReminder = await create(other.token);
+  const desktop = await call("/assistant/mutations", runtime.rootToken, {
+    action: "reminder.create", requestId: "desktop-race", message: input.message, remindAt: now + 60_000,
+  });
+  expect(desktop.status).toBe(200);
+  const local = await desktop.json() as { reminderId: string };
+  const args = { requestId: "reschedule-race", reminderId: reminder.reminderId, version: 1, afterSeconds: 60 };
+  for (const invalid of [{ message: input.message }, { reminderId: input.message },
+    { reminderId: "00000000-0000-0000-0000-00000000000A" }, { requestId: "x+" }, { version: 0 }, { version: 1.5 },
+    { version: "1" }, { afterSeconds: 0 }, { afterSeconds: 31_622_401 }, { afterSeconds: 1.5 }, { afterSeconds: "1" }]) {
+    expect((await call(rescheduleRoute, rescheduler.token, { ...args, ...invalid })).status).toBe(400);
+  }
+  for (const reminderId of [otherReminder.reminderId, local.reminderId, randomUUID()]) {
+    const denied = await call(rescheduleRoute, rescheduler.token, { ...args, reminderId });
+    expect(denied.status).toBe(404);
+    expect(await denied.json()).toEqual({ error: "reminder_not_found" });
+  }
+  const store = runtime.store.assistantStore();
+  const { afterSeconds, ...cancelArgs } = args;
+  const concurrent = await Promise.all([
+    call(rescheduleRoute, rescheduler.token, args),
+    call("/reminders/cancel", canceller.token, cancelArgs),
+  ]);
+  expect(concurrent.filter(response => response.status === 200)).toHaveLength(1);
+  if (concurrent[0]!.status === 200) {
+    expect(concurrent[1]!.status).toBe(409);
+    expect(store.reminder(args.reminderId)).toMatchObject({ version: 2, remindAt: now + afterSeconds * 1000 });
+  } else {
+    expect(concurrent[0]!.status).toBe(404);
+    expect(store.reminder(args.reminderId)).toBeUndefined();
+  }
+  const exhausted = await create(creator.token, { ...input, requestId: "exhausted-version" });
+  store.saveReminder({ ...store.reminder(exhausted.reminderId)!, version: Number.MAX_SAFE_INTEGER });
+  const rejected = await call(rescheduleRoute, rescheduler.token, { ...args,
+    requestId: "exhausted-version", reminderId: exhausted.reminderId, version: Number.MAX_SAFE_INTEGER,
+  });
+  expect(rejected.status).toBe(409);
+  expect(await rejected.json()).toEqual({ error: "reminder_version_exhausted" });
+  expect(store.mutation(rescheduler.clientId, "exhausted-version")).toBeUndefined();
+  expect(store.reminder(exhausted.reminderId)).toMatchObject({ version: Number.MAX_SAFE_INTEGER, remindAt: exhausted.remindAt });
+});
+
+it("按改期身份和 UTC 整点小时独立记账，失败回滚，重放及回拨不多发额度", async () => {
+  const name = "reschedule-quota";
+  const creator = await pair(name);
+  const rescheduler = await pair(name, rescheduleScope);
+  const otherCreator = await pair("reschedule-quota-other");
+  const other = await pair("reschedule-quota-other", rescheduleScope);
+  now = Date.parse("2026-11-21T10:59:59.999Z");
+  const original = await create(creator.token, { ...input, afterSeconds: 86_400 });
+  const otherReminder = await create(otherCreator.token, { ...input, afterSeconds: 86_400 });
+  const store = runtime.store.assistantStore();
+  const rev = store.revision();
+  const quotaKey = `reminderRescheduleQuota.${rescheduler.clientId}`;
+  const args = { requestId: "change-0", reminderId: original.reminderId, version: 1, afterSeconds: 86_399 };
+  const failedWrite = vi.spyOn(AssistantStore.prototype, "rememberMutation")
+    .mockImplementationOnce(() => { throw new Error("fixture-write-failed"); });
+  expect((await call(rescheduleRoute, rescheduler.token, args)).status).toBe(500);
+  failedWrite.mockRestore();
+  expect(store.get(quotaKey)).toBeNull();
+  expect(store.revision()).toBe(rev);
+  expect(store.reminder(original.reminderId)).toMatchObject({ version: 1, remindAt: original.remindAt });
+  expect(store.mutation(rescheduler.clientId, args.requestId)).toBeUndefined();
+  const receipt = { requestId: args.requestId, reminderId: args.reminderId, version: 2, remindAt: now + 86_399_000 };
+  for (let change = 0; change < 30; change++) {
+    const res = await call(rescheduleRoute, rescheduler.token, { ...args, requestId: `change-${change}`, version: change + 1 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ...receipt, requestId: `change-${change}`, version: change + 2 });
+  }
+  const overflow = { ...args, requestId: "overflow", version: 31 };
+  const limited = await call(rescheduleRoute, rescheduler.token, overflow);
+  expect(limited.status).toBe(429);
+  expect(await limited.json()).toEqual({ error: "reminder_reschedule_quota" });
+  expect(store.revision()).toBe(rev + 30);
+  await runtime.stop();
+  runtime = await start();
+  expect(await (await call(rescheduleRoute, rescheduler.token, args)).json()).toEqual(receipt);
+  expect((await call(rescheduleRoute, rescheduler.token, overflow)).status).toBe(429);
+  expect((await call(rescheduleRoute, rescheduler.token, { ...args, afterSeconds: 1 })).status).toBe(409);
+  expect((await call(rescheduleRoute, other.token, { ...args, reminderId: otherReminder.reminderId })).status).toBe(200);
+  expect(await create(creator.token, { ...input, requestId: "creator-can-still-create", afterSeconds: 86_400 }))
+    .toMatchObject({ requestId: "creator-can-still-create" });
+  now -= 3_600_000;
+  expect((await call(rescheduleRoute, rescheduler.token, overflow)).status).toBe(429);
+  now = Date.parse("2026-11-21T11:00:00.000Z");
+  const nextHour = await call(rescheduleRoute, rescheduler.token, overflow);
+  expect(nextHour.status).toBe(200);
+  const nextHourReceipt = { requestId: "overflow", reminderId: args.reminderId, version: 32, remindAt: now + 86_399_000 };
+  expect(await nextHour.json()).toEqual(nextHourReceipt);
+  now--;
+  const afterRollback = { ...args, requestId: "after-rollback", version: 32 };
+  const rollbackDenied = await call(rescheduleRoute, rescheduler.token, afterRollback);
+  expect(rollbackDenied.status).toBe(429);
+  expect(await rollbackDenied.json()).toEqual({ error: "reminder_reschedule_quota" });
+  expect(await (await call(rescheduleRoute, rescheduler.token, overflow)).json()).toEqual(nextHourReceipt);
+  now++;
+  expect((await call(rescheduleRoute, rescheduler.token, afterRollback)).status).toBe(200);
 });

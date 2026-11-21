@@ -9,6 +9,7 @@ import {
   localTimeToUtc,
   normalizeAgentReminder,
   normalizeAgentReminderCancelInput,
+  normalizeAgentReminderRescheduleInput,
   todoText,
   validDateOnly,
   sessionProgressReply,
@@ -17,6 +18,7 @@ import {
   type ChatProvider,
   type AgentReminderReceipt,
   type AgentReminderCancelReceipt,
+  type AgentReminderRescheduleReceipt,
   type AgentReminderList,
   type DailyQuotaPolicy,
   type PersonalReminder,
@@ -249,10 +251,7 @@ export class AssistantService {
         if (cached.result !== JSON.stringify(receipt)) throw new AssistantError(503, "reminder_cancel_receipt_unavailable");
         return false;
       }
-      const target = this.store.agentReminderForCancellation(creator, reminderId);
-      if (!target) throw new AssistantError(404, "reminder_not_found");
-      if (target.version !== version) throw new AssistantError(409, "version_conflict");
-      if (target.status !== "pending" || target.attempts !== 0) throw new AssistantError(409, "reminder_not_pending");
+      this.requirePendingAgentReminder(creator, reminderId, version);
       this.store.deleteReminder(reminderId);
       this.store.rememberMutation(client, requestId, hash, receipt);
       this.store.changed();
@@ -260,6 +259,50 @@ export class AssistantService {
     });
     if (changed) this.changed();
     return receipt;
+  }
+  rescheduleAgentReminder(client: string, creator: string, raw: unknown): AgentReminderRescheduleReceipt {
+    const input = normalizeAgentReminderRescheduleInput(raw);
+    if (!input) throw new AssistantError(400, "reminder_reschedule_input_invalid");
+    const { requestId, reminderId, version, afterSeconds } = input;
+    const hash = fingerprint({ action: "reminder.reschedule", ...input });
+    const nextVersion = version + 1;
+    const { receipt, changed } = this.store.transaction(() => {
+      const cached = this.store.mutation(client, requestId);
+      if (cached) {
+        if (cached.hash !== hash) throw new AssistantError(409, "request_id_conflict");
+        let stored: Partial<AgentReminderRescheduleReceipt> | null;
+        try { stored = JSON.parse(cached.result); }
+        catch { throw new AssistantError(503, "reminder_reschedule_receipt_unavailable"); }
+        const remindAt = stored?.remindAt;
+        if (typeof remindAt !== "number" || !Number.isSafeInteger(remindAt) || remindAt <= 0 ||
+            !Number.isSafeInteger(nextVersion)) {
+          throw new AssistantError(503, "reminder_reschedule_receipt_unavailable");
+        }
+        const receipt = { requestId, reminderId, remindAt, version: nextVersion };
+        if (cached.result !== JSON.stringify(receipt)) {
+          throw new AssistantError(503, "reminder_reschedule_receipt_unavailable");
+        }
+        return { receipt, changed: false };
+      }
+      this.requirePendingAgentReminder(creator, reminderId, version);
+      if (!Number.isSafeInteger(nextVersion)) throw new AssistantError(409, "reminder_version_exhausted");
+      const now = this.now();
+      const remindAt = now + afterSeconds * 1000;
+      const receipt = { requestId, reminderId, remindAt, version: nextVersion };
+      this.store.consumeAgentReminderQuota("reschedule", client, now);
+      this.store.rescheduleReminder(reminderId, remindAt);
+      this.store.rememberMutation(client, requestId, hash, receipt);
+      this.store.changed();
+      return { receipt, changed: true };
+    });
+    if (changed) this.changed();
+    return receipt;
+  }
+  private requirePendingAgentReminder(creator: string, reminderId: string, version: number): void {
+    const target = this.store.agentReminderTarget(creator, reminderId);
+    if (!target) throw new AssistantError(404, "reminder_not_found");
+    if (target.version !== version) throw new AssistantError(409, "version_conflict");
+    if (target.status !== "pending" || target.attempts !== 0) throw new AssistantError(409, "reminder_not_pending");
   }
   private applyMutation(
     client: string,
@@ -424,7 +467,7 @@ export class AssistantService {
           if (current && current.status !== "pending")
             throw new AssistantError(409, "reminder_not_pending");
           const now = this.now();
-          if (afterSeconds !== undefined) this.store.consumeReminderCreationQuota(client, now);
+          if (afterSeconds !== undefined) this.store.consumeAgentReminderQuota("creation", client, now);
           if (creating && this.store.reminders().length >= 200)
             throw new AssistantError(409, "reminder_limit");
           const todoId =

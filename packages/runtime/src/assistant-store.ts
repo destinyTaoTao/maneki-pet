@@ -243,7 +243,7 @@ export class AssistantStore {
   }
   private agentReminderRows(creatorId: string, id?: string): Iterable<AgentReminderRow> {
     // 先用 mutation 主键前缀限定来源，再用回执中的 UUID 与提醒主键关联。
-    // 失效回执不参与关联。查询只看未认领的提醒，取消需区分不存在与已认领。
+    // 失效回执不参与关联。查询只看未认领的提醒，写操作需区分不存在与已认领。
     return this.db.prepare(`
       SELECT r.id AS reminderId, r.message, r.remind_at AS remindAt, r.version, r.status, r.attempts,
         m.request_id AS requestId, m.hash, m.result
@@ -263,7 +263,7 @@ export class AssistantStore {
     }
     return [...reminders.values()];
   }
-  agentReminderForCancellation(creatorId: string, id: string): Pick<AgentReminderRow, "version" | "status" | "attempts"> | undefined {
+  agentReminderTarget(creatorId: string, id: string): Pick<AgentReminderRow, "version" | "status" | "attempts"> | undefined {
     for (const row of this.agentReminderRows(creatorId, id)) {
       if (hasCreationReceipt(row)) return { version: row.version, status: row.status, attempts: row.attempts };
     }
@@ -288,6 +288,9 @@ export class AssistantStore {
   }
   deleteReminder(id: string): void {
     this.db.prepare("DELETE FROM assistant_reminders WHERE id=?").run(id);
+  }
+  rescheduleReminder(id: string, remindAt: number): void {
+    this.db.prepare("UPDATE assistant_reminders SET remind_at=?,version=version+1 WHERE id=?").run(remindAt, id);
   }
   acknowledgeReminder(id: string, seenAt: number): void {
     this.db
@@ -463,9 +466,9 @@ export class AssistantStore {
       )
       .get(client, id) as { hash: string; result: string } | undefined;
   }
-  /** 与提醒和回执共用事务。时钟回拨时沿用已记账的小时，避免重复发放额度。 */
-  consumeReminderCreationQuota(client: string, now: number): void {
-    const key = `reminderCreationQuota.${client}`;
+  /** 与提醒和回执共用事务。回拨时创建沿用已记账小时，改期拒绝新请求。 */
+  consumeAgentReminderQuota(operation: "creation" | "reschedule", client: string, now: number): void {
+    const key = operation === "creation" ? `reminderCreationQuota.${client}` : `reminderRescheduleQuota.${client}`;
     const hour = Math.floor(now / 3_600_000);
     const saved = this.get(key);
     let previous = { hour, count: 0 };
@@ -476,7 +479,9 @@ export class AssistantStore {
     if (!previous || !Number.isSafeInteger(previous.hour) || !Number.isInteger(previous.count) ||
         previous.count < 0 || previous.count > MAX_AGENT_REMINDERS_PER_HOUR) throw new AssistantError(503, "reminder_quota_unavailable");
     const count = hour > previous.hour ? 0 : previous.count;
-    if (count >= MAX_AGENT_REMINDERS_PER_HOUR) throw new AssistantError(429, "reminder_creation_quota");
+    if (count >= MAX_AGENT_REMINDERS_PER_HOUR || (operation === "reschedule" && hour < previous.hour)) {
+      throw new AssistantError(429, `reminder_${operation}_quota`);
+    }
     this.set(key, JSON.stringify({ hour: Math.max(hour, previous.hour), count: count + 1 }));
   }
   rememberMutation(

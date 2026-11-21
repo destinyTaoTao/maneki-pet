@@ -11,6 +11,7 @@ import {
   NAMED_CLIENT_SCOPES,
   REMINDER_CANCEL_SCOPE,
   REMINDER_READ_SCOPE,
+  REMINDER_RESCHEDULE_SCOPE,
   REMINDER_SCOPE,
   REMINDER_SCOPES,
   SETTINGS_SCOPE,
@@ -24,6 +25,7 @@ import {
   reminderCancelIdentityProof,
   reminderIdentityProof,
   reminderReadIdentityProof,
+  reminderRescheduleIdentityProof,
   runtimeIdentityProof,
   speechHostIdentityProof,
   TicketIssuer,
@@ -46,17 +48,21 @@ const clientProofs = {
   reminder: { scope: REMINDER_SCOPE, sign: reminderIdentityProof },
   "reminder-read": { scope: REMINDER_READ_SCOPE, sign: reminderReadIdentityProof },
   "reminder-cancel": { scope: REMINDER_CANCEL_SCOPE, sign: reminderCancelIdentityProof },
+  "reminder-reschedule": { scope: REMINDER_RESCHEDULE_SCOPE, sign: reminderRescheduleIdentityProof },
 } as const;
 const reminderRoutes = {
   [REMINDER_SCOPE]: { identity: "/v1/reminders/identity", method: "POST", operation: "/v1/reminders" },
   [REMINDER_READ_SCOPE]: { identity: "/v1/reminders/read/identity", method: "GET", operation: "/v1/reminders/pending" },
   [REMINDER_CANCEL_SCOPE]: { identity: "/v1/reminders/cancel/identity", method: "POST", operation: "/v1/reminders/cancel" },
+  [REMINDER_RESCHEDULE_SCOPE]: { identity: "/v1/reminders/reschedule/identity", method: "POST", operation: "/v1/reminders/reschedule" },
 } as const;
+const reminderManagementScopes = [REMINDER_READ_SCOPE, REMINDER_CANCEL_SCOPE, REMINDER_RESCHEDULE_SCOPE] as const;
 const revokeRoutes = new Map<string, Exclude<keyof typeof clientProofs, "expression">>([
   ["/v1/admin/briefing/revoke", "briefing"],
   ["/v1/admin/reminders/revoke", "reminder"],
   ["/v1/admin/reminders/read/revoke", "reminder-read"],
   ["/v1/admin/reminders/cancel/revoke", "reminder-cancel"],
+  ["/v1/admin/reminders/reschedule/revoke", "reminder-reschedule"],
 ]);
 
 export interface LocalHttpApiDeps {
@@ -195,9 +201,10 @@ export class LocalHttpApi {
       const reminderProof = this.clientProof(req, "reminder", boundPort);
       const reminderReadProof = this.clientProof(req, "reminder-read", boundPort);
       const reminderCancelProof = this.clientProof(req, "reminder-cancel", boundPort);
-      if (reminderReadProof || reminderCancelProof) res.setHeader("cache-control", "no-store");
+      const reminderRescheduleProof = this.clientProof(req, "reminder-reschedule", boundPort);
+      if (reminderReadProof || reminderCancelProof || reminderRescheduleProof) res.setHeader("cache-control", "no-store");
       this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version,
-        ...proof, ...speechProof, expressionProof, briefingProof, reminderProof, reminderReadProof, reminderCancelProof });
+        ...proof, ...speechProof, expressionProof, briefingProof, reminderProof, reminderReadProof, reminderCancelProof, reminderRescheduleProof });
       return;
     }
 
@@ -367,7 +374,7 @@ export class LocalHttpApi {
           this.sendJson(res, 409, { error: namedScope === BRIEFING_SCOPE ? "briefing_name_already_registered" : "reminder_name_already_registered" });
           return;
         }
-        if ((namedScope === REMINDER_READ_SCOPE || namedScope === REMINDER_CANCEL_SCOPE) &&
+        if (reminderManagementScopes.some(scope => scope === namedScope) &&
             !this.deps.store.findNamedClient(name, REMINDER_SCOPE)) {
           this.sendJson(res, 409, { error: "reminder_creator_not_registered" });
           return;
@@ -388,7 +395,7 @@ export class LocalHttpApi {
         createdAt: new Date().toISOString(),
       });
       this.deps.store.audit("client.paired", clientId, { name: checked.value.name, scopes: requested }, new Date().toISOString());
-      if (namedScope === REMINDER_READ_SCOPE || namedScope === REMINDER_CANCEL_SCOPE) res.setHeader("cache-control", "no-store");
+      if (reminderManagementScopes.some(scope => scope === namedScope)) res.setHeader("cache-control", "no-store");
       this.sendJson(res, 200, { clientId, token });
       return;
     }
@@ -402,10 +409,11 @@ export class LocalHttpApi {
         this.sendJson(res, 400, { error: `${purpose}_name_invalid` });
         return;
       }
-      const target = this.deps.store.findNamedClient(body.name, clientProofs[purpose].scope);
+      const { scope } = clientProofs[purpose];
+      const target = this.deps.store.findNamedClient(body.name, scope);
       if (!target) { this.sendJson(res, 404, { error: `${purpose}_client_not_found` }); return; }
       if (!target.revokedAt) this.revokeClient(target.clientId, client.clientId);
-      if (purpose === "reminder-read" || purpose === "reminder-cancel") res.setHeader("cache-control", "no-store");
+      if (reminderManagementScopes.some(managementScope => managementScope === scope)) res.setHeader("cache-control", "no-store");
       this.sendJson(res, 200, { revoked: target.clientId });
       return;
     }
@@ -630,7 +638,11 @@ export class LocalHttpApi {
         return;
       }
       const body = await this.readJson(req, res);
-      if (body) this.sendJson(res, 200, assistant.cancelAgentReminder(client.clientId, owner.clientId, body));
+      if (!body) return;
+      const receipt = scope === REMINDER_CANCEL_SCOPE
+        ? assistant.cancelAgentReminder(client.clientId, owner.clientId, body)
+        : assistant.rescheduleAgentReminder(client.clientId, owner.clientId, body);
+      this.sendJson(res, 200, receipt);
     } catch (error) {
       if (!(error instanceof AssistantError)) throw error;
       this.sendJson(res, error.status, { error: error.code });

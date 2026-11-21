@@ -41,6 +41,18 @@ export interface AgentReminderCancelReceipt {
   cancelled: true;
 }
 
+export interface AgentReminderRescheduleInput extends AgentReminderCancelInput {
+  afterSeconds: number;
+}
+
+export interface AgentReminderRescheduleReceipt extends AgentReminderReceipt {
+  version: number;
+}
+
+function validReminderDelay(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_AGENT_REMINDER_DELAY_SECONDS;
+}
+
 /** 取消必需用户已消歧的完整 ID 和查询所得版本，禁止透传其他字段。 */
 export function normalizeAgentReminderCancelInput(input: unknown): AgentReminderCancelInput | null {
   if (typeof input !== "object" || !input || Array.isArray(input)) return null;
@@ -53,6 +65,17 @@ export function normalizeAgentReminderCancelInput(input: unknown): AgentReminder
   return { requestId, reminderId, version };
 }
 
+/** 改期使用取消所需的精确定位字段，并校验新的相对延时。 */
+export function normalizeAgentReminderRescheduleInput(input: unknown): AgentReminderRescheduleInput | null {
+  if (typeof input !== "object" || !input || Array.isArray(input)) return null;
+  const keys = Object.keys(input);
+  if (keys.length !== 4 || !keys.includes("afterSeconds")) return null;
+  const { afterSeconds, ...target } = input as Record<string, unknown>;
+  if (!validReminderDelay(afterSeconds)) return null;
+  const normalized = normalizeAgentReminderCancelInput(target);
+  return normalized ? { ...normalized, afterSeconds } : null;
+}
+
 /** 将用户的一次提醒意图规范化，供客户端和受理写入的 Runtime 共同校验。 */
 export function normalizeAgentReminder(input: unknown): AgentReminderInput | null {
   if (typeof input !== "object" || !input || Array.isArray(input)) return null;
@@ -60,8 +83,7 @@ export function normalizeAgentReminder(input: unknown): AgentReminderInput | nul
   if (keys.length !== 3 || !keys.includes("requestId") || !keys.includes("afterSeconds") || !keys.includes("message")) return null;
   const { requestId, afterSeconds, message } = input as Record<string, unknown>;
   if (typeof requestId !== "string" || !AGENT_REMINDER_ID_PATTERN.test(requestId) ||
-      typeof afterSeconds !== "number" || !Number.isInteger(afterSeconds) ||
-      afterSeconds < 1 || afterSeconds > MAX_AGENT_REMINDER_DELAY_SECONDS || typeof message !== "string") return null;
+      !validReminderDelay(afterSeconds) || typeof message !== "string") return null;
   const text = message.trim();
   if (text.length === 0 || text.length > MAX_AGENT_REMINDER_MESSAGE_LENGTH || invalidReminderCharacter.test(text)) return null;
   return { requestId, afterSeconds, message: text };
