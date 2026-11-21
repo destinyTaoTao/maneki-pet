@@ -1008,6 +1008,23 @@ SDK `createReminderClient({baseUrl,tokenFile}).createReminder(input,signal?)`、
 
 校验去除首尾空白后的正文长度和字符。为使 SQLite 与 Windows XML 通知能无损传递文字，正文须为合法 Unicode，拒绝孤立代理码元、U+FFFE、U+FFFF，以及除制表、换行、回车外的 C0 控制字符（包括 NUL）。普通中英文、表情符号和 XML 标点按文字处理。无效参数返回 HTTP 400，未保存提醒。
 
+<a id="agent-reminder-management"></a>
+
+#### Personal agent 查询和取消自己的提醒
+
+本机管理员可以分别为一个已登记的 `reminder_create` 名称签发独立 `reminder_read` 和 `reminder_cancel` 凭证。首版只处理同名创建身份经 `POST /v1/reminders` 安排的提醒，包括发布查询功能前创建的记录。Runtime 以同名创建身份的固定 clientId 和已提交的创建回执证明归属。普通桌面提醒和其他 agent 的提醒由原个人助手入口管理。无同名创建身份时签发返回 409；撤销其中一项凭证不影响同名其他权限，包含已撤销的创建凭证仍能作为归属记录。各权限的名称均不可再签发，轮换需显式登记新创建身份。
+
+| 路由 | 权限 | 成功响应 |
+|---|---|---|
+| `GET /v1/reminders/pending` | `reminder_read` | `{reminders:[{reminderId,message,remindAt,version}]}`，按到期时间和 ID 排序，最多 200 条。仅返回仍待投递且从未认领过的自有提醒。 |
+| `POST /v1/reminders/cancel` | `reminder_cancel` | JSON `{requestId,reminderId,version}`，返回 `{requestId,reminderId,cancelled:true}`。成功取消删除待投递记录并持久保存回执。 |
+
+取消要求完整小写 UUID、查询返回的正整数版本与调用方生成的请求 ID（沿用创建的 ID 文法）。目标归属、版本、pending 状态和零次投递尝试在同一 SQLite 事务中校验，且与持久回执一起提交。不存在或归属不符返回同样的 404；版本已变或已开始投递返回 409。调度认领先成功时，取消不能撤回系统通知；取消先成功则不会再认领。同一取消身份用同一请求 ID 和参数重试时返回原回执，包括重启后。相同 ID 换目标或版本返回 409。同名提醒始终是不同目标。取消桥应让 agent 消歧，模型或宿主不得把模糊标题直接交给 Runtime 匹配。
+
+与创建使用相同的回环同连接握手，能力名分别为 `reminder-read`、`reminder-cancel`，响应字段分别为 `reminderReadProof`、`reminderCancelProof`。对应身份探针为 `GET /v1/reminders/read/identity` 和 `GET /v1/reminders/cancel/identity`。管理员撤销路由为 `POST /v1/admin/reminders/read/revoke` 和 `POST /v1/admin/reminders/cancel/revoke`，各接收 `{name}`。三种提醒凭证不能混签，也不能互相调用专属路由。成功响应适用 `Cache-Control: no-store`。
+
+SDK `createReminderReadClient(...).listReminders(signal?)` 与 `createReminderCancelClient(...).cancelReminder(input,signal?)` 共用该契约。CLI 使用 `reminders` 和 `cancel-reminder --request-id <id> --reminder-id <id> --version <n>`。分别用 `MANEKI_REMINDER_READ_TOKEN_FILE`、`MANEKI_REMINDER_CANCEL_TOKEN_FILE` 配置两个独立 stdio 桥 `reminder-read-mcp.js`、`reminder-cancel-mcp.js`，每个桥只公布一个工具 `maneki_list_reminders`、`maneki_cancel_reminder`。dsh 按各自配置显式加载。升级 Runtime 与接入端后单独配对，无数据库迁移。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
