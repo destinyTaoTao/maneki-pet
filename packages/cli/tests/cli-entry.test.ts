@@ -83,3 +83,31 @@ it("remind 拒绝重复或无效参数，不回显提醒内容且只读取专属
   expect(missing.stdout).toBe("");
   expect(missing.stderr.trim()).toBe("需要可读的已配对 reminder_create 凭证文件");
 });
+
+it("提醒管理命令只读取各自的凭证，取消必须指定完整 ID 和版本", () => {
+  const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
+  fixtures.push(dir);
+  const createCredential = join(dir, "create-client.json");
+  writeFileSync(createCredential, JSON.stringify({
+    instanceId: "rt-test12345678", clientId: "client-aa0000000001", token: "a".repeat(43),
+  }));
+  const command = (...args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, "../dist/main.js"), ...args], {
+    env: { ...process.env, MANEKI_RUNTIME_URL: "http://127.0.0.1:1", MANEKI_REMINDER_TOKEN_FILE: createCredential,
+      MANEKI_REMINDER_READ_TOKEN_FILE: undefined, MANEKI_REMINDER_CANCEL_TOKEN_FILE: undefined },
+    encoding: "utf8", timeout: 5000, windowsHide: true,
+  });
+  const filtered = command("reminders", "--message", "private-text");
+  expect([filtered.status, filtered.stdout, filtered.stderr.trim()]).toEqual([2, "", "usage: maneki reminders"]);
+  const list = command("reminders");
+  expect([list.status, list.stdout, list.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_read 凭证文件"]);
+  const valid = ["--request-id", "cancel-1", "--reminder-id", "ab000000-0000-4000-a000-000000000001", "--version", "1"];
+  for (const args of [valid.slice(0, 4), [...valid.slice(0, 5), "1e0"], [...valid, "--version", "2"],
+    [...valid, "--message", "private-text"], ["--reminder-id", "ab000000", "--request-id", "cancel-1", "--version", "1"]]) {
+    const invalid = command("cancel-reminder", ...args);
+    expect([invalid.status, invalid.stdout, invalid.stderr.trim()]).toEqual([
+      2, "", "usage: maneki cancel-reminder --request-id <id> --reminder-id <id> --version <n>",
+    ]);
+  }
+  const cancel = command("cancel-reminder", ...valid);
+  expect([cancel.status, cancel.stdout, cancel.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_cancel 凭证文件"]);
+});

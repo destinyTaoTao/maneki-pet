@@ -5,7 +5,10 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { createBriefingClient, createExpressionClient, createReminderClient, type AgentReminderInput } from "../src/index.js";
+import {
+  createBriefingClient, createExpressionClient, createReminderCancelClient, createReminderClient, createReminderReadClient,
+  type AgentReminderCancelInput, type AgentReminderInput, type ReminderClientOptions,
+} from "../src/index.js";
 
 let dir: string;
 let tokenFile: string;
@@ -23,15 +26,19 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-type Capability = "expression" | "briefing" | "reminder";
+const proofFields = {
+  expression: "expressionProof", briefing: "briefingProof", reminder: "reminderProof",
+  "reminder-read": "reminderReadProof", "reminder-cancel": "reminderCancelProof",
+} as const;
+type Capability = keyof typeof proofFields;
 
-function healthProof(req: IncomingMessage, capability: Capability = "expression", domain = capability) {
+function healthProof(req: IncomingMessage, capability: Capability = "expression", domain = capability): Record<string, unknown> {
   const key = createHash("sha256").update(credential.token).digest();
   const proof = createHmac("sha256", key).update(JSON.stringify([
     `maneki-${domain}-proof-v1`, req.headers[`x-maneki-${capability}-client`],
     req.headers[`x-maneki-${capability}-challenge`], credential.instanceId, req.socket.localPort,
   ])).digest("hex");
-  return { protocolVersion: 1, instanceId: credential.instanceId, [`${capability}Proof`]: proof };
+  return { protocolVersion: 1, instanceId: credential.instanceId, [proofFields[capability]]: proof };
 }
 
 async function serve(listener: RequestListener): Promise<string> {
@@ -268,5 +275,100 @@ it("在已验证的同一连接提交规范化参数，仅接受 200 和对应�
   for (status of [202, 403, 409]) {
     body = "private response";
     await expect(client.createReminder(reminder)).rejects.toThrow(`Runtime 拒绝提醒请求 (HTTP ${status})`);
+  }
+});
+
+const summary = { reminderId: receipt.reminderId, message: reminderMessage, remindAt: receipt.remindAt, version: 2 };
+const cancellation = { requestId: "cancel-1", reminderId: summary.reminderId, version: summary.version };
+const cancelled = { requestId: cancellation.requestId, reminderId: cancellation.reminderId, cancelled: true };
+
+it.each([
+  ["reminder-read", (options: ReminderClientOptions) => createReminderReadClient(options).listReminders()],
+  ["reminder-cancel", (options: ReminderClientOptions) => createReminderCancelClient(options).cancelReminder(cancellation)],
+] as const)("%s 只在同一连接收到对应证明后发送凭证", async (purpose, invoke) => {
+  const requests: Array<[string | undefined, string | undefined]> = [];
+  let reason = "缺少证明";
+  const baseUrl = await serve((req, res) => {
+    requests.push([req.url, req.headers.authorization]);
+    expect(req.headers[`x-maneki-${purpose}-client`]).toBe(credential.clientId);
+    expect(req.headers[`x-maneki-${purpose}-challenge`]).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(req.headers["x-maneki-reminder-challenge"]).toBeUndefined();
+    const body = healthProof(req, purpose, reason === "错误 HMAC 域" ? "reminder" : purpose);
+    if (reason === "证明后断开") res.setHeader("connection", "close");
+    if (reason === "缺少证明") {
+      // 头部与 HMAC 域使用连字符，响应字段使用 camelCase。
+      body[`${purpose}Proof`] = body[proofFields[purpose]];
+      delete body[proofFields[purpose]];
+    }
+    res.end(JSON.stringify(body));
+  });
+  for (reason of ["缺少证明", "错误 HMAC 域", "证明后断开"]) {
+    await expect(invoke({ baseUrl, tokenFile })).rejects.toThrow("无法验证 Runtime");
+  }
+  expect(requests).toEqual(Array(3).fill(["/v1/health", undefined]));
+});
+
+it("提醒查询接受整批上限和桌面编辑的正文，拒绝无效投影和超限响应", async () => {
+  const summaries = {
+    reminders: Array.from({ length: 200 }, (_, i) => ({
+      ...summary, reminderId: `ab000000-0000-4000-a000-${i.toString(16).padStart(12, "0")}`, message: "\u0001".repeat(512),
+    })),
+  };
+  let body = JSON.stringify(summaries);
+  const baseUrl = await serveVerified((req, res) => {
+    expect([req.method, req.url]).toEqual(["GET", "/v1/reminders/pending"]);
+    res.end(body);
+  }, "reminder-read");
+  const client = createReminderReadClient({ baseUrl, tokenFile });
+  expect(Object.keys(client)).toEqual(["listReminders"]);
+  expect(await client.listReminders()).toEqual(summaries);
+  for (const invalid of [
+    { reminders: [], extra: "private" }, { reminders: null }, { reminders: Array(201).fill(summary) },
+    ...[
+      { reminderId: summary.reminderId.toUpperCase() }, { message: " " }, { message: "x".repeat(513) },
+      { version: 0 }, { version: 1.5 }, { remindAt: -1 }, { internal: "private" },
+    ].map((fields) => ({ reminders: [{ ...summary, ...fields }] })),
+    { reminders: [summary, { ...summary, remindAt: summary.remindAt + 1 }] },
+    { reminders: [summary, { ...summary, reminderId: summaries.reminders[0]!.reminderId }] },
+  ]) {
+    body = JSON.stringify(invalid);
+    await expect(client.listReminders()).rejects.toThrow(/^Runtime 待投递提醒列表格式无效$/);
+  }
+  body = " ".repeat(640 * 1024 + 1);
+  await expect(client.listReminders()).rejects.toThrow(/^Runtime 响应过大$/);
+});
+
+it("提醒取消在发送前拒绝模糊或无效目标，只接受匹配的回执并保留请求参数", async () => {
+  const requests: unknown[] = [];
+  let body = JSON.stringify(cancelled);
+  let status = 200;
+  const baseUrl = await serveVerified(async (req, res) => {
+    expect([req.method, req.url]).toEqual(["POST", "/v1/reminders/cancel"]);
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    res.writeHead(status).end(body);
+  }, "reminder-cancel");
+  const client = createReminderCancelClient({ baseUrl, tokenFile });
+  expect(Object.keys(client)).toEqual(["cancelReminder"]);
+  for (const invalid of [
+    { message: summary.message }, { requestId: cancellation.requestId, reminderId: cancellation.reminderId },
+    { ...cancellation, reminderId: "ab000000" }, { ...cancellation, reminderId: cancellation.reminderId.toUpperCase() },
+    { ...cancellation, version: 0 }, { ...cancellation, version: Number.MAX_SAFE_INTEGER + 1 },
+    { ...cancellation, version: "2" }, { ...cancellation, requestId: "private/arg" }, { ...cancellation, message: summary.message },
+  ]) {
+    await expect(client.cancelReminder(invalid as AgentReminderCancelInput)).rejects.toThrow(/^无效的取消提醒参数$/);
+  }
+  expect(requests).toEqual([]);
+  expect(await client.cancelReminder(cancellation)).toEqual(cancelled);
+  expect(await client.cancelReminder(cancellation)).toEqual(cancelled);
+  expect(requests).toEqual([cancellation, cancellation]);
+  for (const fields of [{ requestId: "other" }, { reminderId: "other" }, { cancelled: false }, { private: "private" }]) {
+    body = JSON.stringify({ ...cancelled, ...fields });
+    await expect(client.cancelReminder(cancellation)).rejects.toThrow(/^Runtime 取消提醒回执格式无效$/);
+  }
+  for (status of [403, 404, 409]) {
+    body = "private response";
+    await expect(client.cancelReminder(cancellation)).rejects.toThrow(`Runtime 拒绝取消提醒请求 (HTTP ${status})`);
   }
 });

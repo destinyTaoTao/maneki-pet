@@ -15,9 +15,12 @@ export class BriefingClientError extends Error {}
 export class ReminderClientError extends Error {}
 
 const endpoints = {
-  expression: { scope: "express", path: "/v1/expressions/state", label: "状态", identity: "表达", Error: ExpressionClientError, maxBytes: 1024, postStatus: 202 },
-  briefing: { scope: "briefing_read", path: "/v1/briefing", label: "简报", identity: "简报", Error: BriefingClientError, maxBytes: 32 * 1024, postStatus: 200 },
-  reminder: { scope: "reminder_create", path: "/v1/reminders", label: "提醒", identity: "提醒", Error: ReminderClientError, maxBytes: 1024, postStatus: 200 },
+  expression: { scope: "express", path: "/v1/expressions/state", proofField: "expressionProof", label: "状态", identity: "表达", Error: ExpressionClientError, maxBytes: 1024, postStatus: 202 },
+  briefing: { scope: "briefing_read", path: "/v1/briefing", proofField: "briefingProof", label: "简报", identity: "简报", Error: BriefingClientError, maxBytes: 32 * 1024, postStatus: 200 },
+  reminder: { scope: "reminder_create", path: "/v1/reminders", proofField: "reminderProof", label: "提醒", identity: "提醒", Error: ReminderClientError, maxBytes: 1024, postStatus: 200 },
+  // 兼容桌面编辑的正文，200 条各 512 个 UTF-16 码元，按每码元最多 6 字节 JSON 转义预留空间。
+  "reminder-read": { scope: "reminder_read", path: "/v1/reminders/pending", proofField: "reminderReadProof", label: "查询提醒", identity: "提醒查询", Error: ReminderClientError, maxBytes: 640 * 1024, postStatus: 200 },
+  "reminder-cancel": { scope: "reminder_cancel", path: "/v1/reminders/cancel", proofField: "reminderCancelProof", label: "取消提醒", identity: "提醒取消", Error: ReminderClientError, maxBytes: 1024, postStatus: 200 },
 } as const;
 type Endpoint = typeof endpoints[keyof typeof endpoints];
 
@@ -96,8 +99,8 @@ async function call(endpoint: Endpoint, port: number, agent: Agent, signal: Abor
 }
 
 /** 只在相应能力的挑战通过后，在同一个 socket 上发送配对凭证。 */
-export function createPairedTransport(capability: keyof typeof endpoints, options: PairedClientOptions) {
-  const endpoint = endpoints[capability];
+export function createPairedTransport(purpose: keyof typeof endpoints, options: PairedClientOptions) {
+  const endpoint = endpoints[purpose];
   const portText = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(options.baseUrl)?.[1];
   if (!portText || Number(portText) > 65535) {
     throw new endpoint.Error("Runtime 地址必须为 http://127.0.0.1:<port>");
@@ -112,11 +115,11 @@ export function createPairedTransport(capability: keyof typeof endpoints, option
     try {
       const challenge = randomBytes(32).toString("base64url");
       const health = await call(endpoint, port, agent, deadline, "/v1/health", {
-        [`x-maneki-${capability}-client`]: clientId, [`x-maneki-${capability}-challenge`]: challenge,
+        [`x-maneki-${purpose}-client`]: clientId, [`x-maneki-${purpose}-challenge`]: challenge,
       });
-      const proof = health.body[`${capability}Proof`];
+      const proof = health.body[endpoint.proofField];
       const expected = createHmac("sha256", key)
-        .update(JSON.stringify([`maneki-${capability}-proof-v1`, clientId, challenge, instanceId, port])).digest();
+        .update(JSON.stringify([`maneki-${purpose}-proof-v1`, clientId, challenge, instanceId, port])).digest();
       if (health.body.protocolVersion !== 1 || health.body.instanceId !== instanceId ||
           typeof proof !== "string" || !/^[0-9a-f]{64}$/.test(proof) || !timingSafeEqual(expected, Buffer.from(proof, "hex"))) {
         throw new endpoint.Error(`无法验证 Runtime 的${endpoint.identity}身份`);
