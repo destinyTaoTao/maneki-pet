@@ -89,7 +89,7 @@ Windows、Node 24.12.0、dsh `0.2.2-rc.1` 的隔离 profile 已验证工具发�
 
 ## 让 dsh 安排一次提醒
 
-在已配置模型的 dsh 中输入「半小时后提醒我休息」。工具调用成功后，小招返回提醒 ID 和到期时间。可以退出 dsh，保持小招后台运行，到期时由它投递通知。要查看、更改或取消这条提醒，请打开小招的个人助手面板。
+在已配置模型的 dsh 中输入「半小时后提醒我休息」。工具调用成功后，小招返回提醒 ID 和到期时间。可以退出 dsh，保持小招后台运行，到期时由它投递通知。小招的个人助手面板可查看、改期和取消提醒。dsh 可按下节单独启用查询和取消。
 
 先从源码构建并启动 Runtime。以下示例在仓库根目录运行，使用接入指南的演示目录和端口。`reminder_create` 允许这个具名客户端安排多条提醒，提醒文字会出现在本机通知中。为每个需要使用它的 profile 单独命名和授权。[启动示例](../../README.md#接入小招)
 
@@ -113,6 +113,35 @@ node packages/runtime/scripts/pair-reminder-client.mjs "$runtimeDir" $port dsh-w
 ```
 
 **在 Windows 重跑验收会发出一条真实的「休息」通知。** 从已构建的仓库运行 `node scripts/acceptance-dsh-reminder.mjs`，也可追加本机 dsh 的 `lib/bin.js` 路径。验收在隔离 profile 中将上述中文句子送进 dsh 的原生对话循环，由本地确定性 Provider 解析并请求工具。Windows、Node 24.12.0、dsh `0.2.2-rc.1` 实测重试返回同一回执，撤销后新建被拒。宿主退出后，脚本推进测试 Runtime 的时钟并重启后台，验证到期前仍待投递、到期时 Windows 受理一次、再重启后投递次数仍为一。在线模型自主选择工具、用户是否看到系统横幅及其他平台仍待验证。[验收脚本](../../scripts/acceptance-dsh-reminder.mjs)
+
+## 让 dsh 查询和取消自己安排的提醒
+
+在 dsh 中安排提醒后，可继续说「帮我看看还有哪些提醒，把刚才那个休息提醒取消掉」。`reminder_read` 允许读取这个 profile 创建且尚未开始投递的提醒正文、到期时间、ID 和版本。`reminder_cancel` 允许取消同范围内的提醒。dsh 可以把查询结果交给它配置的模型。两项权限须分别授权，并使用上节已登记的创建身份名称。桌面或其他 agent 安排的提醒在小招个人助手面板管理。
+
+更新 Runtime 和 CLI 后，在仓库根目录执行。以下沿用上节的 `$runtimeDir`、`$port`、`$reminderPatch` 和 `MANEKI_REMINDER_URL`。
+
+```powershell
+$env:MANEKI_REMINDER_READ_BRIDGE = (Resolve-Path packages/cli/dist/reminder-read-mcp.js).Path
+$env:MANEKI_REMINDER_READ_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-read-client.mjs "$runtimeDir" $port dsh-web --allow-reminder-read
+if ($LASTEXITCODE -ne 0) { throw '提醒查询配对失败' }
+$env:MANEKI_REMINDER_CANCEL_BRIDGE = (Resolve-Path packages/cli/dist/reminder-cancel-mcp.js).Path
+$env:MANEKI_REMINDER_CANCEL_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-cancel-client.mjs "$runtimeDir" $port dsh-web --allow-reminder-cancel
+if ($LASTEXITCODE -ne 0) { throw '提醒取消配对失败' }
+$readPatch = (Resolve-Path apps/dsh-plugin/reminder-read.patch.example.yml).Path
+$cancelPatch = (Resolve-Path apps/dsh-plugin/reminder-cancel.patch.example.yml).Path
+dsh --profile web --patch "$reminderPatch" --patch "$readPatch" --patch "$cancelPatch"
+```
+
+查询和取消分别注册为 `mcp__maneki_reminder_read__maneki_list_reminders`、`mcp__maneki_reminder_cancel__maneki_cancel_reminder`。按需加载对应 patch，例如只读场景只加载 `$readPatch`。取消时先查询当前列表，用目标的完整 `reminderId` 与 `version` 提交。遇到同名时，可以结合上一轮创建回执定位。仍有歧义时，请用户确认具体提醒。发生超时或回执丢失时，用原请求 ID、提醒 ID 和版本重取回执。[查询与取消契约](../../docs/architecture.md#agent-reminder-management)
+
+在同一 Runtime 上按需执行对应撤销命令。撤销后其他已授予权限和仍待投递的提醒保留。若需轮换已撤销的权限，先登记新的创建身份名称。
+
+```powershell
+node packages/runtime/scripts/pair-reminder-read-client.mjs "$runtimeDir" $port dsh-web --revoke-reminder-read
+node packages/runtime/scripts/pair-reminder-cancel-client.mjs "$runtimeDir" $port dsh-web --revoke-reminder-cancel
+```
+
+从已构建的仓库运行 `node scripts/acceptance-dsh-reminder-management.mjs`，可用隔离 profile、真实 dsh 原生对话循环和本地确定性 Provider 检查两轮场景。脚本检查同名提醒的精确选择、版本冲突、回执重试和撤销隔离，并用注入的通知器核对到期投递。脚本也接受 dsh 的 `lib/bin.js` 绝对路径。[验收脚本](../../scripts/acceptance-dsh-reminder-management.mjs)
 
 ## 旧手工凭证模式（继续兼容）
 

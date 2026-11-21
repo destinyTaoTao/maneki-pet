@@ -45,8 +45,9 @@ export function writeProfile(dshHome, extraPlugins) {
   writeFileSync(join(profile, "cordis.patch.yml"), JSON.stringify([{ insert: [...plugins, ...extraPlugins] }]));
 }
 
-export async function exerciseHost(cwd, env, patch, revoke, signal) {
-  const child = fork(dshCli, ["--profile", "acceptance", "--patch", patch], {
+export async function exerciseHost(cwd, env, patches, revoke, signal) {
+  const patchArgs = [].concat(patches).flatMap(patch => ["--patch", patch]);
+  const child = fork(dshCli, ["--profile", "acceptance", ...patchArgs], {
     cwd, env, execArgv: [], windowsHide: true, stdio: ["ignore", "ignore", "inherit", "ipc"],
   });
   const closed = once(child, "close");

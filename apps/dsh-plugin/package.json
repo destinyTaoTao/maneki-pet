@@ -19,6 +19,8 @@
     "cordis.patch.yml",
     "briefing.patch.example.yml",
     "reminder.patch.example.yml",
+    "reminder-read.patch.example.yml",
+    "reminder-cancel.patch.example.yml",
     "README.md"
   ],
   "scripts": {
