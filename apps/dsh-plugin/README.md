@@ -167,6 +167,33 @@ Windows 上的 dsh `0.2.2-rc.1` 已通过两轮隔离验收。本地确定性 Pr
 
 从已构建的仓库运行 `node scripts/acceptance-dsh-reminder-reschedule.mjs` 可重跑，也可附上本机 dsh 的 `lib/bin.js` 绝对路径。[验收脚本](../../scripts/acceptance-dsh-reminder-reschedule.mjs)
 
+## 让 dsh 安排每日提醒
+
+在已配置模型的 dsh 中输入「每天上午九点提醒我休息」。成功回执会给出系列 ID、每日时间、适用时区和下一次到期时间。小招使用创建时的助手设置时区，调整默认时区只影响新建规则。dsh 退出后，运行中的小招后台继续调度。
+
+给每个需要接入的 profile 单独签发 `reminder_recurring`。这个权限可以创建、查询和取消该身份自己的每日规则。dsh 可以把工具返回的提醒内容交给它配置的模型。先从源码构建并启动新版 Runtime，以下命令在仓库根目录运行，沿用演示目录和端口。
+
+```powershell
+$runtimeDir = Join-Path $env:LOCALAPPDATA 'ManekiIntegrationDemo'
+$port = 18101
+$env:MANEKI_REMINDER_URL = "http://127.0.0.1:$port"
+$env:MANEKI_REMINDER_RECURRING_BRIDGE = (Resolve-Path packages/cli/dist/reminder-recurring-mcp.js).Path
+$env:MANEKI_REMINDER_RECURRING_TOKEN_FILE = node packages/runtime/scripts/pair-reminder-recurring-client.mjs "$runtimeDir" $port dsh-web --allow-reminder-recurring
+if ($LASTEXITCODE -ne 0) { throw '每日提醒配对失败' }
+$dailyPatch = (Resolve-Path apps/dsh-plugin/reminder-recurring.patch.example.yml).Path
+dsh --profile web --patch "$dailyPatch"
+```
+
+dsh 注册 `mcp__maneki_reminder_recurring__maneki_remind_daily`、`mcp__maneki_reminder_recurring__maneki_list_daily_reminders` 和 `mcp__maneki_reminder_recurring__maneki_cancel_daily_reminder`。创建时传入 `localTime: "09:00"`、正文 `休息` 和新 `requestId`。取消时先查列表，核对所选规则的完整 `seriesId`，再用新的 `requestId` 取消。如果多条规则仍无法区分，请用户选定。超时或回执丢失后，用原请求 ID 和完整参数重试。取消后重试旧创建请求只会取回原回执。[每日提醒契约](../../docs/architecture.md#daily-reminders)
+
+下列命令撤销这个 profile 的每日提醒权限。已创建的规则会继续调度。如需同时停止提醒，请先取消对应系列，再撤销权限。
+
+```powershell
+node packages/runtime/scripts/pair-reminder-recurring-client.mjs "$runtimeDir" $port dsh-web --revoke-reminder-recurring
+```
+
+从已构建的仓库运行 `node scripts/acceptance-dsh-reminder-recurring.mjs` 可重跑隔离验收，也可附上本机 dsh 的 `lib/bin.js` 绝对路径。脚本用本地确定性 Provider 驱动真实 dsh 对话循环，用注入的通知器记录 Runtime 在模拟到期时刻的投递。[验收脚本](../../scripts/acceptance-dsh-reminder-recurring.mjs)
+
 ## 旧手工凭证模式（继续兼容）
 
 先从仓库构建：`pnpm -r build`。桌面和 Runtime 必须使用本轮构建，旧安装版没有新的状态接口。构建原生壳可运行 `pnpm --filter @maneki-pet/desktop tauri build --no-bundle`；它使用已准备的本地动作包。

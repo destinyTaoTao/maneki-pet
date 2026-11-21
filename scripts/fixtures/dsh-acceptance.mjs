@@ -56,7 +56,7 @@ export async function exerciseHost(cwd, env, patches, revoke, signal) {
   try {
     for await (const [message] of on(child, "message", { close: ["close"], signal })) {
       if (message.type === "revoke") {
-        assert.equal(revoked, false);
+        assert.ok(revoke && !revoked, "本轮无法撤销或已经撤销");
         await revoke();
         revoked = true;
         child.send("revoked");
@@ -67,7 +67,8 @@ export async function exerciseHost(cwd, env, patches, revoke, signal) {
       }
     }
     assert.equal((await closed)[0], 0, "dsh 未正常退出");
-    assert.ok(revoked && result, "dsh 未完成工具调用和撤销检查");
+    assert.ok(result, "dsh 未完成工具调用");
+    if (revoke) assert.ok(revoked, "dsh 未完成撤销检查");
     return result;
   } finally {
     if (child.exitCode === null && child.signalCode === null) {

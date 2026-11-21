@@ -43,10 +43,10 @@ export async function runProbe(ctx, run) {
   });
 }
 
-export async function toolCaller(ctx, agent, server, tool, signal) {
+export async function toolCaller(ctx, agent, server, tool, signal, expectedTools = [tool]) {
   const schemas = () => ctx.tools.schemas(agent).map(schema => schema.name).filter(name => name.startsWith(`mcp__${server}__`));
-  await waitFor(() => schemas().includes(tool), `dsh 未发现工具 ${tool}`, signal);
-  assert.deepEqual(schemas(), [tool]);
+  await waitFor(() => expectedTools.every(name => schemas().includes(name)), `dsh 未发现 ${server} 的完整工具集`, signal);
+  assert.deepEqual(schemas().sort(), [...expectedTools].sort());
 
   let call = 0;
   return async function invoke(args = {}) {
