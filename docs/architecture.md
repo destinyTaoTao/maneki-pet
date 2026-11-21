@@ -1025,6 +1025,17 @@ SDK `createReminderClient({baseUrl,tokenFile}).createReminder(input,signal?)`、
 
 SDK `createReminderReadClient(...).listReminders(signal?)` 与 `createReminderCancelClient(...).cancelReminder(input,signal?)` 共用该契约。CLI 使用 `reminders` 和 `cancel-reminder --request-id <id> --reminder-id <id> --version <n>`。分别用 `MANEKI_REMINDER_READ_TOKEN_FILE`、`MANEKI_REMINDER_CANCEL_TOKEN_FILE` 配置两个独立 stdio 桥 `reminder-read-mcp.js`、`reminder-cancel-mcp.js`，每个桥只公布一个工具 `maneki_list_reminders`、`maneki_cancel_reminder`。dsh 按各自配置显式加载。升级 Runtime 与接入端后单独配对，无数据库迁移。
 
+<a id="agent-reminder-reschedule"></a>
+
+#### Personal agent 精确改期自己的提醒
+
+本机管理员给已有同名创建身份单独签发 `reminder_reschedule`。归属、签发、独立撤销和保留原创建登记沿用查询与取消。该凭证只开放 `GET /v1/reminders/reschedule/identity` 和 `POST /v1/reminders/reschedule`。管理员用 `POST /v1/admin/reminders/reschedule/revoke` 和 `{name}` 撤销。使用回环同连接握手，能力名为 `reminder-reschedule`，响应字段为 `reminderRescheduleProof`。成功响应适用 `Cache-Control: no-store`。
+
+- 改期只接受 `{requestId,reminderId,version,afterSeconds}`。前三个字段与取消一致，afterSeconds 为 1 至 31622400 的整数。「一小时后」传 3600。首次成功受理以 Runtime 时钟计算新到期时间；事务提交后返回 HTTP 200 和 `{requestId,reminderId,remindAt,version}`，其中 version 为新版本，remindAt 为 Unix 毫秒。
+- 同一事务内检查归属、版本、pending 和零次投递尝试，只更新原记录的到期时间并将版本增加 1。原 ID、正文和提醒时区保留。提交改期和首次回执后唤醒既有调度器，原到期时间被替换。投递先认领时返回 409；归属不符与不存在均返回 404。改期先更新时，调度只使用新到期时间。取消与改期竞争时，只有先通过版本检查的一项能成功。
+- 同一改期身份重试相同请求 ID、提醒 ID、版本和延时，返回原到期时间和新版本，包括重启、后续再改期或取消之后。已提交的请求 ID 换参数返回 409；失败不记为成功回执。每个改期身份每 UTC 整点小时最多成功改期 30 次，重放不占额度、失败不扣减，持久化配额与创建隔离。
+- SDK `createReminderRescheduleClient(...).rescheduleReminder(input,signal?)`、CLI `reschedule-reminder --request-id <id> --reminder-id <id> --version <n> --after-seconds <n>`，以及独立 stdio 桥 `reminder-reschedule-mcp.js` 的唯一工具 `maneki_reschedule_reminder` 共用上述接口。桥使用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE`。dsh 显式加载改期 patch，可同时加载查询桥。升级 Runtime 与接入端后单独配对，无数据库迁移。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
