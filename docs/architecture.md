@@ -830,7 +830,7 @@ Maneki MCP Server 初始提供表达工具，不提供执行/审批工具：
 | `maneki_set_state(state)` | 当前来源的展示状态意图，受仲裁限制 | M2 |
 | `maneki_play(action)` | 播放已安装包中的动作 ID | M2 |
 | `maneki_notify(title, body, urgency)` | 受限额与防打扰控制的通知 | M2 |
-| `maneki_remind(when, message)` | 创建该客户端权限范围内的本地提醒 | M4 |
+| `maneki_remind({requestId,afterSeconds,message})` | 经独立授权创建一次相对时间提醒，返回持久化回执；见[外部提醒契约](#agent-reminders) | M4 分项 |
 
 通用外部记忆服务可另走 MCP 客户端，权限独立于上述表达桥。首版 EverNook 走 §10.3 的适配器，授权与显式保存遵循 §4.4。
 
@@ -993,6 +993,18 @@ Windows 本地 ASR/TTS 内存管道、原生组件检测与故障替身已验证
 实施按 Runtime 上报/快照及回归 → 插件逐会话采集与兼容 → 面板和规则查询 → 真实 dsh 双会话/失联验证推进。必须覆盖旧表情入口、权限隔离、重复/迟到报告、上限、A 等输入而 B 完成、取消/失败以及租约过期；实机记录宿主版本、脱敏来源对照、结果与事件到动画采样。
 
 <a id="work-briefing"></a>
+
+<a id="agent-reminders"></a>
+
+#### Personal agent 创建一次提醒
+
+用户授权具名客户端的独立 `reminder_create` 权限后，客户端可用 `POST /v1/reminders`，传入严格对象 `{requestId,afterSeconds,message}`。requestId 匹配 `[A-Za-z0-9_-]{1,80}`，由调用方为每条用户意图生成并保留。afterSeconds 为 1 至 31622400（366 天）的整数，message 为非空文本，最多 512 个 UTF-16 码元，去除首尾空白。首次受理以 Runtime 时钟计算到期时间，事务提交后返回 HTTP 200 与 `{requestId,reminderId,remindAt}`（提醒 UUID、到期 Unix 毫秒）。授权后可创建多条提醒；该权限不能查询个人数据、删除提醒或立即发送通知。
+
+同一鉴权 clientId 和 requestId 持久绑定规范化后的内容、延时与首次回执。并发、重启或响应丢失后，相同参数返回原回执；不同参数返回 409。已投递、已删除或被本人修改的记录再次收到旧请求也只返回创建回执。不同意图使用不同 ID。沿用 SQLite 现有提醒与 mutation 记录，在同一事务写入；现有 200 项上限、勿扰、投递预算、重启恢复与 OS 受理语义生效。撤销只停止后续客户端操作，用户已安排的提醒继续由 Runtime 调度。
+
+该 scope 只能单独签发，名称、管理端复用校验与幂等撤销沿用简报机制，名称唯一性按 scope 隔离。提醒身份只允许上述 POST 和 `GET /v1/reminders/identity`；管理员使用 `POST /v1/admin/reminders/revoke` 与 `{name}` 撤销。按以下简报握手协议，将能力名替换为 `reminder`（头 x-maneki-reminder-client/challenge，响应 reminderProof，HMAC 域 maneki-reminder-proof-v1）；每次发送凭证前在同一 socket 完成校验。
+
+SDK `createReminderClient({baseUrl,tokenFile}).createReminder(input,signal?)`、CLI `remind --request-id <id> --after-seconds <n> --message <text>` 和独立 stdio 工具 `maneki_remind` 共用此契约。桥读取 `MANEKI_RUNTIME_URL`、`MANEKI_REMINDER_TOKEN_FILE`。状态和简报入口维持原有工具表。dsh 通过原生 MCP 客户端显式加载提醒桥。升级 Runtime 和对应客户端后单独授权，旧凭证、协议主版本及数据库格式兼容。
 
 #### Personal agent 的只读开工简报（2026-11-21）
 
