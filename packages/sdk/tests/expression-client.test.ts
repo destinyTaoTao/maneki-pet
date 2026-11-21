@@ -1,0 +1,135 @@
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type RequestListener } from "node:http";
+import type { Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import { createExpressionClient } from "../src/index.js";
+
+let dir: string;
+let tokenFile: string;
+const credential = { instanceId: "rt-test12345678", clientId: "client-aa0000000001", token: "" };
+let cleanup: (() => Promise<void>)[] = [];
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "maneki-sdk-"));
+  tokenFile = join(dir, "client-token");
+  credential.token = randomBytes(32).toString("base64url");
+  writeFileSync(tokenFile, JSON.stringify(credential));
+});
+afterEach(async () => {
+  for (const close of cleanup) await close();
+  cleanup = [];
+  rmSync(dir, { recursive: true, force: true });
+});
+
+function healthProof(req: IncomingMessage) {
+  const key = createHash("sha256").update(credential.token).digest();
+  const expressionProof = createHmac("sha256", key).update(JSON.stringify([
+    "maneki-expression-proof-v1", req.headers["x-maneki-expression-client"],
+    req.headers["x-maneki-expression-challenge"], credential.instanceId, req.socket.localPort,
+  ])).digest("hex");
+  return { protocolVersion: 1, instanceId: credential.instanceId, expressionProof };
+}
+
+async function serve(listener: RequestListener): Promise<string> {
+  const server = createServer(listener);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise<void>((resolve) => {
+    server.close(() => resolve());
+    server.closeAllConnections();
+  }));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("missing listener");
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function serveVerified(listener: RequestListener): Promise<string> {
+  const verified = new WeakSet<Socket>();
+  return serve((req, res) => {
+    if (req.url === "/v1/health" && !req.headers.authorization) {
+      verified.add(req.socket);
+      res.end(JSON.stringify(healthProof(req)));
+    } else if (verified.has(req.socket) && req.headers.authorization === `Bearer ${credential.token}`) {
+      listener(req, res);
+    } else {
+      res.writeHead(403).end();
+    }
+  });
+}
+
+it("仅连接显式 IPv4 回环端口，拒绝 root 和包含路径信息的凭证错误", () => {
+  for (const baseUrl of ["http://localhost:3000", "http://127.1:3000", "http://user@127.0.0.1:3000",
+    "http://127.0.0.1:3000/path", "http://127.0.0.1:0", "http://127.0.0.1:99999"]) {
+    expect(() => createExpressionClient({ baseUrl, tokenFile })).toThrow("127.0.0.1:<port>");
+  }
+  const baseUrl = "http://127.0.0.1:18100";
+  const root = join(dir, "root-token");
+  writeFileSync(root, randomBytes(32).toString("base64url"));
+  const legacy = join(dir, "legacy-token");
+  writeFileSync(legacy, credential.token);
+  for (const file of [root, legacy, join(dir, "private-file-path")]) {
+    expect(() => createExpressionClient({ baseUrl, tokenFile: file })).toThrow(/^需要可读的已配对 express 凭证文件$/);
+  }
+});
+
+it.each(["旧版本", "错误证明", "实例不匹配", "连接关闭"])("%s 的健康响应不会触发带凭证的请求", async (reason) => {
+  const methods: string[] = [];
+  let sawAuthorization = false;
+  const baseUrl = await serve((req, res) => {
+    methods.push(`${req.method} ${req.url}`);
+    sawAuthorization ||= req.headers.authorization !== undefined;
+    const proof = healthProof(req);
+    if (reason === "连接关闭") res.setHeader("connection", "close");
+    res.end(JSON.stringify({
+      ...proof,
+      ...(reason === "旧版本" ? { expressionProof: undefined } : {}),
+      ...(reason === "错误证明" ? { expressionProof: "0".repeat(64) } : {}),
+      ...(reason === "实例不匹配" ? { instanceId: "rt-000000000000" } : {}),
+    }));
+  });
+  const client = createExpressionClient({ baseUrl, tokenFile });
+  await expect(client.setState("working")).rejects.toThrow();
+  expect(methods).toEqual(["GET /v1/health"]);
+  expect(sawAuthorization).toBe(false);
+});
+
+it("不跟随重定向，不转发凭证或响应正文", async () => {
+  let redirected = false;
+  const other = await serve((_req, res) => { redirected = true; res.end(); });
+  const baseUrl = await serve((_req, res) => {
+    res.writeHead(307, { location: other });
+    res.end("private response");
+  });
+  const client = createExpressionClient({ baseUrl, tokenFile });
+  await expect(client.setState("working")).rejects.toThrow(/^Runtime 拒绝状态请求 \(HTTP 307\)$/);
+  expect(redirected).toBe(false);
+});
+
+it("接受 sleeping 快照，拒绝超限和无效正文", async () => {
+  let body = '{"state":"sleeping"}';
+  const baseUrl = await serveVerified((_req, res) => res.end(body));
+  const client = createExpressionClient({ baseUrl, tokenFile });
+  expect(await client.getState()).toBe("sleeping");
+  body = " ".repeat(1025);
+  await expect(client.getState()).rejects.toThrow("响应过大");
+  body = '{"state":"private-response"}';
+  await expect(client.getState()).rejects.toThrow(/^Runtime 状态响应格式无效$/);
+});
+
+it("等待正文时仍可取消，响应超时受限", async () => {
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const baseUrl = await serveVerified((_req, res) => {
+    res.writeHead(200);
+    res.write("{");
+    markStarted();
+  });
+  const client = createExpressionClient({ baseUrl, tokenFile });
+  const controller = new AbortController();
+  const pending = client.getState(controller.signal);
+  await started;
+  controller.abort(new Error("private abort reason"));
+  await expect(pending).rejects.toThrow(/^状态请求已取消$/);
+  await expect(client.getState()).rejects.toThrow(/^Runtime 状态请求超时$/);
+});

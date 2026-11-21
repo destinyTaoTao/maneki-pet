@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "maneki": "./dist/main.js"
+    "maneki": "./dist/main.js",
+    "maneki-state-mcp": "./dist/state-mcp.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -14,7 +15,9 @@
   "dependencies": {
     "@maneki-pet/core": "workspace:*",
     "@maneki-pet/platform-bilibili": "workspace:*",
-    "@maneki-pet/platform-core": "workspace:*"
+    "@maneki-pet/platform-core": "workspace:*",
+    "@maneki-pet/sdk": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2"
   },
   "devDependencies": {
     "@types/node": "^26.6.6"

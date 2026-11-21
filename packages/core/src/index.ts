@@ -121,7 +121,7 @@ export type {
   StateAnimation,
   VideoAlphaSource,
 } from "./pet-pack.js";
-export { petStates } from "./pet-pack.js";
+export { expressionStates, petStates } from "./pet-pack.js";
 export {
   validatePetPack,
   type ValidatedPetPack,

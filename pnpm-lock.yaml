@@ -246,6 +246,12 @@ importers:
       '@maneki-pet/platform-core':
         specifier: workspace:*
         version: link:../adapters/platform-core
+      '@maneki-pet/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.6.7)
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -271,6 +277,16 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+
+  packages/sdk:
+    dependencies:
+      '@maneki-pet/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
 
 packages:
 

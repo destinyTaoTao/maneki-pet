@@ -22,7 +22,15 @@ export function runtimeIdentityProof(rootToken: string, challenge: string, proto
 
 /** 独立语音宿主凭证的挑战证明，不发送 token 或其哈希。 */
 export function speechHostIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
-  return createHmac("sha256", Buffer.from(tokenHash, "hex")).update(JSON.stringify(["maneki-speech-host-proof-v1", clientId, challenge, instanceId, boundPort])).digest("hex");
+  return clientIdentityProof("maneki-speech-host-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
+}
+
+export function expressionIdentityProof(tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
+  return clientIdentityProof("maneki-expression-proof-v1", tokenHash, clientId, challenge, instanceId, boundPort);
+}
+
+function clientIdentityProof(purpose: string, tokenHash: string, clientId: string, challenge: string, instanceId: string, boundPort: number): string {
+  return createHmac("sha256", Buffer.from(tokenHash, "hex")).update(JSON.stringify([purpose, clientId, challenge, instanceId, boundPort])).digest("hex");
 }
 
 export type AuthCheck = { ok: true } | { ok: false; status: 400 | 401 | 403; reason: string };

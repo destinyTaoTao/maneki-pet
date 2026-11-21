@@ -1,13 +1,14 @@
-export const petStates = [
+/** 本机表达租约允许外部来源写入的状态。 */
+export const expressionStates = [
   "idle",
   "thinking",
   "working",
   "waiting_input",
   "celebrating",
   "error",
-  "sleeping",
 ] as const;
 
+export const petStates = [...expressionStates, "sleeping"] as const;
 export type PetState = (typeof petStates)[number];
 
 export interface VideoAlphaSource {

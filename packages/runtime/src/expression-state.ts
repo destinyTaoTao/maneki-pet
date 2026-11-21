@@ -1,6 +1,6 @@
 import type { PetState } from "@maneki-pet/core";
 
-export const expressionStates = ["idle", "thinking", "working", "waiting_input", "celebrating", "error"] as const;
+export { expressionStates } from "@maneki-pet/core";
 type ExpressionState = PetState;
 const PRIORITY: ExpressionState[] = ["waiting_input", "working", "thinking", "error", "celebrating", "sleeping"];
 

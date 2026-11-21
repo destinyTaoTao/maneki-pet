@@ -9,6 +9,7 @@ import {
   SETTINGS_SCOPE,
   checkHost,
   checkOrigin,
+  expressionIdentityProof,
   generateToken,
   hashToken,
   parseBearer,
@@ -118,7 +119,8 @@ export class LocalHttpApi {
       this.sendJson(res, 503, { error: "runtime_stopping" });
       return;
     }
-    const expectedHost = `${this.deps.host}:${(this.server?.address() as { port: number }).port}`;
+    const boundPort = (this.server?.address() as { port: number }).port;
+    const expectedHost = `${this.deps.host}:${boundPort}`;
     const hostCheck = checkHost(req.headers.host, expectedHost);
     if (!hostCheck.ok) {
       this.sendJson(res, hostCheck.status, { error: hostCheck.reason });
@@ -153,12 +155,22 @@ export class LocalHttpApi {
       // 发现元数据只含端口、协议版本、实例 ID，不含令牌（§6.1）。
       const challenge = req.headers["x-maneki-challenge"];
       const proof = typeof challenge === "string" && /^[A-Za-z0-9_-]{43}$/.test(challenge)
-        ? { identityProof: runtimeIdentityProof(this.deps.rootToken, challenge, 1, this.deps.instanceId, (this.server!.address() as { port: number }).port) } : {};
+        ? { identityProof: runtimeIdentityProof(this.deps.rootToken, challenge, 1, this.deps.instanceId, boundPort) } : {};
       const speechClient = req.headers["x-maneki-speech-client"], speechChallenge = req.headers["x-maneki-speech-challenge"];
       const record = typeof speechClient === "string" && /^client-[0-9a-f]{12}$/.test(speechClient) ? this.deps.store.findClient(speechClient) : null;
       const speechProof = record && !record.revokedAt && record.scopes.includes("speech_host") && typeof speechChallenge === "string" && /^[A-Za-z0-9_-]{43}$/.test(speechChallenge)
-        ? { speechProof: speechHostIdentityProof(record.tokenHash, record.clientId, speechChallenge, this.deps.instanceId, (this.server!.address() as { port: number }).port) } : {};
-      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version, ...proof, ...speechProof });
+        ? { speechProof: speechHostIdentityProof(record.tokenHash, record.clientId, speechChallenge, this.deps.instanceId, boundPort) } : {};
+      const expressionClient = req.headers["x-maneki-expression-client"];
+      const expressionChallenge = req.headers["x-maneki-expression-challenge"];
+      let expressionProof: string | undefined;
+      if (typeof expressionClient === "string" && /^client-[0-9a-f]{12}$/.test(expressionClient)
+          && typeof expressionChallenge === "string" && /^[A-Za-z0-9_-]{43}$/.test(expressionChallenge)) {
+        const client = this.deps.store.findClient(expressionClient);
+        if (client && !client.revokedAt && client.scopes.includes(EXPRESS_SCOPE)) {
+          expressionProof = expressionIdentityProof(client.tokenHash, client.clientId, expressionChallenge, this.deps.instanceId, boundPort);
+        }
+      }
+      this.sendJson(res, 200, { protocolVersion: 1, instanceId: this.deps.instanceId, version: this.deps.version, ...proof, ...speechProof, expressionProof });
       return;
     }
 

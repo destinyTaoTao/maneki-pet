@@ -1,4 +1,5 @@
-/** Maneki CLI 入口：`maneki <command> …`（扩展功能域竖切命令）。 */
+#!/usr/bin/env node
+/** Maneki CLI 入口：`maneki <command> …`。 */
 import { parseArgs } from "node:util";
 
 import type { DraftStep } from "@maneki-pet/platform-core";
@@ -17,7 +18,7 @@ import { douyinReadiness } from "./douyin-readiness.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
-  args: process.argv.slice(2),
+  args: process.argv[2] === "state" ? ["state"] : process.argv.slice(2),
   options: {
     python: { type: "string", default: "python" },
     config: { type: "string" },
@@ -56,6 +57,10 @@ function requireValue(value: string | undefined, label: string): string {
 
 async function main(): Promise<void> {
   switch (command) {
+    case "state": {
+      const { runStateCommand } = await import("./state-command.js");
+      return runStateCommand(process.argv.slice(3));
+    }
     case "platform": {
       const sub = positionals[1];
       if (sub === "douyin-check") {
@@ -158,7 +163,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      process.stderr.write("usage: maneki platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
+      process.stderr.write("usage: maneki state get|set | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
       process.exit(2);
   }
 }
