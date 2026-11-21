@@ -1019,7 +1019,7 @@ SDK `createReminderClient({baseUrl,tokenFile}).createReminder(input,signal?)`、
 | `GET /v1/reminders/pending` | `reminder_read` | `{reminders:[{reminderId,message,remindAt,version}]}`，按到期时间和 ID 排序，最多 200 条。仅返回仍待投递且从未认领过的自有提醒。 |
 | `POST /v1/reminders/cancel` | `reminder_cancel` | JSON `{requestId,reminderId,version}`，返回 `{requestId,reminderId,cancelled:true}`。成功取消删除待投递记录并持久保存回执。 |
 
-取消要求完整小写 UUID、查询返回的正整数版本与调用方生成的请求 ID（沿用创建的 ID 文法）。目标归属、版本、pending 状态和零次投递尝试在同一 SQLite 事务中校验，且与持久回执一起提交。不存在或归属不符返回同样的 404；版本已变或已开始投递返回 409。调度认领先成功时，取消不能撤回系统通知；取消先成功则不会再认领。同一取消身份用同一请求 ID 和参数重试时返回原回执，包括重启后。相同 ID 换目标或版本返回 409。同名提醒始终是不同目标。取消桥应让 agent 消歧，模型或宿主不得把模糊标题直接交给 Runtime 匹配。
+取消要求完整小写 UUID、查询返回的正整数版本与调用方生成的请求 ID（沿用创建的 ID 文法）。目标归属、版本、pending 状态和零次投递尝试在同一 SQLite 事务中校验，且与持久回执一起提交。不存在或归属不符返回同样的 404；版本已变或已开始投递返回 409。调度认领先成功时，取消不能撤回系统通知；取消先成功则不会再认领。同一取消身份用同一请求 ID 和参数重试时返回原回执，包括重启后。已提交的请求 ID 换目标或版本返回 409。失败的取消不写入回执；版本冲突时先重新查询并让用户重新确认。同名提醒始终是不同目标。取消桥应让 agent 消歧，模型或宿主不得把模糊标题直接交给 Runtime 匹配。
 
 与创建使用相同的回环同连接握手，能力名分别为 `reminder-read`、`reminder-cancel`，响应字段分别为 `reminderReadProof`、`reminderCancelProof`。对应身份探针为 `GET /v1/reminders/read/identity` 和 `GET /v1/reminders/cancel/identity`。管理员撤销路由为 `POST /v1/admin/reminders/read/revoke` 和 `POST /v1/admin/reminders/cancel/revoke`，各接收 `{name}`。三种提醒凭证不能混签，也不能互相调用专属路由。成功响应适用 `Cache-Control: no-store`。
 
