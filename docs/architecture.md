@@ -1125,6 +1125,23 @@ SDK `createRecurringReminderRescheduleClient(...)` 新增 `listWeekdayTargets(si
 
 SDK `createRecurringReminderClient(...)` 新增 `createWeeklyReminder`、`listWeeklyReminders`、`cancelWeeklyReminder`。CLI 为 `remind-weekly --request-id <id> --days 1,3,5 --at <HH:mm> --message <text>`、`weekly-reminders`、`cancel-weekly-reminder --request-id <id> --series-id <uuid>`。独立 stdio 桥 `reminder-weekly-mcp.js` 使用既有重复提醒凭证和 Runtime 地址，提供 `maneki_remind_weekly`、`maneki_list_weekly_reminders`、`maneki_cancel_weekly_reminder`。dsh 显式加载对应 patch。
 
+<a id="weekly-reminder-reschedule"></a>
+
+#### 指定星期提醒改期
+
+指定星期改期沿用具名 `reminder_recurring_reschedule`、同名创建身份、回环握手与管理撤销。改期请求只接受目标系列、查询得到的当前版本与新的本地时刻。目标和回执中的 `daysOfWeek` 按 ISO 星期号升序返回，便于区分时刻和正文相同的系列。
+
+| 路由 | 契约 |
+|---|---|
+| `GET /v1/recurring-reminders/weekly/reschedule/targets` | `{reminders:[{seriesId,message,localTime,timeZone,nextAt,daysOfWeek,version}]}`，按 nextAt、ID 升序。 |
+| `POST /v1/recurring-reminders/weekly/reschedule` | 输入严格 `{requestId,seriesId,version,localTime}`，返回 `{requestId,seriesId,localTime,timeZone,nextAt,version,daysOfWeek}`，version 为新版本。 |
+
+改期保留原系列 ID、正文、星期集合和时区。调度认领、取消和改期都在 SQLite 事务内操作，改期原子更新下一日期、时刻、版本、配额和回执。取严格晚于受理时刻且日期不早于原规则持久调度日期的第一个指定星期本地时刻。当天仍待认领且新时刻未到时可在当天调度。当天已认领时从下一次有效日期开始。旧时刻被替换，已认领的投递无法撤回。非指定星期和 DST 缺失或重复的分钟继续跳过。
+
+三个周期共享改期身份的持久请求 ID 与每 UTC 整点小时 30 次更新额度。原参数重试返回首次回执。改期请求 ID 换周期、目标、版本或时刻，以及使用过期版本或改到相同时刻，均返回 409。系列不存在或不属同名创建身份返回 404。旧指定星期规则默认版本 1，版本用独立有界的 `weeklyReminderVersions.v1` 存储，无数据库迁移。HTTP 成功为 200，带 `Cache-Control: no-store`。
+
+SDK `createRecurringReminderRescheduleClient(...)` 新增 `listWeeklyTargets(signal?)` 和 `rescheduleWeeklyReminder(input,signal?)`。CLI 为 `weekly-reschedule-targets` 和 `reschedule-weekly-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>`。独立 stdio 桥 `reminder-weekly-reschedule-mcp.js` 提供 `maneki_list_weekly_reschedule_targets` 与 `maneki_reschedule_weekly_reminder`，复用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE`。dsh 显式加载指定星期改期 patch。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
