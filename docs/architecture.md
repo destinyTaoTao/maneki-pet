@@ -1142,6 +1142,18 @@ SDK `createRecurringReminderClient(...)` 新增 `createWeeklyReminder`、`listWe
 
 SDK `createRecurringReminderRescheduleClient(...)` 新增 `listWeeklyTargets(signal?)` 和 `rescheduleWeeklyReminder(input,signal?)`。CLI 为 `weekly-reschedule-targets` 和 `reschedule-weekly-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>`。独立 stdio 桥 `reminder-weekly-reschedule-mcp.js` 提供 `maneki_list_weekly_reschedule_targets` 与 `maneki_reschedule_weekly_reminder`，复用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE`。dsh 显式加载指定星期改期 patch。
 
+<a id="weekly-reminder-change-days"></a>
+
+#### 修改指定星期集合
+
+`POST /v1/recurring-reminders/weekly/reschedule` 与 `maneki_reschedule_weekly_reminder` 的输入可额外提供 `daysOfWeek`，作用为替换整个星期集合。它必须是 1 至 7 个不同的 ISO 星期整数，升序规范化。继续提交原完整系列 ID、当前版本和期望的 `localTime`；只改星期时沿用查到的原时刻。沿用既有改期凭证、查询接口、版本校验及七字段回执。仅当时刻和星期集合都相同时返回 409；每日和工作日改期请求仍只接受原字段。
+
+有效的下一次是新星期集合中严格晚于受理时刻的第一个本地候选，日期至少为当前本地日及该系列持久日期下界。新日期可以早于旧规则的下一次日期。认领完成前，Runtime 原子记录下一个可调度日期的下界为该认领日的次日；改期或跨日推进不能让日期下界回退。若包含旧日期，当天已认领的系列当天不会再发，取消与已在途通知沿用上文语义。
+
+日期下界单独存入有界 SQLite KV `weeklyReminderDateFloors.v1`，与星期、时刻、版本、额度和回执在各自操作的同一事务持久化。原规则存储行与旧回执兼容，无数据库迁移。旧规则缺少下界时，用旧已存下一日期前最近一个旧指定星期的次日作为保守下界。兼容旧 Runtime 写入后遗留的下界时，结合原调度日期核验，采用较晚的已知下界，旧时区数据跳过的日期也可能保守跳过。
+
+带星期集合的改期将规范化集合纳入共享请求指纹。换序重放返回原回执，复用请求 ID 更改集合、改操作或改参数返回 409，不带星期的既有请求沿用原指纹。SDK 在同一方法接受可选 `daysOfWeek`。CLI 同一命令接受可选 `--days 2,4`。MCP 同一桥和工具可提交升序或乱序 ISO 星期数组，独立加载的旧配置可继续使用。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
