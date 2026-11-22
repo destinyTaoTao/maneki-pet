@@ -24,6 +24,8 @@ import {
   type DailyReminderSummary,
   type WeeklyReminderList,
   type WeeklyReminderReceipt,
+  type WeeklyReminderRescheduleReceipt,
+  type WeeklyReminderRescheduleTargetList,
 } from "@maneki-pet/core";
 import { AssistantError, readAssistantSettings } from "./assistant-settings.js";
 import type { AssistantStore } from "./assistant-store.js";
@@ -250,11 +252,14 @@ export class RecurringReminders {
 
   listWeekly(clientId: string): WeeklyReminderList {
     return {
-      reminders: this.listRules(clientId).map((rule) => {
-        if (!rule.daysOfWeek) throw this.unavailable();
-        return { ...summary(rule), daysOfWeek: [...rule.daysOfWeek] };
-      }),
+      reminders: this.listRules(clientId).map((rule) => ({ ...summary(rule), ...this.weeklyDays(rule) })),
     };
+  }
+
+  private weeklyDays(source: ScheduleDays): Required<ScheduleDays> {
+    const daysOfWeek = normalizeWeeklyReminderDays(source.daysOfWeek);
+    if (!daysOfWeek) throw this.unavailable();
+    return { daysOfWeek };
   }
 
   private listRules(clientId: string): Rule[] {
@@ -335,7 +340,7 @@ export class RecurringReminders {
       throw this.unavailable();
     }
     const entries = Object.entries(saved.bySeries as Record<string, unknown>);
-    if (entries.length > MAX_DAILY_REMINDERS) throw this.unavailable();
+    if (entries.length > this.maxRules) throw this.unavailable();
     const versions = new Map<string, number>();
     for (const [id, version] of entries) {
       if (!AGENT_REMINDER_UUID_PATTERN.test(id) || typeof version !== "number" ||
@@ -356,34 +361,51 @@ export class RecurringReminders {
   }
 
   listRescheduleTargets(clientId: string): DailyReminderRescheduleTargetList {
+    return this.listVersionedRules(clientId, summary);
+  }
+
+  listWeeklyRescheduleTargets(clientId: string): WeeklyReminderRescheduleTargetList {
+    return this.listVersionedRules(clientId, (rule) => ({ ...summary(rule), ...this.weeklyDays(rule) }));
+  }
+
+  private listVersionedRules<Summary extends DailyReminderSummary>(clientId: string, summarize: (rule: Rule) => Summary) {
     const versions = this.readVersions();
-    const { reminders } = this.list(clientId);
     return {
-      reminders: reminders.map((rule) => ({ ...rule, version: versions.get(rule.seriesId) ?? 1 })),
+      reminders: this.listRules(clientId).map((rule) => ({ ...summarize(rule), version: versions.get(rule.seriesId) ?? 1 })),
     };
   }
 
   reschedule(actorId: string, ownerId: string, raw: unknown): { receipt: DailyReminderRescheduleReceipt; changed: boolean } {
+    return this.rescheduleRule(actorId, ownerId, raw, () => ({}));
+  }
+
+  rescheduleWeekly(actorId: string, ownerId: string, raw: unknown): { receipt: WeeklyReminderRescheduleReceipt; changed: boolean } {
+    return this.rescheduleRule(actorId, ownerId, raw, (source) => this.weeklyDays(source));
+  }
+
+  private rescheduleRule<Days extends ScheduleDays>(
+    actorId: string, ownerId: string, raw: unknown, getDays: (source: ScheduleDays) => Days,
+  ): { receipt: DailyReminderRescheduleReceipt & Days; changed: boolean } {
     const input = normalizeDailyReminderRescheduleInput(raw);
     if (!input) throw new AssistantError(400, `${this.cadence}_reminder_reschedule_input_invalid`);
     const { requestId, seriesId, localTime, version } = input;
     const actor = `daily-reminder-reschedule:${actorId}`;
-    // 两类共用改期身份的请求 ID。每日沿用已有哈希，工作日带周期以区分同参数的请求。
+    // 各周期共用改期身份的请求 ID。每日保留原哈希，其他周期带周期名称。
     const params = [ownerId, seriesId, localTime, version];
-    const hash = fingerprint(this.cadence === "daily" ? params : ["weekday", ...params]);
+    const hash = fingerprint(this.cadence === "daily" ? params : [this.cadence, ...params]);
     const nextVersion = version + 1;
     return this.store.transaction(() => {
       const cached = this.store.mutation(actor, requestId);
       if (cached) {
         if (cached.hash !== hash) throw new AssistantError(409, "request_id_conflict");
-        let stored: Partial<DailyReminderRescheduleReceipt> | null;
+        let stored: (Partial<DailyReminderRescheduleReceipt> & ScheduleDays) | null;
         try { stored = JSON.parse(cached.result); }
         catch { throw this.unavailable(); }
         const nextAt = stored?.nextAt;
         const timeZone = stored?.timeZone;
-        if (!isValidEpoch(nextAt) || typeof timeZone !== "string" || !validTimeZone(timeZone) ||
+        if (!stored || !isValidEpoch(nextAt) || typeof timeZone !== "string" || !validTimeZone(timeZone) ||
             !Number.isSafeInteger(nextVersion)) throw this.unavailable();
-        const receipt = { requestId, seriesId, localTime, timeZone, nextAt, version: nextVersion };
+        const receipt = { requestId, seriesId, localTime, timeZone, nextAt, version: nextVersion, ...getDays(stored) };
         if (cached.result !== JSON.stringify(receipt)) throw this.unavailable();
         return { receipt, changed: false };
       }
@@ -401,10 +423,11 @@ export class RecurringReminders {
       const today = localParts(now, timeZone).date;
       // 认领和跨日推进都持久化日期。改期只能在该日期及之后安排下一次。
       const firstDate = today > rule.nextDate ? today : rule.nextDate;
-      const occurrence = this.nextOccurrence({ localTime, timeZone }, firstDate, now);
-      const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt, version: nextVersion };
+      const updated = { ...rule, localTime };
+      const occurrence = this.nextOccurrence(updated, firstDate, now);
+      const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt, version: nextVersion, ...getDays(rule) };
       this.store.consumeAgentReminderQuota("daily_reschedule", actorId, now);
-      this.save(rules.map((item) => item === rule ? moveRule({ ...rule, localTime }, occurrence) : item));
+      this.save(rules.map((item) => item === rule ? moveRule(updated, occurrence) : item));
       versions.set(seriesId, nextVersion);
       this.saveVersions(rules, versions);
       this.store.rememberMutation(actor, requestId, hash, receipt);

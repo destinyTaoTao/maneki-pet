@@ -119,6 +119,18 @@ export interface DailyReminderRescheduleTargetList {
   reminders: DailyReminderRescheduleTarget[];
 }
 
+export interface WeeklyReminderRescheduleReceipt extends WeeklyReminderReceipt {
+  version: number;
+}
+
+export interface WeeklyReminderRescheduleTarget extends WeeklyReminderSummary {
+  version: number;
+}
+
+export interface WeeklyReminderRescheduleTargetList {
+  reminders: WeeklyReminderRescheduleTarget[];
+}
+
 function validReminderDelay(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_AGENT_REMINDER_DELAY_SECONDS;
 }
@@ -208,7 +220,7 @@ export function normalizeDailyReminderCancelInput(input: unknown): DailyReminder
   return { requestId, seriesId };
 }
 
-/** 根据完整规则 ID 和查询所得版本更新每日时刻。 */
+/** 根据完整规则 ID 和查询所得版本更新重复提醒时刻。 */
 export function normalizeDailyReminderRescheduleInput(input: unknown): DailyReminderRescheduleInput | null {
   if (typeof input !== "object" || !input || Array.isArray(input)) return null;
   const keys = Object.keys(input);

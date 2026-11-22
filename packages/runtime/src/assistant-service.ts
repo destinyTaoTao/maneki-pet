@@ -362,6 +362,14 @@ export class AssistantService {
   listWeeklyReminders(clientId: string) {
     return this.weeklyReminders.listWeekly(clientId);
   }
+  listWeeklyRescheduleTargets(ownerId: string) {
+    return this.weeklyReminders.listWeeklyRescheduleTargets(ownerId);
+  }
+  rescheduleWeeklyReminder(actorId: string, ownerId: string, raw: unknown) {
+    const { receipt, changed } = this.weeklyReminders.rescheduleWeekly(actorId, ownerId, raw);
+    if (changed) this.scheduler.wake();
+    return receipt;
+  }
   cancelWeeklyReminder(clientId: string, raw: unknown) {
     const receipt = this.weeklyReminders.cancel(clientId, raw);
     this.scheduler.wake();

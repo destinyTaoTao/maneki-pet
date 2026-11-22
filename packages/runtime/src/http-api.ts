@@ -66,11 +66,7 @@ const reminderManagementScopes = [REMINDER_READ_SCOPE, REMINDER_CANCEL_SCOPE, RE
 const recurringRemindersPath = "/v1/recurring-reminders";
 const recurringRemindersIdentityPath = recurringRemindersPath + "/identity";
 const recurringWeekdaysPath = recurringRemindersPath + "/weekdays";
-const recurringReschedulePath = recurringRemindersPath + "/reschedule";
-const recurringRescheduleIdentityPath = recurringReschedulePath + "/identity";
-const recurringRescheduleTargetsPath = recurringReschedulePath + "/targets";
-const weekdayReschedulePath = recurringWeekdaysPath + "/reschedule";
-const weekdayRescheduleTargetsPath = weekdayReschedulePath + "/targets";
+const recurringRescheduleIdentityPath = recurringRemindersPath + "/reschedule/identity";
 const recurringRoutes = [
   {
     path: recurringRemindersPath,
@@ -78,6 +74,8 @@ const recurringRoutes = [
     list: "listDailyReminders",
     create: "createDailyReminder",
     cancel: "cancelDailyReminder",
+    targets: "listDailyRescheduleTargets",
+    reschedule: "rescheduleDailyReminder",
   },
   {
     path: recurringWeekdaysPath,
@@ -85,6 +83,8 @@ const recurringRoutes = [
     list: "listWeekdayReminders",
     create: "createWeekdayReminder",
     cancel: "cancelWeekdayReminder",
+    targets: "listWeekdayRescheduleTargets",
+    reschedule: "rescheduleWeekdayReminder",
   },
   {
     path: recurringRemindersPath + "/weekly",
@@ -92,6 +92,8 @@ const recurringRoutes = [
     list: "listWeeklyReminders",
     create: "createWeeklyReminder",
     cancel: "cancelWeeklyReminder",
+    targets: "listWeeklyRescheduleTargets",
+    reschedule: "rescheduleWeeklyReminder",
   },
 ] as const;
 type RecurringRoute = typeof recurringRoutes[number];
@@ -259,10 +261,10 @@ export class LocalHttpApi {
       return;
     }
     const client = auth.client;
-    if (hasScope(client, REMINDER_RECURRING_RESCHEDULE_SCOPE) || url === recurringReschedulePath ||
-        url === recurringRescheduleIdentityPath || url === recurringRescheduleTargetsPath ||
-        url === weekdayReschedulePath || url === weekdayRescheduleTargetsPath) {
-      await this.handleRecurringReschedule(req, res, client, method, url);
+    const rescheduleRoute = recurringRoutes.find(route =>
+      url === route.path + "/reschedule" || url === route.path + "/reschedule/targets");
+    if (hasScope(client, REMINDER_RECURRING_RESCHEDULE_SCOPE) || url === recurringRescheduleIdentityPath || rescheduleRoute) {
+      await this.handleRecurringReschedule(req, res, client, method, url, rescheduleRoute);
       return;
     }
     const recurringRoute = recurringRoutes.find(route => url === route.path || url === route.path + "/cancel");
@@ -713,6 +715,7 @@ export class LocalHttpApi {
 
   private async handleRecurringReschedule(
     req: IncomingMessage, res: ServerResponse, client: AuthedClient, method: string, url: string,
+    route: RecurringRoute | undefined,
   ): Promise<void> {
     res.setHeader("cache-control", "no-store");
     if (client.scopes.length !== 1 || !hasScope(client, REMINDER_RECURRING_RESCHEDULE_SCOPE)) {
@@ -723,9 +726,8 @@ export class LocalHttpApi {
       this.sendJson(res, 200, { clientId: client.clientId, name: client.name });
       return;
     }
-    const weekdays = url === weekdayReschedulePath || url === weekdayRescheduleTargetsPath;
-    const listing = method === "GET" && (url === recurringRescheduleTargetsPath || url === weekdayRescheduleTargetsPath);
-    if (!listing && !(method === "POST" && (url === recurringReschedulePath || url === weekdayReschedulePath))) {
+    const listing = method === "GET" && route !== undefined && url === route.path + "/reschedule/targets";
+    if (!route || (!listing && !(method === "POST" && url === route.path + "/reschedule"))) {
       this.forbidden(res, "reminder_recurring_reschedule client is restricted to recurring reschedule routes");
       return;
     }
@@ -735,16 +737,12 @@ export class LocalHttpApi {
     if (!owner) { this.forbidden(res, "recurring reminder creator is not registered"); return; }
     try {
       if (listing) {
-        this.sendJson(res, 200, weekdays
-          ? assistant.listWeekdayRescheduleTargets(owner.clientId)
-          : assistant.listDailyRescheduleTargets(owner.clientId));
+        this.sendJson(res, 200, assistant[route.targets](owner.clientId));
         return;
       }
       const body = await this.readJson(req, res);
       if (!body) return;
-      const receipt = weekdays
-        ? assistant.rescheduleWeekdayReminder(client.clientId, owner.clientId, body)
-        : assistant.rescheduleDailyReminder(client.clientId, owner.clientId, body);
+      const receipt = assistant[route.reschedule](client.clientId, owner.clientId, body);
       this.sendJson(res, 200, receipt);
     } catch (error) {
       if (!(error instanceof AssistantError)) throw error;
