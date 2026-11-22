@@ -24,6 +24,7 @@
     "reminder-reschedule.patch.example.yml",
     "reminder-recurring.patch.example.yml",
     "reminder-weekdays.patch.example.yml",
+    "reminder-weekly.patch.example.yml",
     "reminder-recurring-reschedule.patch.example.yml",
     "reminder-weekdays-reschedule.patch.example.yml",
     "README.md"
