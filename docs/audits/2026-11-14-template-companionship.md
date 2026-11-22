@@ -40,3 +40,9 @@
 - 构建前后既有 `apps/desktop/public/packs/ASSET-LICENSE.txt` 的 SHA-256 均为 `722303A6FB57F52AB738B3C9FF0F1D987543AF4DE4B3652095B74FA6DAF4EB06`；保留已有 `.playwright-cli/`。
 
 第一批出口仍未闭环：真实短休眠及旧租约失效、修复后原生窗口/命中与语音提醒交互、真实两小时暖机和间隔、内存及提醒 p95、macOS/Linux 均待各自验证。
+
+## 2026-11-22 · 两小时真实墙钟暖机
+
+在 `1015966` 工作区基线运行 `MANEKI_REAL_WARMUP=1` 的 [Runtime 探针](../../packages/runtime/tests/companion-real-warmup.test.ts)。Windows x64、Node 24.12.0，使用临时 SQLite、真实回环 HTTP/WS 与桌面 `CompanionClient`。北京时间 14:53:47 开始，第一条自动台词在实际经过 **7,200,007 ms** 后到达。展示回调一次，持久预算认领一次，注入的通知器零调用。Vitest 退出码 0，单项通过。
+
+本轮覆盖真实墙钟和连接上的首次自动表达。窗口可见性由测试回调给出，系统休眠、真正的桌宠呈现、首条之后的实时间隔与完整进程树预算仍保留。
