@@ -8,11 +8,15 @@ import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
 
 import { startRuntime, type StartedRuntime } from "../src/index.js";
+import { startFetchCompatibleRuntime } from "./fetch-compatible-runtime.js";
 
 const dirs: string[] = [];
 const runtimes: StartedRuntime[] = [];
 const cli = join(import.meta.dirname, "../dist/cli.js");
 const exec = promisify(execFile);
+const credentialCommandTimeout = 5_000;
+// 一条场景包含多次真实 CLI 启动和 Runtime 重启，单次进程超时仍独立计算。
+const credentialLifecycleTimeout = 35_000;
 it("身份正确但发行版本过旧时拒绝复用，不发送配对凭证或另起后台", async () => {
   const dir=mkdtempSync(join(tmpdir(),"maneki-old-release-"));dirs.push(dir);
   const runtime=await startRuntime({configDir:dir,version:"0.1.0"});runtimes.push(runtime);
@@ -23,20 +27,21 @@ it("身份正确但发行版本过旧时拒绝复用，不发送配对凭证或�
 });
 it("个人数据凭证首次不静默创建，显式打开后单独配对且旧表达凭证不扩权",async()=>{
   const dir=mkdtempSync(join(tmpdir(),"maneki-personal-credential-"));dirs.push(dir);
-  const runtime=await startRuntime({configDir:dir});runtimes.push(runtime);
+  const runtime=await startFetchCompatibleRuntime({configDir:dir});runtimes.push(runtime);
   const args=[cli,"--config-dir",dir,"--port",String(runtime.port)];
-  await expect(exec(process.execPath,[...args,"--assistant-credential-existing"],{timeout:5000})).rejects.toMatchObject({stdout:JSON.stringify({error:"pairing_required"})});
-  const old=JSON.parse((await exec(process.execPath,[...args,"--desktop-credential"])).stdout) as {token:string};
-  const personal=JSON.parse((await exec(process.execPath,[...args,"--assistant-credential"])).stdout) as {token:string};
+  const runCredential = (flag: string) => exec(process.execPath, [...args, flag], { timeout: credentialCommandTimeout });
+  await expect(runCredential("--assistant-credential-existing")).rejects.toMatchObject({stdout:JSON.stringify({error:"pairing_required"})});
+  const old=JSON.parse((await runCredential("--desktop-credential")).stdout) as {token:string};
+  const personal=JSON.parse((await runCredential("--assistant-credential")).stdout) as {token:string};
   expect(personal.token).not.toBe(old.token);const base=`http://127.0.0.1:${runtime.port}`;
   expect((await fetch(`${base}/v1/assistant/snapshot`,{headers:{authorization:`Bearer ${old.token}`}})).status).toBe(403);
   expect((await fetch(`${base}/v1/assistant/snapshot`,{headers:{authorization:`Bearer ${personal.token}`}})).status).toBe(200);
   await runtime.stop();const restarted=await startRuntime({configDir:dir,port:runtime.port});runtimes.push(restarted);
-  const reused=JSON.parse((await exec(process.execPath,[...args,"--assistant-credential-existing"]).catch(error=>{throw new Error(`helper error: ${JSON.parse(error.stdout as string).error as string}`);})).stdout) as {token:string};expect(reused).toEqual(personal);
+  const reused=JSON.parse((await runCredential("--assistant-credential-existing")).stdout) as {token:string};expect(reused).toEqual(personal);
   const identity=JSON.parse(readFileSync(join(dir,"assistant-client.json"),"utf8")) as {clientId:string};
   await fetch(`${base}/v1/clients/${identity.clientId}/revoke`,{method:"POST",headers:{authorization:`Bearer ${runtime.rootToken}`}});
-  await expect(exec(process.execPath,[...args,"--assistant-credential"])).rejects.toMatchObject({stdout:JSON.stringify({error:"credential_rejected"})});
-});
+  await expect(runCredential("--assistant-credential")).rejects.toMatchObject({stdout:JSON.stringify({error:"credential_rejected"})});
+}, credentialLifecycleTimeout);
 
 afterEach(async () => {
   for (const runtime of runtimes.splice(0)) await runtime.stop();
@@ -46,10 +51,11 @@ afterEach(async () => {
 it("受信 sidecar 配对只返回最小客户端凭证，跨进程重用且不生成第二个助理", async () => {
   const dir = mkdtempSync(join(tmpdir(), "maneki-desktop-credential-"));
   dirs.push(dir);
-  const runtime = await startRuntime({ configDir: dir });
+  const runtime = await startFetchCompatibleRuntime({ configDir: dir });
   runtimes.push(runtime);
   const args = [cli, "--config-dir", dir, "--port", String(runtime.port), "--desktop-credential"];
-  const first = await exec(process.execPath, args, { timeout: 5000 });
+  const runCredential = () => exec(process.execPath, args, { timeout: credentialCommandTimeout });
+  const first = await runCredential();
   const credential = JSON.parse(first.stdout) as { token: string };
   expect(Object.keys(credential)).toEqual(["token"]);
   expect(first.stdout + first.stderr).not.toContain(runtime.rootToken);
@@ -57,7 +63,7 @@ it("受信 sidecar 配对只返回最小客户端凭证，跨进程重用且不�
   const base = `http://127.0.0.1:${runtime.port}`;
   expect((await fetch(`${base}/v1/dnd`, { method: "POST", headers, body: JSON.stringify({ enabled: true }) })).status).toBe(200);
   expect((await fetch(`${base}/v1/clients`, { headers })).status).toBe(403);
-  const second = await exec(process.execPath, args, { timeout: 5000 });
+  const second = await runCredential();
   expect(JSON.parse(second.stdout)).toEqual(credential);
   const clients = await (await fetch(`${base}/v1/clients`, { headers: { authorization: `Bearer ${runtime.rootToken}` } })).json() as { clients: Array<{ scopes: string[] }> };
   expect(clients.clients).toHaveLength(2);
@@ -65,14 +71,14 @@ it("受信 sidecar 配对只返回最小客户端凭证，跨进程重用且不�
   expect(readFileSync(join(dir, "desktop-client.json"), "utf8")).not.toContain(runtime.rootToken);
   const paired = clients.clients.find((c) => !c.scopes.includes("admin")) as { clientId: string; scopes: string[] };
   await fetch(`${base}/v1/clients/${paired.clientId}/revoke`, { method: "POST", headers: { authorization: `Bearer ${runtime.rootToken}` } });
-  await expect(exec(process.execPath, args, { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "credential_rejected" }) });
+  await expect(runCredential()).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "credential_rejected" }) });
   const after = await (await fetch(`${base}/v1/clients`, { headers: { authorization: `Bearer ${runtime.rootToken}` } })).json() as { clients: unknown[] };
   expect(after.clients).toHaveLength(2);
   await runtime.stop();
   const restarted = await startRuntime({ configDir: dir, port: runtime.port });
   runtimes.push(restarted);
-  await expect(exec(process.execPath, args, { timeout: 5000 })).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "credential_rejected" }) });
-});
+  await expect(runCredential()).rejects.toMatchObject({ code: 1, stdout: JSON.stringify({ error: "credential_rejected" }) });
+}, credentialLifecycleTimeout);
 
 it("协议不匹配时管理模式不配对、不启动另一份助理", async () => {
   const dir = mkdtempSync(join(tmpdir(), "maneki-desktop-version-"));
