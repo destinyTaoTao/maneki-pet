@@ -1,0 +1,14 @@
+# 由用户按需加载。桥及周期提醒改期凭证都使用绝对路径。
+- insert:
+    - id: maneki-reminder-weekdays-reschedule
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        # dsh 的模型工具全名上限为 64 个字符。
+        serverName: maneki_wday_move
+        transport: stdio
+        command: !!js process.execPath
+        args:
+          - !!js process.env.MANEKI_REMINDER_WEEKDAYS_RESCHEDULE_BRIDGE
+        env:
+          MANEKI_RUNTIME_URL: !!js process.env.MANEKI_REMINDER_URL || 'http://127.0.0.1:18100'
+          MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE: !!js process.env.MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE
