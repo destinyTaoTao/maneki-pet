@@ -228,7 +228,7 @@ dsh 注册 `mcp__maneki_reminder_weekly__maneki_remind_weekly`、`mcp__maneki_re
 
 ## 让 dsh 改期自己安排的每日提醒
 
-每日提醒创建后，可以在 dsh 说「把每天上午九点的休息提醒改到每天上午十点」。先更新 Runtime 和 CLI，沿用上面的 `$runtimeDir`、`$port`、`MANEKI_REMINDER_URL` 和已登记的 `dsh-web` 名称，再单独配对 `reminder_recurring_reschedule`。该权限可向 dsh 提供此身份的活跃每日和工作日改期目标及正文，并更改相应时刻。只需要每日改期时，加载下面这一项 patch 即可。仍需创建、查询每日普通列表或取消时，同时加载 `$dailyPatch`。
+每日提醒创建后，可以在 dsh 说「把每天上午九点的休息提醒改到每天上午十点」。先更新 Runtime 和 CLI，沿用上面的 `$runtimeDir`、`$port`、`MANEKI_REMINDER_URL` 和已登记的 `dsh-web` 名称，再单独配对 `reminder_recurring_reschedule`。该权限可向 dsh 提供此身份的活跃每日、工作日和指定星期改期目标及正文，并更改相应时刻。只需要每日改期时，加载下面这一项 patch 即可。仍需创建、查询每日普通列表或取消时，同时加载 `$dailyPatch`。
 
 ```powershell
 $env:MANEKI_REMINDER_RECURRING_RESCHEDULE_BRIDGE = (Resolve-Path packages/cli/dist/reminder-recurring-reschedule-mcp.js).Path
@@ -240,7 +240,7 @@ dsh --profile web --patch "$dailyReschedulePatch"
 
 dsh 注册 `mcp__maneki_daily_move__maneki_list_daily_reschedule_targets` 和 `mcp__maneki_daily_move__maneki_reschedule_daily_reminder`。先查目标，按正文和原时间核对唯一规则，再传完整 `seriesId`、当前 `version`、新的 `requestId` 和 `localTime: "10:00"`。有多个匹配时请用户选定。遇到版本冲突，重新查询并确认。回执丢失或请求超时时，用原请求 ID 和所有原参数重试，可取回原回执。
 
-改期保留系列 ID、正文和时区。原规则当天还有一次待投递提醒且十点还没到时，当天十点会按新时间调度。当天已认领时，从下一个有效日期起按新时间调度。下列命令同时撤销此身份的每日和工作日改期权限。已安排的时间与其他已签发权限继续有效。[每日提醒改期契约](../../docs/architecture.md#daily-reminder-reschedule)
+改期保留系列 ID、正文和时区。原规则当天还有一次待投递提醒且十点还没到时，当天十点会按新时间调度。当天已认领时，从下一个有效日期起按新时间调度。下列命令同时撤销此身份的每日、工作日和指定星期改期权限。已安排的时间与其他已签发权限继续有效。[每日提醒改期契约](../../docs/architecture.md#daily-reminder-reschedule)
 
 ```powershell
 node packages/runtime/scripts/pair-reminder-recurring-reschedule-client.mjs "$runtimeDir" $port dsh-web --revoke-reminder-recurring-reschedule
@@ -263,6 +263,22 @@ dsh 注册 `mcp__maneki_wday_move__maneki_list_weekday_reschedule_targets` 和 `
 周五九点尚未认领且十点未到时，可以改到周五十点。周五九点已认领时，从下一个有效工作日起使用新时刻。提醒仍按原时区的周一至周五调度。每日和工作日共用上一节的改期撤销命令。[工作日改期契约](../../docs/architecture.md#weekday-reminder-reschedule)
 
 构建后运行 `node scripts/acceptance-dsh-reminder-weekdays-reschedule.mjs` 可重跑 dsh `0.2.2-rc.1` 的两组隔离验收，也可附上本机 dsh 的 `lib/bin.js` 绝对路径。脚本用本地确定性 Provider 经原生对话调用 MCP，用模拟时间与注入通知器核验旧时刻、新时刻、周末和周一的投递。[验收脚本](../../scripts/acceptance-dsh-reminder-weekdays-reschedule.mjs)
+
+## 让 dsh 改期指定星期提醒
+
+对 dsh 说「把每周一、三、五上午九点的休息提醒改到上午十点」。先更新 Runtime 和 CLI。沿用 `MANEKI_REMINDER_URL` 和同名 `reminder_recurring_reschedule` 凭证。首次签发时使用每日改期一节的配对命令。单独加载下面的 patch 即可查询指定星期的改期目标和改期。需要创建、查询普通列表或取消时，同时加载 `$weeklyPatch`。
+
+```powershell
+$env:MANEKI_REMINDER_WEEKLY_RESCHEDULE_BRIDGE = (Resolve-Path packages/cli/dist/reminder-weekly-reschedule-mcp.js).Path
+$weeklyReschedulePatch = (Resolve-Path apps/dsh-plugin/reminder-weekly-reschedule.patch.example.yml).Path
+dsh --profile web --patch "$weeklyReschedulePatch"
+```
+
+dsh 注册 `mcp__maneki_week_move__maneki_list_weekly_reschedule_targets` 和 `mcp__maneki_week_move__maneki_reschedule_weekly_reminder`。先查询列表，核对目标的 `daysOfWeek: [1, 3, 5]`、正文和原时刻，再传完整 `seriesId`、当前 `version`、新 `requestId` 和 `localTime: "10:00"`。有多个匹配时请用户选定。遇到版本冲突时重新查询并确认。回执丢失或请求超时时，可用原请求 ID 和所有原参数取回原回执。三个重复周期共用该身份的改期请求 ID 和撤销命令。
+
+改期保留原系列的星期集合与时区。当天九点尚未认领且十点未到时，可以改到当天十点。当天已认领时，从下一个有效的指定星期起使用新时刻。[指定星期改期契约](../../docs/architecture.md#weekly-reminder-reschedule)
+
+构建后运行 `node scripts/acceptance-dsh-reminder-weekly-reschedule.mjs` 可重跑隔离验收，也可附上本机 dsh 的 `lib/bin.js` 绝对路径。脚本使用本地确定性 Provider，经 dsh 原生对话调用 MCP，并用模拟时间和注入通知器核验旧时刻、新时刻、跳过日和已认领日期。[验收脚本](../../scripts/acceptance-dsh-reminder-weekly-reschedule.mjs)
 
 ## 旧手工凭证模式（继续兼容）
 
