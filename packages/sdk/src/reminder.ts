@@ -202,29 +202,43 @@ export function createRecurringReminderClient(options: RecurringReminderClientOp
   };
 }
 
-export function createRecurringReminderRescheduleClient(options: RecurringReminderRescheduleClientOptions) {
-  const list = createPairedTransport("recurring-reminder-reschedule-targets", options);
-  const reschedule = createPairedTransport("recurring-reminder-reschedule", options);
+function recurringReminderRescheduleOperations(options: RecurringReminderRescheduleClientOptions, recurrence: "daily" | "weekdays") {
+  const endpoint = recurrence === "daily" ? "recurring-reminder-reschedule" : "weekday-reminder-reschedule";
+  const label = recurrence === "daily" ? "每日提醒" : "工作日提醒";
+  const list = createPairedTransport(`${endpoint}-targets`, options);
+  const reschedule = createPairedTransport(endpoint, options);
   return {
     async listTargets(signal?: AbortSignal): Promise<DailyReminderRescheduleTargetList> {
       const body = await list(signal);
       if (Object.keys(body).length !== 1 || !validDailyRows(body.reminders, validDailyRescheduleTarget)) {
-        throw new ReminderClientError("Runtime 每日提醒改期目标列表格式无效");
+        throw new ReminderClientError(`Runtime ${label}改期目标列表格式无效`);
       }
       return { reminders: body.reminders };
     },
-    /** 使用已明确选定规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
-    async rescheduleDailyReminder(input: DailyReminderRescheduleInput, signal?: AbortSignal): Promise<DailyReminderRescheduleReceipt> {
+    async rescheduleReminder(input: DailyReminderRescheduleInput, signal?: AbortSignal): Promise<DailyReminderRescheduleReceipt> {
       const normalized = normalizeDailyReminderRescheduleInput(input);
-      if (!normalized) throw new ReminderClientError("无效的每日提醒改期参数");
+      if (!normalized) throw new ReminderClientError(`无效的${label}改期参数`);
       const body = await reschedule(signal, JSON.stringify(normalized));
       if (Object.keys(body).length !== 6 || body.requestId !== normalized.requestId ||
           !validDailyReminderFields(body) || body.seriesId !== normalized.seriesId || body.localTime !== normalized.localTime ||
           typeof body.version !== "number" || !Number.isSafeInteger(body.version) || body.version !== normalized.version + 1) {
-        throw new ReminderClientError("Runtime 每日提醒改期回执格式无效");
+        throw new ReminderClientError(`Runtime ${label}改期回执格式无效`);
       }
       const { requestId, seriesId, localTime, timeZone, nextAt, version } = body;
       return { requestId, seriesId, localTime, timeZone, nextAt, version };
     },
+  };
+}
+
+export function createRecurringReminderRescheduleClient(options: RecurringReminderRescheduleClientOptions) {
+  const daily = recurringReminderRescheduleOperations(options, "daily");
+  const weekdays = recurringReminderRescheduleOperations(options, "weekdays");
+  return {
+    listTargets: daily.listTargets,
+    /** 使用已明确选定每日规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
+    rescheduleDailyReminder: daily.rescheduleReminder,
+    listWeekdayTargets: weekdays.listTargets,
+    /** 使用已明确选定工作日规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
+    rescheduleWeekdayReminder: weekdays.rescheduleReminder,
   };
 }

@@ -26,6 +26,8 @@ const usages = {
   "cancel-weekday-reminder": "maneki cancel-weekday-reminder --request-id <id> --series-id <uuid>",
   "daily-reschedule-targets": "maneki daily-reschedule-targets",
   "reschedule-daily-reminder": "maneki reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
+  "weekday-reschedule-targets": "maneki weekday-reschedule-targets",
+  "reschedule-weekday-reminder": "maneki reschedule-weekday-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
 } as const;
 type RecurringReminderCommand = keyof typeof usages;
 
@@ -63,7 +65,10 @@ function parseOperation(command: RecurringReminderCommand, args: string[]): (() 
       }
       case "daily-reschedule-targets":
         return args.length === 0 ? () => recurringReminderRescheduleClient().listTargets() : null;
-      case "reschedule-daily-reminder": {
+      case "weekday-reschedule-targets":
+        return args.length === 0 ? () => recurringReminderRescheduleClient().listWeekdayTargets() : null;
+      case "reschedule-daily-reminder":
+      case "reschedule-weekday-reminder": {
         const { values } = parseArgs({ args, options: { "request-id": option, "series-id": option, version: option, at: option } });
         const version = once(values.version);
         if (version === undefined || !/^\d+$/.test(version)) return null;
@@ -71,7 +76,9 @@ function parseOperation(command: RecurringReminderCommand, args: string[]): (() 
           requestId: once(values["request-id"]), seriesId: once(values["series-id"]),
           version: Number(version), localTime: once(values.at),
         });
-        return input && (() => recurringReminderRescheduleClient().rescheduleDailyReminder(input));
+        return input && (() => command === "reschedule-daily-reminder"
+          ? recurringReminderRescheduleClient().rescheduleDailyReminder(input)
+          : recurringReminderRescheduleClient().rescheduleWeekdayReminder(input));
       }
     }
   } catch {

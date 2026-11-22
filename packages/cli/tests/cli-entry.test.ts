@@ -177,7 +177,10 @@ it.each([
   }
 });
 
-it("每日改期命令要求完整 ID、查询版本和规范时刻，并独立读取改期凭证", () => {
+it.each([
+  { label: "每日", list: "daily-reschedule-targets", move: "reschedule-daily-reminder" },
+  { label: "工作日", list: "weekday-reschedule-targets", move: "reschedule-weekday-reminder" },
+])("$label改期命令要求完整 ID、查询版本和规范时刻，并独立读取改期凭证", ({ list, move }) => {
   const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
   fixtures.push(dir);
   const otherCredential = join(dir, "other-client.json");
@@ -189,21 +192,22 @@ it("每日改期命令要求完整 ID、查询版本和规范时刻，并独立�
       MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE: otherCredential, MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE: undefined },
     encoding: "utf8", timeout: 5000, windowsHide: true,
   });
-  const target = ["reschedule-daily-reminder", "--request-id", "move-1", "--series-id", "ab000000-0000-4000-a000-000000000001"];
+  const target = [move, "--request-id", "move-1", "--series-id", "ab000000-0000-4000-a000-000000000001"];
   const valid = [...target, "--version", "1", "--at", "09:00"];
   for (const args of [
     [...target, "--at", "09:00"], [...target, "--at", "9:00", "--version", "1"],
     [...target, "--at", "09:00", "--version", "9007199254740992"], [...target, "--at", "09:00", "--version", "1e0"],
     [...valid, "--version", "2"], [...valid, "--message", "private-text"],
+    [move, "--request-id", "move-1", "--series-id", "ab000000", "--version", "1", "--at", "09:00"],
   ]) {
     const invalid = command(...args);
     expect([invalid.status, invalid.stdout, invalid.stderr.trim()]).toEqual([
-      2, "", "usage: maneki reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
+      2, "", `usage: maneki ${move} --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>`,
     ]);
   }
-  const filtered = command("daily-reschedule-targets", "--message", "private-text");
-  expect([filtered.status, filtered.stdout, filtered.stderr.trim()]).toEqual([2, "", "usage: maneki daily-reschedule-targets"]);
-  for (const args of [["daily-reschedule-targets"], valid]) {
+  const filtered = command(list, "--message", "private-text");
+  expect([filtered.status, filtered.stdout, filtered.stderr.trim()]).toEqual([2, "", `usage: maneki ${list}`]);
+  for (const args of [[list], valid]) {
     const unpaired = command(...args);
     expect([unpaired.status, unpaired.stdout, unpaired.stderr.trim()]).toEqual([
       1, "", "需要可读的已配对 reminder_recurring_reschedule 凭证文件",
