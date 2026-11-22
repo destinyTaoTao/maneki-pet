@@ -40,3 +40,5 @@ SQLite v5→v6 前生成 `runtime.db.bak-5`（更早库按源版本备份），�
 Windows 11 build 26200、i5-13600K、Node 24.12.0。启动隔离 Runtime，经正式 HTTP 创建 24 条单次提醒，到期时刻相隔 300 ms。使用真实墙钟、真实定时器、默认通知预算和本地 SQLite。每条仅调用一次接入的通知器，均未早于到期时刻。到期至通知器入口的延迟为最小 21 ms、p95 71 ms、最大 72 ms。
 
 运行 `corepack pnpm -r build` 后执行 `node scripts/acceptance-reminder-timing.mjs` 可复验。该脚本在通知器入口采样并返回合成受理结果。Windows 通知命令执行、系统横幅、真实睡眠恢复及桌宠和 dsh 同时工作的负载仍各自验收。[复验脚本](../../scripts/acceptance-reminder-timing.mjs)
+
+另用真实 dsh 0.2.2-rc.1 复跑 `node scripts/acceptance-dsh-reminder.mjs`。宿主退出后，已保存提醒在隔离时钟到点时调用真实 Windows 通知接口一次并获 `accepted`，`seenAt` 保持空，再重启无重投。系统横幅是否可见仍需人观察。[真实 Windows 通知验收](./2026-11-21-agent-reminders.md)
