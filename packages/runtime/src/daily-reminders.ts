@@ -21,7 +21,6 @@ import {
 import { AssistantError, readAssistantSettings } from "./assistant-settings.js";
 import type { AssistantStore } from "./assistant-store.js";
 
-const VERSIONS_KEY = "dailyReminderVersions.v1";
 const MAX_STATE_LENGTH = 100_000;
 const MAX_VERSIONS_LENGTH = 4096;
 const DAY_MS = 86_400_000;
@@ -91,16 +90,18 @@ function isStoredRule(value: unknown): value is StoredRule {
 export class RecurringReminders {
   private parsed: { raw: string; rules: Rule[] } | undefined;
   private readonly stateKey: string;
+  private readonly versionsKey: string;
 
   constructor(
-    protected readonly store: AssistantStore,
-    protected readonly now: () => number,
+    private readonly store: AssistantStore,
+    private readonly now: () => number,
     private readonly cadence: Cadence,
   ) {
-    this.stateKey = cadence === "daily" ? "dailyReminders.v1" : "weekdayReminders.v1";
+    this.stateKey = `${cadence}Reminders.v1`;
+    this.versionsKey = `${cadence}ReminderVersions.v1`;
   }
 
-  protected unavailable(): AssistantError {
+  private unavailable(): AssistantError {
     return new AssistantError(503, `${this.cadence}_reminder_storage_unavailable`);
   }
 
@@ -108,7 +109,7 @@ export class RecurringReminders {
     return this.cadence === "daily" || isWeekday(date);
   }
 
-  protected nextOccurrence(schedule: Schedule, date: string, after = -Infinity): Occurrence {
+  private nextOccurrence(schedule: Schedule, date: string, after = -Infinity): Occurrence {
     // 限制本地时钟或时区数据异常时的同步查找工作量。
     for (let attempt = 0; attempt < 7 && validDateOnly(date); attempt++, date = nextDate(date)) {
       if (!this.eligibleDate(date)) continue;
@@ -130,7 +131,7 @@ export class RecurringReminders {
     return moveRule(rule, occurrence);
   }
 
-  protected read(): Rule[] {
+  private read(): Rule[] {
     const raw = this.store.get(this.stateKey);
     if (raw === null) return [];
     if (this.parsed?.raw === raw) return this.parsed.rules;
@@ -156,7 +157,7 @@ export class RecurringReminders {
     }
   }
 
-  protected save(rules: Rule[]): void {
+  private save(rules: Rule[]): void {
     const stored = rules.map(({ occurrence: _occurrence, ...rule }) => rule);
     const raw = JSON.stringify({ version: 1, rules: stored } satisfies State);
     this.store.set(this.stateKey, raw);
@@ -273,15 +274,9 @@ export class RecurringReminders {
       };
     });
   }
-}
-
-export class DailyReminders extends RecurringReminders {
-  constructor(store: AssistantStore, now: () => number) {
-    super(store, now, "daily");
-  }
 
   private readVersions(): Map<string, number> {
-    const raw = this.store.get(VERSIONS_KEY);
+    const raw = this.store.get(this.versionsKey);
     if (raw === null) return new Map();
     if (typeof raw !== "string" || raw.length > MAX_VERSIONS_LENGTH) throw this.unavailable();
     let saved: { version?: unknown; bySeries?: unknown } | null;
@@ -309,7 +304,7 @@ export class DailyReminders extends RecurringReminders {
       const version = versions.get(seriesId);
       if (version !== undefined) bySeries[seriesId] = version;
     }
-    this.store.set(VERSIONS_KEY, JSON.stringify({ version: 1, bySeries }));
+    this.store.set(this.versionsKey, JSON.stringify({ version: 1, bySeries }));
   }
 
   listRescheduleTargets(clientId: string): DailyReminderRescheduleTargetList {
@@ -322,10 +317,12 @@ export class DailyReminders extends RecurringReminders {
 
   reschedule(actorId: string, ownerId: string, raw: unknown): { receipt: DailyReminderRescheduleReceipt; changed: boolean } {
     const input = normalizeDailyReminderRescheduleInput(raw);
-    if (!input) throw new AssistantError(400, "daily_reminder_reschedule_input_invalid");
+    if (!input) throw new AssistantError(400, `${this.cadence}_reminder_reschedule_input_invalid`);
     const { requestId, seriesId, localTime, version } = input;
     const actor = `daily-reminder-reschedule:${actorId}`;
-    const hash = fingerprint([ownerId, seriesId, localTime, version]);
+    // 两类共用改期身份的请求 ID。每日沿用已有哈希，工作日带周期以区分同参数的请求。
+    const params = [ownerId, seriesId, localTime, version];
+    const hash = fingerprint(this.cadence === "daily" ? params : ["weekday", ...params]);
     const nextVersion = version + 1;
     return this.store.transaction(() => {
       const cached = this.store.mutation(actor, requestId);
@@ -345,11 +342,11 @@ export class DailyReminders extends RecurringReminders {
 
       const rules = this.read();
       const rule = rules.find((item) => item.seriesId === seriesId && item.clientId === ownerId);
-      if (!rule) throw new AssistantError(404, "daily_reminder_not_found");
+      if (!rule) throw new AssistantError(404, `${this.cadence}_reminder_not_found`);
       const versions = this.readVersions();
       if ((versions.get(seriesId) ?? 1) !== version) throw new AssistantError(409, "version_conflict");
-      if (rule.localTime === localTime) throw new AssistantError(409, "daily_reminder_time_unchanged");
-      if (!Number.isSafeInteger(nextVersion)) throw new AssistantError(409, "daily_reminder_version_exhausted");
+      if (rule.localTime === localTime) throw new AssistantError(409, `${this.cadence}_reminder_time_unchanged`);
+      if (!Number.isSafeInteger(nextVersion)) throw new AssistantError(409, `${this.cadence}_reminder_version_exhausted`);
 
       const now = this.now();
       const { timeZone } = rule;

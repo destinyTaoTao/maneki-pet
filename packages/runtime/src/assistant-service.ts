@@ -36,7 +36,7 @@ import {
 } from "./assistant-settings.js";
 import { HttpChatProvider } from "./chat-http-provider.js";
 import { ReminderScheduler } from "./reminder-scheduler.js";
-import { DailyReminders, RecurringReminders } from "./daily-reminders.js";
+import { RecurringReminders } from "./daily-reminders.js";
 import type { EventFeed } from "./events.js";
 import type { NotificationBudget } from "./quota.js";
 import { validateObject } from "./validate.js";
@@ -114,7 +114,7 @@ export class AssistantService {
       }
     | undefined;
   private readonly scheduler: ReminderScheduler;
-  private readonly dailyReminders: DailyReminders;
+  private readonly dailyReminders: RecurringReminders;
   private readonly weekdayReminders: RecurringReminders;
   private readonly confirmations = new Map<
     string,
@@ -152,7 +152,7 @@ export class AssistantService {
       cancelChat: (client, id) => this.cancel(client, id),
       ...deps.speech,
     });
-    this.dailyReminders = new DailyReminders(this.store, this.now);
+    this.dailyReminders = new RecurringReminders(this.store, this.now, "daily");
     this.weekdayReminders = new RecurringReminders(this.store, this.now, "weekday");
     this.scheduler = new ReminderScheduler(
       this.store,
@@ -338,6 +338,14 @@ export class AssistantService {
   }
   listWeekdayReminders(clientId: string) {
     return this.weekdayReminders.list(clientId);
+  }
+  listWeekdayRescheduleTargets(ownerId: string) {
+    return this.weekdayReminders.listRescheduleTargets(ownerId);
+  }
+  rescheduleWeekdayReminder(actorId: string, ownerId: string, raw: unknown) {
+    const { receipt, changed } = this.weekdayReminders.reschedule(actorId, ownerId, raw);
+    if (changed) this.scheduler.wake();
+    return receipt;
   }
   cancelWeekdayReminder(clientId: string, raw: unknown) {
     const receipt = this.weekdayReminders.cancel(clientId, raw);

@@ -71,6 +71,8 @@ const recurringWeekdaysCancelPath = recurringWeekdaysPath + "/cancel";
 const recurringReschedulePath = recurringRemindersPath + "/reschedule";
 const recurringRescheduleIdentityPath = recurringReschedulePath + "/identity";
 const recurringRescheduleTargetsPath = recurringReschedulePath + "/targets";
+const weekdayReschedulePath = recurringWeekdaysPath + "/reschedule";
+const weekdayRescheduleTargetsPath = weekdayReschedulePath + "/targets";
 const recurringAdminListPath = "/v1/admin/recurring-reminders/list";
 const recurringAdminCancelPath = "/v1/admin/recurring-reminders/cancel";
 const recurringAdminWeekdaysListPath = "/v1/admin/recurring-reminders/weekdays/list";
@@ -240,7 +242,8 @@ export class LocalHttpApi {
     }
     const client = auth.client;
     if (hasScope(client, REMINDER_RECURRING_RESCHEDULE_SCOPE) || url === recurringReschedulePath ||
-        url === recurringRescheduleIdentityPath || url === recurringRescheduleTargetsPath) {
+        url === recurringRescheduleIdentityPath || url === recurringRescheduleTargetsPath ||
+        url === weekdayReschedulePath || url === weekdayRescheduleTargetsPath) {
       await this.handleRecurringReschedule(req, res, client, method, url);
       return;
     }
@@ -702,9 +705,10 @@ export class LocalHttpApi {
       this.sendJson(res, 200, { clientId: client.clientId, name: client.name });
       return;
     }
-    const listing = method === "GET" && url === recurringRescheduleTargetsPath;
-    if (!listing && !(method === "POST" && url === recurringReschedulePath)) {
-      this.forbidden(res, "reminder_recurring_reschedule client is restricted to daily reschedule routes");
+    const weekdays = url === weekdayReschedulePath || url === weekdayRescheduleTargetsPath;
+    const listing = method === "GET" && (url === recurringRescheduleTargetsPath || url === weekdayRescheduleTargetsPath);
+    if (!listing && !(method === "POST" && (url === recurringReschedulePath || url === weekdayReschedulePath))) {
+      this.forbidden(res, "reminder_recurring_reschedule client is restricted to recurring reschedule routes");
       return;
     }
     const assistant = this.deps.assistant;
@@ -713,11 +717,17 @@ export class LocalHttpApi {
     if (!owner) { this.forbidden(res, "recurring reminder creator is not registered"); return; }
     try {
       if (listing) {
-        this.sendJson(res, 200, assistant.listDailyRescheduleTargets(owner.clientId));
+        this.sendJson(res, 200, weekdays
+          ? assistant.listWeekdayRescheduleTargets(owner.clientId)
+          : assistant.listDailyRescheduleTargets(owner.clientId));
         return;
       }
       const body = await this.readJson(req, res);
-      if (body) this.sendJson(res, 200, assistant.rescheduleDailyReminder(client.clientId, owner.clientId, body));
+      if (!body) return;
+      const receipt = weekdays
+        ? assistant.rescheduleWeekdayReminder(client.clientId, owner.clientId, body)
+        : assistant.rescheduleDailyReminder(client.clientId, owner.clientId, body);
+      this.sendJson(res, 200, receipt);
     } catch (error) {
       if (!(error instanceof AssistantError)) throw error;
       this.sendJson(res, error.status, { error: error.code });
