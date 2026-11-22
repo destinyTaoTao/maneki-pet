@@ -1093,6 +1093,18 @@ SDK `createRecurringReminderClient(...)` 新增 `createWeekdayReminder`、`listW
 
 SDK `createRecurringReminderRescheduleClient(...).listTargets(signal?)` 和 `.rescheduleDailyReminder(input,signal?)` 共用上述契约。CLI `daily-reschedule-targets`、`reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>`。独立 stdio 桥 `reminder-recurring-reschedule-mcp.js` 的工具为 `maneki_list_daily_reschedule_targets`、`maneki_reschedule_daily_reminder`，使用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE`。dsh 显式加载独立改期 patch。
 
+<a id="weekday-reminder-reschedule"></a>
+
+#### 工作日提醒改期
+
+工作日改期复用具名 `reminder_recurring_reschedule`，沿用同名创建身份、专属握手和同一管理撤销。 `GET /v1/recurring-reminders/weekdays/reschedule/targets` 返回本身份工作日目标与当前版本；`POST /v1/recurring-reminders/weekdays/reschedule` 接收 `{requestId,seriesId,version,localTime}` 并返回 `{requestId,seriesId,localTime,timeZone,nextAt,version}`。请求、响应和错误码与每日改期同形，HTTP 成功为 200 并带 `Cache-Control: no-store`。
+
+改期在同一事务更新原序列的时刻、日期、版本、额度和回执。规则仍按原时区的周一至周五调度。本地新时间严格晚于受理时刻，且日期不得早于原规则持久调度日期。若周五当天还有未认领的九点提醒且十点未到，可以改到当日十点。若周五九点已认领，新安排从下一个有效工作日开始。未认领的旧时刻被替换，已在途的通知无法撤回。周末及 DST 缺失或不唯一的时刻继续跳过。
+
+原参数重放原回执，不再更新或重算下一次。每日和工作日改期共用身份的请求 ID 与每 UTC 整点小时 30 次更新额度，成功后用同一个请求 ID 更换周期、目标、版本或时刻返回 409。两个周期分别维护规则与有界版本数据；旧工作日规则默认版本 1，原列表和存储规则形状保持兼容，无数据库迁移。
+
+SDK `createRecurringReminderRescheduleClient(...)` 新增 `listWeekdayTargets(signal?)` 和 `rescheduleWeekdayReminder(input,signal?)`。CLI 为 `weekday-reschedule-targets` 和 `reschedule-weekday-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>`。独立 stdio 桥 `reminder-weekdays-reschedule-mcp.js` 提供 `maneki_list_weekday_reschedule_targets` 与 `maneki_reschedule_weekday_reminder`，复用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE`。dsh 显式加载工作日改期 patch。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
