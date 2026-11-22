@@ -75,3 +75,11 @@ Windows x64，源码构建的独立原生窗口、隔离 Runtime/APPDATA、dsh 0
 将既有“仅对 `bad port` 重选”的逻辑提取为共享测试入口，接入本次失败的助理测试、既有 HTTP/WS 测试及 dsh 语音宿主测试。新增两项确定性回归，分别验证禁用端口会停止旧实例后重选，以及其他传输错误清理实例但不重试。正式 Runtime、固定端口配置和业务断言均未改变。
 
 修复后执行 `corepack pnpm -r build && corepack pnpm -r test && corepack pnpm -r typecheck` 全部通过；共 405 项测试通过，2 项真实设备测试按默认跳过。此项只收口自动测试可靠性，不替代 #66 尚缺的真实麦克风、并发轮次、原生恢复和人工体验验收。
+
+## 2026-11-22 · 正式语音工作者与 dsh 0.2.2-rc.1 复验
+
+Windows 11 x64、Node 24.12.0。以独立 dsh profile 加载真实 SenseVoice INT8，模型、词表和 VAD 均按安装版 dsh 清单核对大小和 SHA-256。测试经正式语音工作者、Runtime 实例身份校验及 `speech_host` 凭证走完转写和提交。System.Speech 合成“查看进度”，音频只在内存中传递。控制组在取得采集租约后将合成观察中的 B 更新为完成，A 仍等输入。实际转写“查看进度。”，重复提交只新增一条用户消息，回答包含 A 等待、B 完成。撤销语音凭证后，下一次采集被拒绝，文字进度回答仍可用。
+
+两轮冷启动样本从发出转写请求到收到结果分别为 2,373 ms 和 2,220 ms，包含宿主轮询和加载。复验先构建 workspace，设置 `MANEKI_SENSEVOICE_TEST_ASSETS` 为存有 `model.int8.onnx`、`tokens.txt` 和 `silero_vad.onnx` 的离线绝对目录，再运行 `node scripts/acceptance-dsh-speech.mjs`。需要 Windows 中文 System.Speech 音色和已安装的 dsh，运行时使用临时数据和独立测试凭证。[复验脚本](../../scripts/acceptance-dsh-speech.mjs)
+
+脚本使用测试配对，宿主会话观察为合成事件。真实麦克风录音期间 B 完成、桌宠动作与扬声器交互、原生授权和恢复、ASR p95 与活跃进程资源仍走实机验收。
