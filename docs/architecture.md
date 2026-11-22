@@ -1105,6 +1105,26 @@ SDK `createRecurringReminderRescheduleClient(...).listTargets(signal?)` 和 `.re
 
 SDK `createRecurringReminderRescheduleClient(...)` 新增 `listWeekdayTargets(signal?)` 和 `rescheduleWeekdayReminder(input,signal?)`。CLI 为 `weekday-reschedule-targets` 和 `reschedule-weekday-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>`。独立 stdio 桥 `reminder-weekdays-reschedule-mcp.js` 提供 `maneki_list_weekday_reschedule_targets` 与 `maneki_reschedule_weekday_reminder`，复用 `MANEKI_RUNTIME_URL` 和 `MANEKI_REMINDER_RECURRING_RESCHEDULE_TOKEN_FILE`。dsh 显式加载工作日改期 patch。
 
+<a id="weekly-reminders"></a>
+
+#### 按指定星期重复提醒
+
+按星期的规则沿用 `reminder_recurring` 凭证、同名配对和回环握手。创建时提供 `daysOfWeek`，为 1 至 7 个不同的 ISO 星期整数（1 周一，7 周日），Runtime 将列表升序规范化。规则按创建时个人设置的时区以及用户指定的星期和 `HH:mm` 当地时刻调度。首次日期严格晚于受理时刻，跨日恢复只处理当前本地日或未来，指定时刻因 DST 缺失或不唯一时跳过当次。节假日及调休按同一星期规则处理。
+
+| 路由 | 契约 |
+|---|---|
+| `POST /v1/recurring-reminders/weekly` | `{requestId,localTime,message,daysOfWeek}`，返回 `{requestId,seriesId,localTime,timeZone,nextAt,daysOfWeek}`。 |
+| `GET /v1/recurring-reminders/weekly` | `{reminders:[{seriesId,localTime,message,timeZone,nextAt,daysOfWeek}]}`，按 nextAt、ID 升序。 |
+| `POST /v1/recurring-reminders/weekly/cancel` | `{requestId,seriesId}`，返回 `{requestId,seriesId,cancelled:true}`。 |
+
+同一身份已提交的请求 ID 在所有重复周期的创建与取消中共享，原参数重试返回首次回执。仅改变星期数组的排列视为同一请求。改变星期集合、周期或其他已提交参数返回 409。取消需要该身份拥有的完整系列 ID。取消后无后续认领，旧创建回执不复活已取消规则，已认领通知不可撤回。
+
+本地日期、事务认领、时钟回拨、故障隔离及至多一次通知调用沿用每日语义。按星期规则用独立有界 v1 SQLite KV，保留每日及工作日旧规则与旧工具。此类活跃规则最多 64 条，每身份最多 8 条。所有重复周期共享按身份每 UTC 整点小时 30 次创建预算、通知预算和同一调度器。无数据库迁移。正常响应为 HTTP 200 与 `Cache-Control: no-store`。
+
+管理员通过 `POST /v1/admin/recurring-reminders/weekly/list` 和 `POST /v1/admin/recurring-reminders/weekly/cancel` 按登记名使用同一列表与取消语义。管理脚本 `manage-daily-reminders.mjs` 提供 `list-weekly` 和 `cancel-weekly <seriesId> <requestId>`。
+
+SDK `createRecurringReminderClient(...)` 新增 `createWeeklyReminder`、`listWeeklyReminders`、`cancelWeeklyReminder`。CLI 为 `remind-weekly --request-id <id> --days 1,3,5 --at <HH:mm> --message <text>`、`weekly-reminders`、`cancel-weekly-reminder --request-id <id> --series-id <uuid>`。独立 stdio 桥 `reminder-weekly-mcp.js` 使用既有重复提醒凭证和 Runtime 地址，提供 `maneki_remind_weekly`、`maneki_list_weekly_reminders`、`maneki_cancel_weekly_reminder`。dsh 显式加载对应 patch。
+
 <a id="work-briefing"></a>
 
 #### Personal agent 的只读开工简报（2026-11-21）
