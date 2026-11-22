@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { mock } from "node:test";
 import { startRuntime } from "../packages/runtime/dist/runtime.js";
+import { AssistantStore } from "../packages/runtime/dist/assistant-store.js";
 import { createRecurringReminderClient, createRecurringReminderRescheduleClient } from "../packages/sdk/dist/index.js";
 import { exerciseHost, repo, withFixture, writeProfile } from "./fixtures/dsh-acceptance.mjs";
 import { waitFor } from "./fixtures/dsh-tool-probe.mjs";
@@ -19,6 +20,14 @@ async function runScenario(alreadyDelivered) {
     const deliveries = [];
     const expectedDeliveries = [];
     const slots = [];
+    let completedScans = 0;
+    const nextDue = AssistantStore.prototype.nextDue;
+    const scanProbe = mock.method(AssistantStore.prototype, "nextDue", function () {
+      const result = nextDue.call(this);
+      // 现有调度器在一轮投递结束后读取下次到期时间。
+      completedScans++;
+      return result;
+    });
     const notifier = {
       async notify(notification) {
         deliveries.push({ ...notification, now: Date.now() });
@@ -31,9 +40,11 @@ async function runScenario(alreadyDelivered) {
 
     async function restartAt(now) {
       await runtime?.stop();
+      const scansBeforeRestart = completedScans;
       mock.timers.setTime(now);
       runtime = await startRuntime({ configDir, notifier });
       env.MANEKI_REMINDER_URL = `http://127.0.0.1:${runtime.port}`;
+      return scansBeforeRestart;
     }
 
     const pair = async capability => (await runNode(join(repo, `packages/runtime/scripts/pair-${capability}-client.mjs`),
@@ -73,8 +84,9 @@ async function runScenario(alreadyDelivered) {
           id: `${seriesId}:2026-11-${day}`, title: "小招提醒",
           body: `${message}（原定 ${new Date(now).toLocaleString("zh-CN", { timeZone })}）`, now,
         }));
-        await restartAt(now);
-        await waitFor(() => deliveries.length >= start + expected.length, `未投递 ${day} 日 ${time} 到期的对照或目标`, deadline);
+        const scansBeforeRestart = await restartAt(now);
+        await waitFor(() => completedScans > scansBeforeRestart && deliveries.length >= start + expected.length,
+          `未完成 ${day} 日 ${time} 的调度或到期投递`, deadline);
         assert.deepEqual(deliveries.slice(start).sort(byId), expected.sort(byId));
         expectedDeliveries.push(...expected);
         const weekdayCalls = series.filter(row => row.seriesId === original.seriesId).length;
@@ -137,7 +149,10 @@ async function runScenario(alreadyDelivered) {
       return { scenario, dsh: version, node: process.version, timeZone, ...host, slots,
         replayAfterRestart: true, staleVersionRejectedAfterRestart: true, notifier: "fixture" };
     } finally {
-      try { await runtime?.stop(); } finally { mock.timers.reset(); }
+      try { await runtime?.stop(); } finally {
+        scanProbe.mock.restore();
+        mock.timers.reset();
+      }
     }
   });
 }
