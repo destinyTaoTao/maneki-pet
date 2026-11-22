@@ -1134,9 +1134,9 @@ SDK `createRecurringReminderClient(...)` 新增 `createWeeklyReminder`、`listWe
 | 路由 | 契约 |
 |---|---|
 | `GET /v1/recurring-reminders/weekly/reschedule/targets` | `{reminders:[{seriesId,message,localTime,timeZone,nextAt,daysOfWeek,version}]}`，按 nextAt、ID 升序。 |
-| `POST /v1/recurring-reminders/weekly/reschedule` | 输入严格 `{requestId,seriesId,version,localTime}`，返回 `{requestId,seriesId,localTime,timeZone,nextAt,version,daysOfWeek}`，version 为新版本。 |
+| `POST /v1/recurring-reminders/weekly/reschedule` | 输入 `{requestId,seriesId,version,localTime}`，可附 `daysOfWeek` 更换星期，返回 `{requestId,seriesId,localTime,timeZone,nextAt,version,daysOfWeek}`，version 为新版本。 |
 
-改期保留原系列 ID、正文、星期集合和时区。调度认领、取消和改期都在 SQLite 事务内操作，改期原子更新下一日期、时刻、版本、配额和回执。取严格晚于受理时刻且日期不早于原规则持久调度日期的第一个指定星期本地时刻。当天仍待认领且新时刻未到时可在当天调度。当天已认领时从下一次有效日期开始。旧时刻被替换，已认领的投递无法撤回。非指定星期和 DST 缺失或重复的分钟继续跳过。
+只改时刻时保留原系列 ID、正文、星期集合和时区。调度认领、取消和改期都在 SQLite 事务内操作，改期原子更新下一日期、时刻、版本、配额和回执。取严格晚于受理时刻且日期不早于原规则持久调度日期的第一个指定星期本地时刻。当天仍待认领且新时刻未到时可在当天调度。当天已认领时从下一次有效日期开始。旧时刻被替换，已认领的投递无法撤回。非指定星期和 DST 缺失或重复的分钟继续跳过。
 
 三个周期共享改期身份的持久请求 ID 与每 UTC 整点小时 30 次更新额度。原参数重试返回首次回执。改期请求 ID 换周期、目标、版本或时刻，以及使用过期版本或改到相同时刻，均返回 409。系列不存在或不属同名创建身份返回 404。旧指定星期规则默认版本 1，版本用独立有界的 `weeklyReminderVersions.v1` 存储，无数据库迁移。HTTP 成功为 200，带 `Cache-Control: no-store`。
 
@@ -1148,7 +1148,7 @@ SDK `createRecurringReminderRescheduleClient(...)` 新增 `listWeeklyTargets(sig
 
 `POST /v1/recurring-reminders/weekly/reschedule` 与 `maneki_reschedule_weekly_reminder` 的输入可额外提供 `daysOfWeek`，作用为替换整个星期集合。它必须是 1 至 7 个不同的 ISO 星期整数，升序规范化。继续提交原完整系列 ID、当前版本和期望的 `localTime`；只改星期时沿用查到的原时刻。沿用既有改期凭证、查询接口、版本校验及七字段回执。仅当时刻和星期集合都相同时返回 409；每日和工作日改期请求仍只接受原字段。
 
-有效的下一次是新星期集合中严格晚于受理时刻的第一个本地候选，日期至少为当前本地日及该系列持久日期下界。新日期可以早于旧规则的下一次日期。认领完成前，Runtime 原子记录下一个可调度日期的下界为该认领日的次日；改期或跨日推进不能让日期下界回退。若包含旧日期，当天已认领的系列当天不会再发，取消与已在途通知沿用上文语义。
+星期集合实际变化时，下一次为新集合中严格晚于受理时刻的第一个本地候选，日期至少为当前本地日及该系列持久日期下界。新日期可以早于旧规则的下一次日期。调用通知器前，Runtime 在认领事务中将日期下界推进到该认领日的次日。改期或跨日推进不能让日期下界回退。当天已认领的系列当天不会再发，取消与已在途通知沿用上文语义。
 
 日期下界单独存入有界 SQLite KV `weeklyReminderDateFloors.v1`，与星期、时刻、版本、额度和回执在各自操作的同一事务持久化。原规则存储行与旧回执兼容，无数据库迁移。旧规则缺少下界时，用旧已存下一日期前最近一个旧指定星期的次日作为保守下界。兼容旧 Runtime 写入后遗留的下界时，结合原调度日期核验，采用较晚的已知下界，旧时区数据跳过的日期也可能保守跳过。
 

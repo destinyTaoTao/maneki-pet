@@ -14,7 +14,7 @@
 | 形象、动作与轻陪伴 | 源码支持动作包、点播、模板气泡、「来一句」及暂停。自动台词遵守勿扰和独立预算。正式素材另行准备；长时间节奏、真实休眠及多屏观感待验。[轻陪伴验证](./docs/audits/2026-11-14-template-companionship.md) |
 | 长期记忆 | EverNook 的保存与召回分别授权，记忆有来源，tokenizer 在本地匹配模型。已做隔离身份联验，跨天自然问句的产品体验仍在验收。[配置与证据](./packages/adapters/evernook/README.md) |
 | 让 personal agent 安排休息 | 对已授权的 agent 说「半小时后提醒我休息」。小招保存一次提醒，宿主退出后，仍由后台到点投递。[配对与重试示例](#agent-reminders) |
-| 让 personal agent 定期提醒你 | 对已授权的 agent 说「每周一、三、五上午九点提醒我休息」。小招按个人时区调度。[指定星期](#weekly-reminders) · [指定星期改期](#weekly-reminder-reschedule) · [每日提醒](#daily-reminders) · [工作日提醒](#weekday-reminders) · [工作日改期](#weekday-reminder-reschedule) · [每日改期](#daily-reminder-reschedule) |
+| 让 personal agent 定期提醒你 | 对已授权的 agent 说「每周一、三、五上午九点提醒我休息」。小招按个人时区调度。[指定星期](#weekly-reminders) · [改时间](#weekly-reminder-reschedule) · [换星期](#weekly-reminder-change-days) · [每日提醒](#daily-reminders) · [工作日提醒](#weekday-reminders) |
 | 让 personal agent 管理自己安排的提醒 | 权限分别授予。agent 可查询尚未开始投递的提醒，并精确取消或改期其中一条。[查询与取消](#agent-reminder-management) · [改期](#agent-reminder-reschedule) |
 | 让 personal agent 整理开工简报 | 单独授权后，agent 可通过 SDK、HTTP、CLI 或 MCP 一次查询到期待办和等待回应的 dsh 会话。[接入示例](#让-personal-agent-帮你开工) |
 
@@ -357,6 +357,21 @@ node packages/cli/dist/main.js daily-reschedule-targets
 | MCP stdio | `reminder-weekly-reschedule-mcp.js` 提供 `maneki_list_weekly_reschedule_targets` 和 `maneki_reschedule_weekly_reminder` |
 
 查询目标和改期回执都包含 `daysOfWeek`。响应丢失时，用原请求 ID、系列 ID、旧版本和新时刻重试，取回原回执。新的改期先重新查询版本。[请求与回执契约](./docs/architecture.md#weekly-reminder-reschedule) · [验收记录](./docs/audits/2026-11-22-weekly-reminder-reschedule.md)
+
+<a id="weekly-reminder-change-days"></a>
+
+### 把周一、三、五改成周二、四
+
+对 dsh 说「把每周一、三、五上午十点的休息提醒改成每周二、四上午十点」。复用上面的独立改期授权和工具。先按原星期 `[1, 3, 5]`、十点和正文找到目标，再提交该目标的 `seriesId`、当前 `version`、新请求 ID、`localTime: "10:00"` 和 `daysOfWeek: [2, 4]`。新星期集合会整体替换旧集合，沿用原时区。当天已经认领的系列不会在当天再发。
+
+| 入口 | 更换星期 |
+| --- | --- |
+| SDK | `.rescheduleWeeklyReminder({ requestId, seriesId, version, localTime: "10:00", daysOfWeek: [2, 4] })` |
+| 本机 HTTP | 同样的字段发送至 `POST /v1/recurring-reminders/weekly/reschedule` |
+| CLI | `maneki reschedule-weekly-reminder --request-id <id> --series-id <uuid> --version <n> --at 10:00 --days 2,4` |
+| MCP stdio | 用现有 `maneki_reschedule_weekly_reminder` 提交相同字段 |
+
+超时后沿用原请求 ID 和参数。星期顺序可以不同，修改集合会返回冲突。若只改时刻，可省略 `daysOfWeek`。[调度契约](./docs/architecture.md#weekly-reminder-change-days) · [dsh 接入](./apps/dsh-plugin/README.md#在-dsh-更换指定星期) · [验收记录](./docs/audits/2026-11-22-weekly-reminder-change-days.md)
 
 ## 模型与数据
 
