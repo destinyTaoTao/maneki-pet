@@ -55,3 +55,5 @@ Windows 11 x64、Node 24.12.0、pnpm 12.16.1、dsh 0.2.2-rc.1。旧验收脚本�
 实际 NSIS 初次安装、固定入口注册、打包 Runtime 文字助手、运行中拒绝覆盖/卸载、升级与 v5 → v6 迁移、真实 dsh tgz 安装与命令注册、宿主退出后后台继续运行、卸载保留数据库均通过。失败轮遗留锁文件，经原生排他锁确认无人持有后回收，随后卸载并核对数据库哈希。升级夹具仍使用当前源码配 `0.1.9` 版本元数据。源码构建来自带独立 EverNook 未提交改动的本地工作区，本轮验证范围为安装、入口与个人事项。
 
 复验使用独立 `MANEKI_WINDOWS_ACCEPTANCE_RECORD` 路径，先运行 `corepack pnpm acceptance:windows prepare --headless`，接着运行 `corepack pnpm acceptance:windows finish`。已有同版夹具可使用 `repeat --headless`。本轮未打开助手窗口、替换生产安装或更新封存安装包，原生确认、焦点和真实旧版迁移继续单独验收。[验收脚本](../../scripts/acceptance-windows.mjs)
+
+在 `40d278f` 干净快照重建后，初次安装与卸载通过。复跑发现原脚本重用 dsh profile、打包位置及命令回执路径，旧插件安装缓存会干扰下一轮。修复后同一对安装器连续两轮 `repeat --headless` 和 `finish` 均通过。每轮均使用独立 dsh profile、tgz、日志与命令回执。第二轮 dsh 退出后，对实际安装的后台进程按约 2 秒间隔取 12 个 Private Bytes 样本，均为 33.51 MiB。桌宠、WebView2 和语音模型在本样本之外。

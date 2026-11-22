@@ -176,13 +176,12 @@ async function main() {
     install = join(lab, "安装 目录"),
     binary = `maneki-acceptance-${id}.exe`,
     product = `Maneki Acceptance ${id}`;
+  const runSuffix = prior ? `-repeat-${randomUUID().slice(0, 8)}` : "";
+  const dshArtifacts = runSuffix ? join(lab, `dsh-artifacts${runSuffix}`) : lab;
   const env = {
     ...process.env,
-    APPDATA: join(
-      lab,
-      prior ? `appdata-repeat-${randomUUID().slice(0, 8)}` : "appdata",
-    ),
-    DSH_HOME: join(lab, "dsh-home"),
+    APPDATA: join(lab, `appdata${runSuffix}`),
+    DSH_HOME: join(lab, `dsh-home${runSuffix}`),
   };
   const config = join(env.APPDATA, "com.manekipet.desktop/runtime"),
     override = join(lab, "acceptance.config.json");
@@ -191,7 +190,7 @@ async function main() {
     identifier: `com.manekipet.acceptance.${id}`,
     mainBinaryName: binary.slice(0, -4),
   };
-  const [packCommand, packArgs] = pnpmInvocation("acceptance:windows", ["--filter", "@maneki-pet/dsh-plugin", "pack", "--pack-destination", lab]);
+  const [packCommand, packArgs] = pnpmInvocation("acceptance:windows", ["--filter", "@maneki-pet/dsh-plugin", "pack", "--pack-destination", dshArtifacts]);
   assert(
     !existsSync(join(install, binary)),
     "Finish the previous isolated installation before repeating",
@@ -405,13 +404,14 @@ async function main() {
   evidence.upgradeDataAndV5MigrationPreserved = true;
   evidence.personalAssistantFromBundledNode = true;
   evidence.voiceAndCloudDisabledByDefault = true;
-  const plugin = join(lab, "maneki-pet-dsh-plugin-0.3.0.tgz");
+  mkdirSync(dshArtifacts, { recursive: true });
+  const plugin = join(dshArtifacts, "maneki-pet-dsh-plugin-0.3.0.tgz");
   await run(packCommand, packArgs, process.env, { cwd: repo, timeout: 60000 });
   const dshEnv = Object.fromEntries(["SystemRoot", "COMSPEC", "PATH", "PATHEXT"]
     .map((key) => [key, env[key]]).filter((entry) => entry[1]));
   Object.assign(dshEnv, { APPDATA: env.APPDATA, DSH_HOME: env.DSH_HOME, DSH_TELEMETRY_DISABLED: "1" });
   for (const [key, folder] of Object.entries({ USERPROFILE: "user", LOCALAPPDATA: "local", TEMP: "tmp", TMP: "tmp" })) {
-    dshEnv[key] = join(lab, folder);
+    dshEnv[key] = join(dshArtifacts, folder);
     mkdirSync(dshEnv[key], { recursive: true });
   }
   // 只装配插件需要的宿主服务，避免启动 Web 和在线模型插件。
@@ -428,9 +428,9 @@ async function main() {
     { timeout: 60000 },
   );
   console.log("PASS actual dsh local plugin install");
-  const probe = join(lab, "probe.mjs"),
-    patch = join(lab, "probe.patch.yml"),
-    proof = join(lab, "dsh-status.json");
+  const probe = join(dshArtifacts, "probe.mjs"),
+    patch = join(dshArtifacts, "probe.patch.yml"),
+    proof = join(dshArtifacts, "dsh-status.json");
   writeFileSync(
     probe,
     `import {writeFileSync} from 'node:fs';export const name='maneki-preview-probe';export const inject=['commands'];export function apply(ctx){let busy=false;const timer=setInterval(async()=>{if(busy)return;const command=ctx.commands.find(undefined,'maneki');if(!command)return;busy=true;try{const result=await command.handler({rawInput:' status',signal:new AbortController().signal});if(result.kind==='success'){writeFileSync(${JSON.stringify(proof)},JSON.stringify({registered:true,recordInput:command.recordInput,result}));clearInterval(timer);}}finally{busy=false;}},200);ctx.on('dispose',()=>clearInterval(timer));}`,
@@ -462,7 +462,7 @@ async function main() {
   } finally {
     if (host.exitCode === null && host.signalCode === null) host.kill();
     await hostClosed;
-    writeFileSync(join(lab, "dsh.log"), log);
+    writeFileSync(join(dshArtifacts, "dsh.log"), log);
   }
   assert.equal((await native("status")).state, "ready");
   evidence.hostExitPreservesRuntime = true;

@@ -21,3 +21,4 @@ GitHub 上陪伴型桌面管家四阶段的 #64 和 #65 已关闭，#66 和 #67 
 - 同一快照重跑 24 条单次提醒，p95 为 32 ms，最大值 32 ms。合成通知器的低负载调用时点适用于调度回归，OS 横幅和带桌宠、dsh 的负载仍保留。[计时脚本](../../scripts/acceptance-reminder-timing.mjs)
 - Windows 11 build 26200、Node 24.12.0，无 UI 空闲 Runtime 单进程在启动后约 15–37 秒取 12 个样本，Private Bytes 均为 38.97 MiB。本次未加载模型、语音或真实 dsh；未计入打包后的 sidecar、桌宠和 WebView2。[资源预算](../architecture.md#8-性能可维护性与验证)
 - 隔离安装器使用新的 dsh 0.2.2-rc.1 重新验证初装、带旧版元数据的升级、运行中写入保护、插件与卸载保留数据。另用真实 dsh 和 Windows 通知接口复验一次提醒，系统已受理，用户可见性保留。[安装复验](./2026-11-08-windows-preview-delivery.md#2026-11-22--当前源码隔离安装复验) · [通知复验](./2026-11-08-reminder-management.md#2026-11-22--单次提醒调度延迟样本)
+- 从 `40d278f` 的提交快照再次通过 785 项测试、类型检查和 Windows 原生构建。该快照生成的隔离安装器通过初装、升级和卸载，修复验收脚本的旧 dsh profile 复用后又连续两轮通过。第二轮实际安装的空闲 Runtime 单进程 12 个样本均为 33.51 MiB，低于 Runtime 的 75 MiB 目标。含桌宠和 WebView2 的 300 MiB 整棵进程树目标仍待测。[资源与安装复验](./2026-11-08-windows-preview-delivery.md#2026-11-22--当前源码隔离安装复验)
