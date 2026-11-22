@@ -9,7 +9,7 @@ import {
   createBriefingClient, createExpressionClient, createRecurringReminderClient, createRecurringReminderRescheduleClient, createReminderCancelClient,
   createReminderClient, createReminderReadClient, createReminderRescheduleClient, type AgentReminderCancelInput,
   type AgentReminderInput, type AgentReminderRescheduleInput, type DailyReminderCancelInput, type DailyReminderInput,
-  type DailyReminderRescheduleInput, type ReminderClientOptions, type WeeklyReminderInput,
+  type DailyReminderRescheduleInput, type ReminderClientOptions, type WeeklyReminderInput, type WeeklyReminderRescheduleInput,
 } from "../src/index.js";
 
 let dir: string;
@@ -655,7 +655,7 @@ it.each(recurringRescheduleCases)("$label改期只调用专用路由，拒绝模
     { ...dailyCancel, localTime: "09:00" }, { ...dailyReschedule, seriesId: "ab000000" },
     { ...dailyReschedule, seriesId: dailyReschedule.seriesId.toUpperCase() }, { ...dailyReschedule, requestId: "private/path" },
     { ...dailyReschedule, message: dailySummary.message }, { ...dailyReschedule, timeZone: "UTC" },
-    { ...dailyReschedule, daysOfWeek: [1, 5, 7] },
+    { ...dailyReschedule, daysOfWeek: move === "rescheduleWeeklyReminder" ? [1, 1] : [1, 5, 7] },
     ...[0, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].map((version) => ({ ...dailyReschedule, version })),
     ...["9:00", "24:00", "09:00\n", "09:00:00"].map((localTime) => ({ ...dailyReschedule, localTime })),
   ]) {
@@ -710,5 +710,25 @@ it("按星期改期目标和回执均拒绝缺失或非规范的星期集合", a
     await expect(client.listWeeklyTargets()).rejects.toThrow(/^Runtime 按星期提醒改期目标列表格式无效$/);
     body = { ...dailyRescheduled, daysOfWeek };
     await expect(client.rescheduleWeeklyReminder(dailyReschedule)).rejects.toThrow(/^Runtime 按星期提醒改期回执格式无效$/);
+  }
+});
+
+it("按星期改期发送规范化的新星期集合并拒绝与请求不匹配的回执", async () => {
+  const input: WeeklyReminderRescheduleInput = { ...dailyReschedule, daysOfWeek: [4, 2] };
+  const receipt = { ...dailyRescheduled, daysOfWeek: [2, 4] };
+  let body: unknown = receipt;
+  const requests: unknown[] = [];
+  const baseUrl = await serveVerified(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    res.end(JSON.stringify(body));
+  }, "reminder-recurring-reschedule");
+  const client = createRecurringReminderRescheduleClient({ baseUrl, tokenFile });
+  expect(await client.rescheduleWeeklyReminder(input)).toEqual(receipt);
+  expect(requests).toEqual([{ ...dailyReschedule, daysOfWeek: [2, 4] }]);
+  for (const daysOfWeek of [[4, 2], [2, 5], [2]]) {
+    body = { ...receipt, daysOfWeek };
+    await expect(client.rescheduleWeeklyReminder(input)).rejects.toThrow(/^Runtime 按星期提醒改期回执格式无效$/);
   }
 });

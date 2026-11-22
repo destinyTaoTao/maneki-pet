@@ -78,7 +78,7 @@ it("四个入口按同一版本改期一次，保留星期、时区与同时间�
 
     const request = { requestId: randomUUID(), seriesId: target.seriesId, version: 1, localTime: "10:00" };
     const call = () => host.callTool({ name: moveTool, arguments: request });
-    expect((await admin.request(movePath, { ...request, daysOfWeek: [2, 4] }, moveToken)).status).toBe(400);
+    expect((await admin.request(movePath, { ...request, daysOfWeek: [2, 2] }, moveToken)).status).toBe(400);
     expect((await admin.request(movePath, request, creatorToken)).status).toBe(403);
     expect((await admin.request(movePath + "/targets", request, moveToken)).status).toBe(403);
     expect((await host.callTool({ name: moveTool, arguments: { ...request, timeZone: "UTC" } })).isError).toBe(true);

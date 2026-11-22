@@ -3,14 +3,15 @@ import {
   MAX_AGENT_REMINDER_MESSAGE_LENGTH, MAX_DAILY_REMINDERS_PER_CLIENT, MAX_WEEKLY_REMINDERS_PER_CLIENT,
   normalizeAgentReminder, normalizeAgentReminderCancelInput, normalizeAgentReminderMessage, normalizeAgentReminderRescheduleInput,
   normalizeDailyReminderCancelInput, normalizeDailyReminderInput, normalizeDailyReminderRescheduleInput,
-  normalizeWeeklyReminderDays, normalizeWeeklyReminderInput, validTimeZone,
+  normalizeWeeklyReminderDays, normalizeWeeklyReminderInput, normalizeWeeklyReminderRescheduleInput, validTimeZone,
   type AgentReminderCancelInput, type AgentReminderCancelReceipt, type AgentReminderInput, type AgentReminderList,
   type AgentReminderReceipt, type AgentReminderRescheduleInput, type AgentReminderRescheduleReceipt,
   type AgentReminderSummary, type DailyReminderCancelInput, type DailyReminderCancelReceipt, type DailyReminderInput,
   type DailyReminderList, type DailyReminderReceipt, type DailyReminderRescheduleInput, type DailyReminderRescheduleReceipt,
   type DailyReminderRescheduleTarget, type DailyReminderRescheduleTargetList, type DailyReminderSummary,
-  type WeeklyReminderInput, type WeeklyReminderList, type WeeklyReminderReceipt, type WeeklyReminderRescheduleReceipt,
-  type WeeklyReminderRescheduleTarget, type WeeklyReminderRescheduleTargetList, type WeeklyReminderSummary,
+  type WeeklyReminderInput, type WeeklyReminderList, type WeeklyReminderReceipt, type WeeklyReminderRescheduleInput,
+  type WeeklyReminderRescheduleReceipt, type WeeklyReminderRescheduleTarget, type WeeklyReminderRescheduleTargetList,
+  type WeeklyReminderSummary,
 } from "@maneki-pet/core";
 import { createPairedTransport, ReminderClientError, type PairedClientOptions } from "./paired-transport.js";
 
@@ -317,13 +318,14 @@ export function createRecurringReminderRescheduleClient(options: RecurringRemind
       }
       return { reminders: body.reminders };
     },
-    /** 使用已明确选定按星期规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
-    async rescheduleWeeklyReminder(input: DailyReminderRescheduleInput, signal?: AbortSignal): Promise<WeeklyReminderRescheduleReceipt> {
-      const normalized = normalizeDailyReminderRescheduleInput(input);
+    /** 使用已明确选定规则的完整 ID 和查询所得版本，可替换整个星期集合。 */
+    async rescheduleWeeklyReminder(input: WeeklyReminderRescheduleInput, signal?: AbortSignal): Promise<WeeklyReminderRescheduleReceipt> {
+      const normalized = normalizeWeeklyReminderRescheduleInput(input);
       if (!normalized) throw new ReminderClientError("无效的按星期提醒改期参数");
       const body = await rescheduleWeekly(signal, JSON.stringify(normalized));
+      const expectedDays = normalized.daysOfWeek ?? normalizeWeeklyReminderDays(body.daysOfWeek);
       if (Object.keys(body).length !== 7 || !validRescheduleReceiptFields(body, normalized) ||
-          !validCanonicalWeeklyDays(body.daysOfWeek)) {
+          expectedDays === null || !matchesWeeklyDays(body.daysOfWeek, expectedDays)) {
         throw new ReminderClientError("Runtime 按星期提醒改期回执格式无效");
       }
       const { requestId, seriesId, localTime, timeZone, nextAt, version, daysOfWeek } = body;
