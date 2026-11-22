@@ -65,18 +65,36 @@ const reminderRoutes = {
 const reminderManagementScopes = [REMINDER_READ_SCOPE, REMINDER_CANCEL_SCOPE, REMINDER_RESCHEDULE_SCOPE] as const;
 const recurringRemindersPath = "/v1/recurring-reminders";
 const recurringRemindersIdentityPath = recurringRemindersPath + "/identity";
-const recurringRemindersCancelPath = recurringRemindersPath + "/cancel";
 const recurringWeekdaysPath = recurringRemindersPath + "/weekdays";
-const recurringWeekdaysCancelPath = recurringWeekdaysPath + "/cancel";
 const recurringReschedulePath = recurringRemindersPath + "/reschedule";
 const recurringRescheduleIdentityPath = recurringReschedulePath + "/identity";
 const recurringRescheduleTargetsPath = recurringReschedulePath + "/targets";
 const weekdayReschedulePath = recurringWeekdaysPath + "/reschedule";
 const weekdayRescheduleTargetsPath = weekdayReschedulePath + "/targets";
-const recurringAdminListPath = "/v1/admin/recurring-reminders/list";
-const recurringAdminCancelPath = "/v1/admin/recurring-reminders/cancel";
-const recurringAdminWeekdaysListPath = "/v1/admin/recurring-reminders/weekdays/list";
-const recurringAdminWeekdaysCancelPath = "/v1/admin/recurring-reminders/weekdays/cancel";
+const recurringRoutes = [
+  {
+    path: recurringRemindersPath,
+    adminPath: "/v1/admin/recurring-reminders",
+    list: "listDailyReminders",
+    create: "createDailyReminder",
+    cancel: "cancelDailyReminder",
+  },
+  {
+    path: recurringWeekdaysPath,
+    adminPath: "/v1/admin/recurring-reminders/weekdays",
+    list: "listWeekdayReminders",
+    create: "createWeekdayReminder",
+    cancel: "cancelWeekdayReminder",
+  },
+  {
+    path: recurringRemindersPath + "/weekly",
+    adminPath: "/v1/admin/recurring-reminders/weekly",
+    list: "listWeeklyReminders",
+    create: "createWeeklyReminder",
+    cancel: "cancelWeeklyReminder",
+  },
+] as const;
+type RecurringRoute = typeof recurringRoutes[number];
 const revokeRoutes = new Map<string, Exclude<keyof typeof clientProofs, "expression">>([
   ["/v1/admin/briefing/revoke", "briefing"],
   ["/v1/admin/reminders/revoke", "reminder"],
@@ -247,10 +265,9 @@ export class LocalHttpApi {
       await this.handleRecurringReschedule(req, res, client, method, url);
       return;
     }
-    if (hasScope(client, REMINDER_RECURRING_SCOPE) || url === recurringRemindersPath ||
-        url === recurringRemindersIdentityPath || url === recurringRemindersCancelPath ||
-        url === recurringWeekdaysPath || url === recurringWeekdaysCancelPath) {
-      await this.handleRecurringReminders(req, res, client, method, url);
+    const recurringRoute = recurringRoutes.find(route => url === route.path || url === route.path + "/cancel");
+    if (hasScope(client, REMINDER_RECURRING_SCOPE) || url === recurringRemindersIdentityPath || recurringRoute) {
+      await this.handleRecurringReminders(req, res, client, method, url, recurringRoute);
       return;
     }
     const reminderScope = REMINDER_SCOPES.find(scope => hasScope(client, scope));
@@ -446,11 +463,12 @@ export class LocalHttpApi {
       return;
     }
 
-    const weekdayAdmin = url === recurringAdminWeekdaysListPath || url === recurringAdminWeekdaysCancelPath;
-    if (method === "POST" && (url === recurringAdminListPath || url === recurringAdminCancelPath || weekdayAdmin)) {
-      const cancelling = url === recurringAdminCancelPath || url === recurringAdminWeekdaysCancelPath;
-      await this.handleRecurringAdmin(req, res, client, { cancelling, weekdays: weekdayAdmin });
-      return;
+    if (method === "POST") {
+      const route = recurringRoutes.find(route => url === route.adminPath + "/list" || url === route.adminPath + "/cancel");
+      if (route) {
+        await this.handleRecurringAdmin(req, res, client, route, url === route.adminPath + "/cancel");
+        return;
+      }
     }
 
     const purpose = revokeRoutes.get(url);
@@ -663,8 +681,8 @@ export class LocalHttpApi {
     this.sendJson(res, 404, { error: "not found" });
   }
 
-  private async handleRecurringAdmin(req: IncomingMessage, res: ServerResponse, client: AuthedClient,
-    { cancelling, weekdays }: { cancelling: boolean; weekdays: boolean },
+  private async handleRecurringAdmin(
+    req: IncomingMessage, res: ServerResponse, client: AuthedClient, route: RecurringRoute, cancelling: boolean,
   ): Promise<void> {
     res.setHeader("cache-control", "no-store");
     if (!hasScope(client, ADMIN_SCOPE)) {
@@ -683,9 +701,9 @@ export class LocalHttpApi {
     const owner = this.deps.store.findNamedClient(name, REMINDER_RECURRING_SCOPE);
     if (!owner) { this.sendJson(res, 404, { error: "recurring_reminder_client_not_found" }); return; }
     try {
-      const result = weekdays
-        ? (cancelling ? assistant.cancelWeekdayReminder(owner.clientId, input) : assistant.listWeekdayReminders(owner.clientId))
-        : (cancelling ? assistant.cancelDailyReminder(owner.clientId, input) : assistant.listDailyReminders(owner.clientId));
+      const result = cancelling
+        ? assistant[route.cancel](owner.clientId, input)
+        : assistant[route.list](owner.clientId);
       this.sendJson(res, 200, result);
     } catch (error) {
       if (!(error instanceof AssistantError)) throw error;
@@ -736,6 +754,7 @@ export class LocalHttpApi {
 
   private async handleRecurringReminders(
     req: IncomingMessage, res: ServerResponse, client: AuthedClient, method: string, url: string,
+    route: RecurringRoute | undefined,
   ): Promise<void> {
     res.setHeader("cache-control", "no-store");
     if (client.scopes.length !== 1 || !hasScope(client, REMINDER_RECURRING_SCOPE)) {
@@ -746,12 +765,8 @@ export class LocalHttpApi {
       this.sendJson(res, 200, { clientId: client.clientId, name: client.name });
       return;
     }
-    const series = url === recurringRemindersPath || url === recurringWeekdaysPath;
-    const weekdays = url === recurringWeekdaysPath || url === recurringWeekdaysCancelPath;
-    const listing = method === "GET" && series;
-    const creating = method === "POST" && series;
-    const cancelling = method === "POST" && (url === recurringRemindersCancelPath || url === recurringWeekdaysCancelPath);
-    if (!listing && !creating && !cancelling) {
+    const listing = method === "GET" && url === route?.path;
+    if (!route || (!listing && method !== "POST")) {
       this.forbidden(res, "reminder_recurring client is restricted to recurring reminder routes");
       return;
     }
@@ -759,16 +774,13 @@ export class LocalHttpApi {
     if (!assistant) { this.sendJson(res, 503, { error: "assistant_unavailable" }); return; }
     try {
       if (listing) {
-        this.sendJson(res, 200, weekdays
-          ? assistant.listWeekdayReminders(client.clientId)
-          : assistant.listDailyReminders(client.clientId));
+        this.sendJson(res, 200, assistant[route.list](client.clientId));
         return;
       }
       const body = await this.readJson(req, res);
       if (!body) return;
-      const result = weekdays
-        ? (creating ? assistant.createWeekdayReminder(client.clientId, body) : assistant.cancelWeekdayReminder(client.clientId, body))
-        : (creating ? assistant.createDailyReminder(client.clientId, body) : assistant.cancelDailyReminder(client.clientId, body));
+      const operation = url === route.path ? route.create : route.cancel;
+      const result = assistant[operation](client.clientId, body);
       this.sendJson(res, 200, result);
     } catch (error) {
       if (!(error instanceof AssistantError)) throw error;

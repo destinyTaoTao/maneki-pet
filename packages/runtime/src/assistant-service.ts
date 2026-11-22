@@ -116,6 +116,7 @@ export class AssistantService {
   private readonly scheduler: ReminderScheduler;
   private readonly dailyReminders: RecurringReminders;
   private readonly weekdayReminders: RecurringReminders;
+  private readonly weeklyReminders: RecurringReminders;
   private readonly confirmations = new Map<
     string,
     {
@@ -154,6 +155,7 @@ export class AssistantService {
     });
     this.dailyReminders = new RecurringReminders(this.store, this.now, "daily");
     this.weekdayReminders = new RecurringReminders(this.store, this.now, "weekday");
+    this.weeklyReminders = new RecurringReminders(this.store, this.now, "weekly");
     this.scheduler = new ReminderScheduler(
       this.store,
       deps.notifier,
@@ -161,7 +163,7 @@ export class AssistantService {
       deps.dnd,
       deps.feed,
       this.now,
-      [this.dailyReminders, this.weekdayReminders],
+      [this.dailyReminders, this.weekdayReminders, this.weeklyReminders],
     );
     this.scheduler.wake();
   }
@@ -349,6 +351,19 @@ export class AssistantService {
   }
   cancelWeekdayReminder(clientId: string, raw: unknown) {
     const receipt = this.weekdayReminders.cancel(clientId, raw);
+    this.scheduler.wake();
+    return receipt;
+  }
+  createWeeklyReminder(clientId: string, raw: unknown) {
+    const receipt = this.weeklyReminders.createWeekly(clientId, raw);
+    this.scheduler.wake();
+    return receipt;
+  }
+  listWeeklyReminders(clientId: string) {
+    return this.weeklyReminders.listWeekly(clientId);
+  }
+  cancelWeeklyReminder(clientId: string, raw: unknown) {
+    const receipt = this.weeklyReminders.cancel(clientId, raw);
     this.scheduler.wake();
     return receipt;
   }

@@ -4,19 +4,26 @@ import {
   AGENT_REMINDER_UUID_PATTERN,
   MAX_DAILY_REMINDERS,
   MAX_DAILY_REMINDERS_PER_CLIENT,
+  MAX_WEEKLY_REMINDERS,
+  MAX_WEEKLY_REMINDERS_PER_CLIENT,
   localParts,
   localTimeToUtc,
   normalizeDailyReminderCancelInput,
   normalizeDailyReminderInput,
   normalizeDailyReminderRescheduleInput,
+  normalizeWeeklyReminderDays,
+  normalizeWeeklyReminderInput,
   validDateOnly,
   validTimeZone,
   type DailyReminderCancelReceipt,
+  type DailyReminderInput,
   type DailyReminderList,
   type DailyReminderReceipt,
   type DailyReminderRescheduleReceipt,
   type DailyReminderRescheduleTargetList,
   type DailyReminderSummary,
+  type WeeklyReminderList,
+  type WeeklyReminderReceipt,
 } from "@maneki-pet/core";
 import { AssistantError, readAssistantSettings } from "./assistant-settings.js";
 import type { AssistantStore } from "./assistant-store.js";
@@ -32,6 +39,7 @@ interface Occurrence {
 interface StoredRule extends Omit<DailyReminderSummary, "nextAt"> {
   clientId: string;
   nextDate: string;
+  daysOfWeek?: number[];
 }
 interface Rule extends StoredRule {
   occurrence: Occurrence;
@@ -40,8 +48,9 @@ interface State {
   version: 1;
   rules: StoredRule[];
 }
-type Schedule = Pick<StoredRule, "timeZone" | "localTime">;
-type Cadence = "daily" | "weekday";
+type Schedule = Pick<StoredRule, "timeZone" | "localTime" | "daysOfWeek">;
+type ScheduleDays = Pick<Schedule, "daysOfWeek">;
+type Cadence = "daily" | "weekday" | "weekly";
 interface Delivery {
   id: string;
   message: string;
@@ -51,12 +60,6 @@ interface Delivery {
 
 const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const nextDate = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10);
-
-function isWeekday(date: string): boolean {
-  // date 已经是规则时区内的日期，用 UTC 字段计算该日历日期的星期几。
-  const day = new Date(`${date}T00:00:00Z`).getUTCDay();
-  return day >= 1 && day <= 5;
-}
 
 function compareOccurrences(a: Rule, b: Rule): number {
   return a.occurrence.nextAt - b.occurrence.nextAt || a.seriesId.localeCompare(b.seriesId);
@@ -76,9 +79,14 @@ function isValidEpoch(nextAt: unknown): nextAt is number {
     nextAt > 0 && Number.isFinite(new Date(nextAt).getTime());
 }
 
-function isStoredRule(value: unknown): value is StoredRule {
-  if (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 6) return false;
+function isStoredRule(value: unknown, weekly: boolean): value is StoredRule {
+  if (typeof value !== "object" || value === null || Array.isArray(value) ||
+      Object.keys(value).length !== (weekly ? 7 : 6)) return false;
   const rule = value as Partial<StoredRule>;
+  if (weekly) {
+    const normalizedDays = normalizeWeeklyReminderDays(rule.daysOfWeek);
+    if (!normalizedDays || !normalizedDays.every((day, index) => day === rule.daysOfWeek?.[index])) return false;
+  }
   const normalized = normalizeDailyReminderInput({ requestId: "stored", localTime: rule.localTime, message: rule.message });
   return normalized !== null && normalized.message === rule.message &&
     typeof rule.clientId === "string" && AGENT_REMINDER_ID_PATTERN.test(rule.clientId) &&
@@ -91,6 +99,8 @@ export class RecurringReminders {
   private parsed: { raw: string; rules: Rule[] } | undefined;
   private readonly stateKey: string;
   private readonly versionsKey: string;
+  private readonly maxRules: number;
+  private readonly maxRulesPerClient: number;
 
   constructor(
     private readonly store: AssistantStore,
@@ -99,20 +109,27 @@ export class RecurringReminders {
   ) {
     this.stateKey = `${cadence}Reminders.v1`;
     this.versionsKey = `${cadence}ReminderVersions.v1`;
+    this.maxRules = cadence === "weekly" ? MAX_WEEKLY_REMINDERS : MAX_DAILY_REMINDERS;
+    this.maxRulesPerClient = cadence === "weekly" ? MAX_WEEKLY_REMINDERS_PER_CLIENT : MAX_DAILY_REMINDERS_PER_CLIENT;
   }
 
   private unavailable(): AssistantError {
     return new AssistantError(503, `${this.cadence}_reminder_storage_unavailable`);
   }
 
-  private eligibleDate(date: string): boolean {
-    return this.cadence === "daily" || isWeekday(date);
+  private eligibleDate(date: string, schedule: ScheduleDays): boolean {
+    if (this.cadence === "daily") return true;
+    // date 是规则时区内的日期，借 UTC 字段计算该日历日期的 ISO 星期。
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay() || 7;
+    return this.cadence === "weekday" ? day <= 5 : schedule.daysOfWeek?.includes(day) === true;
   }
 
   private nextOccurrence(schedule: Schedule, date: string, after = -Infinity): Occurrence {
     // 限制本地时钟或时区数据异常时的同步查找工作量。
-    for (let attempt = 0; attempt < 7 && validDateOnly(date); attempt++, date = nextDate(date)) {
-      if (!this.eligibleDate(date)) continue;
+    // 每周只选一天时，今天的时刻已过且下周被 DST 跳过，需查到第 14 天。
+    const limit = this.cadence === "weekly" ? 15 : 7;
+    for (let attempt = 0; attempt < limit && validDateOnly(date); attempt++, date = nextDate(date)) {
+      if (!this.eligibleDate(date, schedule)) continue;
       const time = localTimeToUtc(`${date}T${schedule.localTime}`, schedule.timeZone);
       if (time !== null && time > after) return { nextDate: date, nextAt: time };
     }
@@ -140,12 +157,13 @@ export class RecurringReminders {
     const counts = new Map<string, number>();
     try {
       const state = JSON.parse(raw) as Partial<State> | null;
-      if (state?.version !== 1 || !Array.isArray(state.rules) || state.rules.length > MAX_DAILY_REMINDERS) throw this.unavailable();
+      if (state?.version !== 1 || !Array.isArray(state.rules) || state.rules.length > this.maxRules) throw this.unavailable();
       const rules: Rule[] = [];
       for (const rule of state.rules) {
-        if (!isStoredRule(rule) || ids.has(rule.seriesId) || !this.eligibleDate(rule.nextDate)) throw this.unavailable();
+        if (!isStoredRule(rule, this.cadence === "weekly") || ids.has(rule.seriesId) ||
+            !this.eligibleDate(rule.nextDate, rule)) throw this.unavailable();
         const count = (counts.get(rule.clientId) ?? 0) + 1;
-        if (count > MAX_DAILY_REMINDERS_PER_CLIENT) throw this.unavailable();
+        if (count > this.maxRulesPerClient) throw this.unavailable();
         ids.add(rule.seriesId);
         counts.set(rule.clientId, count);
         rules.push({ ...rule, occurrence: this.nextOccurrence(rule, rule.nextDate) });
@@ -168,10 +186,25 @@ export class RecurringReminders {
   create(clientId: string, raw: unknown): DailyReminderReceipt {
     const input = normalizeDailyReminderInput(raw);
     if (!input) throw new AssistantError(400, `${this.cadence}_reminder_input_invalid`);
-    const { requestId, localTime, message } = input;
+    return this.createRule(clientId, input, {});
+  }
+
+  createWeekly(clientId: string, raw: unknown): WeeklyReminderReceipt {
+    const input = normalizeWeeklyReminderInput(raw);
+    if (!input) throw new AssistantError(400, "weekly_reminder_input_invalid");
+    return this.createRule(clientId, input, { daysOfWeek: [...input.daysOfWeek] });
+  }
+
+  private createRule<Days extends ScheduleDays>(
+    clientId: string,
+    { requestId, localTime, message }: DailyReminderInput,
+    days: Days,
+  ): DailyReminderReceipt & Days {
     const owner = `daily-reminder:${clientId}`;
-    // 与每日规则共享请求 ID 和创建配额，保留旧每日请求的哈希输入。
-    const hash = fingerprint([this.cadence === "daily" ? "create" : "create-weekday", localTime, message]);
+    // 所有周期共享请求 ID 和创建配额，保留旧每日和工作日请求的哈希输入。
+    const action = this.cadence === "daily" ? "create" : `create-${this.cadence}`;
+    const args = [action, localTime, message];
+    const hash = fingerprint(days.daysOfWeek ? [...args, days.daysOfWeek] : args);
     return this.store.transaction(() => {
       const rules = this.read();
       const cached = this.store.mutation(owner, requestId);
@@ -184,37 +217,52 @@ export class RecurringReminders {
               typeof value.timeZone !== "string" || !validTimeZone(value.timeZone) ||
               !isValidEpoch(value.nextAt)) throw this.unavailable();
           const { seriesId, timeZone, nextAt } = value;
-          const receipt = { requestId, seriesId, localTime, timeZone, nextAt };
+          const receipt = { requestId, seriesId, localTime, timeZone, nextAt, ...days };
           if (cached.result !== JSON.stringify(receipt)) throw this.unavailable();
           return receipt;
         } catch {
           throw this.unavailable();
         }
       }
-      if (rules.length >= MAX_DAILY_REMINDERS || rules.filter((rule) => rule.clientId === clientId).length >= MAX_DAILY_REMINDERS_PER_CLIENT) {
+      if (rules.length >= this.maxRules || rules.filter((rule) => rule.clientId === clientId).length >= this.maxRulesPerClient) {
         throw new AssistantError(409, `${this.cadence}_reminder_limit`);
       }
       const now = this.now();
       const timeZone = readAssistantSettings(this.store).timeZone;
-      const occurrence = this.nextOccurrence({ localTime, timeZone }, localParts(now, timeZone).date, now);
+      // 缓存的规则与返回给调用方的回执不共享星期数组。
+      const schedule = days.daysOfWeek ? { localTime, timeZone, daysOfWeek: [...days.daysOfWeek] } : { localTime, timeZone };
+      const occurrence = this.nextOccurrence(schedule, localParts(now, timeZone).date, now);
       const seriesId = randomUUID();
-      const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt };
+      const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt, ...days };
       this.store.consumeAgentReminderQuota("daily_creation", clientId, now);
-      this.save([...rules, { nextDate: occurrence.nextDate, occurrence, seriesId, clientId, localTime, message, timeZone }]);
+      this.save([...rules, {
+        nextDate: occurrence.nextDate, occurrence, seriesId, clientId, localTime, message, timeZone,
+        ...(schedule.daysOfWeek && { daysOfWeek: schedule.daysOfWeek }),
+      }]);
       this.store.rememberMutation(owner, requestId, hash, receipt);
       return receipt;
     });
   }
 
   list(clientId: string): DailyReminderList {
+    return { reminders: this.listRules(clientId).map(summary) };
+  }
+
+  listWeekly(clientId: string): WeeklyReminderList {
+    return {
+      reminders: this.listRules(clientId).map((rule) => {
+        if (!rule.daysOfWeek) throw this.unavailable();
+        return { ...summary(rule), daysOfWeek: [...rule.daysOfWeek] };
+      }),
+    };
+  }
+
+  private listRules(clientId: string): Rule[] {
     const now = this.now();
     const days = new Map<string, string>();
-    return {
-      reminders: this.read().filter((rule) => rule.clientId === clientId)
-        .map((rule) => this.currentOccurrence(rule, now, days))
-        .sort(compareOccurrences)
-        .map(summary),
-    };
+    return this.read().filter((rule) => rule.clientId === clientId)
+      .map((rule) => this.currentOccurrence(rule, now, days))
+      .sort(compareOccurrences);
   }
 
   cancel(clientId: string, raw: unknown): DailyReminderCancelReceipt {
@@ -222,7 +270,7 @@ export class RecurringReminders {
     if (!input) throw new AssistantError(400, `${this.cadence}_reminder_cancel_input_invalid`);
     const { requestId, seriesId } = input;
     const owner = `daily-reminder:${clientId}`;
-    const hash = fingerprint([this.cadence === "daily" ? "cancel" : "cancel-weekday", seriesId]);
+    const hash = fingerprint([this.cadence === "daily" ? "cancel" : `cancel-${this.cadence}`, seriesId]);
     const receipt = { requestId, seriesId, cancelled: true } satisfies DailyReminderCancelReceipt;
     return this.store.transaction(() => {
       const rules = this.read();

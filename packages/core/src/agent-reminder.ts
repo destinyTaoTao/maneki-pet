@@ -6,6 +6,8 @@ export const MAX_AGENT_REMINDER_LIST_ITEMS = 200;
 export const DAILY_REMINDER_TIME_PATTERN = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
 export const MAX_DAILY_REMINDERS_PER_CLIENT = 8;
 export const MAX_DAILY_REMINDERS = 64;
+export const MAX_WEEKLY_REMINDERS_PER_CLIENT = 8;
+export const MAX_WEEKLY_REMINDERS = 64;
 // Unicode 模式按码点匹配，完整的代理对仍可作为一个补充平面字符传递。
 const invalidReminderCharacter = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/u;
 
@@ -72,6 +74,23 @@ export interface DailyReminderSummary extends Omit<DailyReminderReceipt, "reques
 
 export interface DailyReminderList {
   reminders: DailyReminderSummary[];
+}
+
+export interface WeeklyReminderInput extends DailyReminderInput {
+  /** ISO 星期，1 为周一、7 为周日。 */
+  daysOfWeek: readonly number[];
+}
+
+export interface WeeklyReminderReceipt extends DailyReminderReceipt {
+  daysOfWeek: number[];
+}
+
+export interface WeeklyReminderSummary extends DailyReminderSummary {
+  daysOfWeek: number[];
+}
+
+export interface WeeklyReminderList {
+  reminders: WeeklyReminderSummary[];
 }
 
 export interface DailyReminderCancelInput {
@@ -156,6 +175,27 @@ export function normalizeDailyReminderInput(input: unknown): DailyReminderInput 
       typeof localTime !== "string" || !DAILY_REMINDER_TIME_PATTERN.test(localTime)) return null;
   const text = normalizeAgentReminderMessage(message);
   return text === null ? null : { requestId, localTime, message: text };
+}
+
+export function normalizeWeeklyReminderDays(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 7) return null;
+  const days = new Set<number>();
+  for (const day of value) {
+    if (typeof day !== "number" || !Number.isInteger(day) || day < 1 || day > 7 || days.has(day)) return null;
+    days.add(day);
+  }
+  return [...days].sort((left, right) => left - right);
+}
+
+/** 星期集合排序后参与持久幂等比较。 */
+export function normalizeWeeklyReminderInput(input: unknown): WeeklyReminderInput | null {
+  if (typeof input !== "object" || !input || Array.isArray(input)) return null;
+  const keys = Object.keys(input);
+  if (keys.length !== 4 || !keys.includes("daysOfWeek")) return null;
+  const { daysOfWeek, ...dailyFields } = input as Record<string, unknown>;
+  const normalizedDays = normalizeWeeklyReminderDays(daysOfWeek);
+  const daily = normalizeDailyReminderInput(dailyFields);
+  return normalizedDays && daily ? { ...daily, daysOfWeek: normalizedDays } : null;
 }
 
 export function normalizeDailyReminderCancelInput(input: unknown): DailyReminderCancelInput | null {
