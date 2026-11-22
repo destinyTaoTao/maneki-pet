@@ -12,6 +12,7 @@ import { imageWithinPixelBudget, withinPixelBudget } from "./media-budget.js";
 
 // 与动作包 v1 单文件上限保持一致。
 const MAX_ASSET_BYTES = 64 * 1024 * 1024;
+const VIDEO_START_TIMEOUT_MS = 5_000;
 
 export class PetPlayer {
   private chain: AnimationChain | undefined;
@@ -142,6 +143,7 @@ export class PetPlayer {
       this.videoPath = path;
     }
     let settled = false;
+    let startTimer: number | undefined;
     const finish = () => {
       if (settled || !video.ended) return;
       settled = true;
@@ -150,10 +152,13 @@ export class PetPlayer {
     const fail = () => {
       if (settled) return;
       settled = true;
+      this.releaseVideo();
+      this.cache.clear();
       retry();
     };
     this.cancelCurrent = () => {
       settled = true;
+      window.clearTimeout(startTimer);
       video.onended = null;
       video.onerror = null;
       video.onloadedmetadata = null;
@@ -162,6 +167,8 @@ export class PetPlayer {
     void this.resolveAssetUrl(path).then(
       (url) => {
         if (settled) return;
+        // 媒体读取有独立超时。这里限制从交给解码器到开始播放的等待。
+        startTimer = window.setTimeout(fail, VIDEO_START_TIMEOUT_MS);
         video.onended = finish;
         video.onerror = () => { if (video.error) fail(); };
         const start = () => {
@@ -170,6 +177,7 @@ export class PetPlayer {
           video.currentTime = 0;
           void video.play().then(() => {
             if (settled) return;
+            window.clearTimeout(startTimer);
             if (video.parentElement !== this.container) this.container.replaceChildren(video);
             this.onRecovered();
           }).catch(fail);
