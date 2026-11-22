@@ -26,8 +26,16 @@ async function setup(
     notifier: options.notifier ?? { notify: notifier },
   });
   runtimes.push(runtime);
+  const call = runtimeCall(runtime);
+  const paired = await call("/v1/pair", {
+    name: "assistant",
+    scopes: "assistant,settings",
+  });
+  return { dir, runtime, call, token: paired.body.token as string, notifier };
+}
+function runtimeCall(runtime: StartedRuntime) {
   const base = `http://127.0.0.1:${runtime.port}`;
-  const call = async (
+  return async (
     path: string,
     body?: unknown,
     token = runtime.rootToken,
@@ -43,13 +51,67 @@ async function setup(
     });
     return { status: response.status, body: (await response.json()) as any };
   };
-  const paired = await call("/v1/pair", {
-    name: "assistant",
-    scopes: "assistant,settings",
-  });
-  return { dir, runtime, call, token: paired.body.token as string, notifier };
 }
 const prefix = "/v1/assistant";
+it("两端共享主会话，重启续接时保留原请求归属且不自动注入项目观察", async () => {
+  const firstReply: ChatReply = { text: "已收到第一轮", usage: { inputTokens: 5, outputTokens: 5 } };
+  let completeFirst = () => {};
+  const heldReply = new Promise<ChatReply>((resolve) => { completeFirst = () => resolve(firstReply); });
+  const reply = vi.fn(async () => ({ ...firstReply, text: "已接上第二轮" }));
+  reply.mockImplementationOnce(() => heldReply);
+  const chatProvider: RuntimeOptions["chatProvider"] = () => ({
+    info: { id: "continuity", apiVersion: 1, locality: "local" },
+    reply,
+  });
+  const { call, token: desktop, runtime, dir, notifier } = await setup({ configDir: "", chatProvider });
+  const peer = (await call("/v1/pair", { name: "second-view", scopes: "assistant" })).body.token as string;
+  const observer = (await call("/v1/pair", { name: "dsh-observer", scopes: "express" })).body.token as string;
+  const observation = {
+    sourceId: "00000000-0000-4000-8000-000000000056", profileId: "continuity",
+    reportSequence: 1, connected: true, truncated: false,
+    sessions: [{ projectName: "unrelated-project-56", sessionId: "work-session-56", phase: "waiting_input", sequence: 1, observedAt: Date.now() }],
+  };
+  try {
+    const { schemaVersion: _, ...settings } = defaultAssistantSettings();
+    settings.chat = { ...settings.chat, enabled: true, baseUrl: "http://127.0.0.1:1/v1", model: "fixture" };
+    expect((await call(prefix + "/settings", settings, desktop, "PUT")).status).toBe(200);
+    expect((await call("/v1/observations/sessions", observation, observer)).status).toBe(202);
+    const first = { requestId: "shared-request-id", text: "主会话中的第一轮合成问句" };
+    const second = { requestId: first.requestId, text: "请继续刚才的讨论" };
+    const requestPath = prefix + `/chat/${first.requestId}`;
+    expect((await call(prefix + "/chat", first, desktop)).status).toBe(202);
+    expect((await call(prefix + "/chat", first, desktop)).body.status).toBe("pending");
+    expect(await call(prefix + "/chat", second, peer)).toMatchObject({ status: 409, body: { error: "chat_busy" } });
+    expect((await call(requestPath, undefined, peer)).status).toBe(404);
+    completeFirst();
+    await vi.waitFor(async () => expect((await call(requestPath, undefined, desktop)).body.status).toBe("completed"));
+    const before = (await call(prefix + "/snapshot", undefined, peer)).body.messages;
+    expect(before).toMatchObject([{ role: "user", text: first.text }, { role: "assistant", text: firstReply.text }]);
+    expect((await call(prefix + "/snapshot", undefined, observer)).status).toBe(403);
+
+    await runtime.stop();
+    const restarted = await startFetchCompatibleRuntime({ configDir: dir, chatProvider, notifier: { notify: notifier } });
+    runtimes.push(restarted);
+    const resumed = runtimeCall(restarted);
+    expect((await resumed(prefix + "/snapshot", undefined, peer)).body.messages).toEqual(before);
+    expect((await resumed(prefix + "/chat", first, desktop)).body.status).toBe("completed");
+    expect(reply).toHaveBeenCalledOnce();
+    expect((await resumed("/v1/observations/sessions", observation, observer)).status).toBe(202);
+    expect((await resumed(prefix + "/chat", second, peer)).status).toBe(202);
+    await vi.waitFor(async () => expect((await resumed(requestPath, undefined, peer)).body.status).toBe("completed"));
+    const after = (await resumed(prefix + "/snapshot", undefined, desktop)).body;
+    expect(after.observations[0].sessions).toMatchObject([{ sessionId: "work-session-56" }]);
+    expect(after.messages.map((message: { text: string }) => message.text)).toEqual([first.text, firstReply.text, second.text, "已接上第二轮"]);
+    const context = JSON.stringify(reply.mock.lastCall);
+    expect(context).toContain(first.text);
+    expect(context).toContain(firstReply.text);
+    expect(context).not.toMatch(/unrelated-project-56|work-session-56/);
+    expect((await resumed(requestPath, undefined, desktop)).body.message.text).toBe(firstReply.text);
+  } finally {
+    completeFirst();
+  }
+}, 15_000);
+
 it("正式 HTTP 对话可查询、改单和续接提醒时间，观察凭证不能接续个人操作", async () => {
   const { call, token } = await setup();
   const observer = (await call("/v1/pair", { name: "dsh", scopes: "express" }))
