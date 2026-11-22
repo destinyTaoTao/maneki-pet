@@ -9,7 +9,8 @@ import {
   type AgentReminderSummary, type DailyReminderCancelInput, type DailyReminderCancelReceipt, type DailyReminderInput,
   type DailyReminderList, type DailyReminderReceipt, type DailyReminderRescheduleInput, type DailyReminderRescheduleReceipt,
   type DailyReminderRescheduleTarget, type DailyReminderRescheduleTargetList, type DailyReminderSummary,
-  type WeeklyReminderInput, type WeeklyReminderList, type WeeklyReminderReceipt, type WeeklyReminderSummary,
+  type WeeklyReminderInput, type WeeklyReminderList, type WeeklyReminderReceipt, type WeeklyReminderRescheduleReceipt,
+  type WeeklyReminderRescheduleTarget, type WeeklyReminderRescheduleTargetList, type WeeklyReminderSummary,
 } from "@maneki-pet/core";
 import { createPairedTransport, ReminderClientError, type PairedClientOptions } from "./paired-transport.js";
 
@@ -133,15 +134,39 @@ function matchesWeeklyDays(value: unknown, expected: readonly number[]): value i
   return Array.isArray(value) && value.length === expected.length && expected.every((day, index) => value[index] === day);
 }
 
+function validCanonicalWeeklyDays(value: unknown): value is number[] {
+  const days = normalizeWeeklyReminderDays(value);
+  return days !== null && matchesWeeklyDays(value, days);
+}
+
+function validWeeklySummaryFields(row: unknown): row is WeeklyReminderSummary {
+  return validDailySummaryFields(row) && "daysOfWeek" in row && validCanonicalWeeklyDays(row.daysOfWeek);
+}
+
 function validWeeklySummary(row: unknown): row is WeeklyReminderSummary {
-  if (!validDailySummaryFields(row) || Object.keys(row).length !== 6 || !("daysOfWeek" in row)) return false;
-  const days = normalizeWeeklyReminderDays(row.daysOfWeek);
-  return days !== null && matchesWeeklyDays(row.daysOfWeek, days);
+  return validWeeklySummaryFields(row) && Object.keys(row).length === 6;
+}
+
+function validRescheduleVersion(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
 function validDailyRescheduleTarget(row: unknown): row is DailyReminderRescheduleTarget {
   return validDailySummaryFields(row) && Object.keys(row).length === 6 &&
-    "version" in row && typeof row.version === "number" && Number.isSafeInteger(row.version) && row.version >= 1;
+    "version" in row && validRescheduleVersion(row.version);
+}
+
+function validWeeklyRescheduleTarget(row: unknown): row is WeeklyReminderRescheduleTarget {
+  return validWeeklySummaryFields(row) && Object.keys(row).length === 7 &&
+    "version" in row && validRescheduleVersion(row.version);
+}
+
+function validRescheduleReceiptFields(
+  body: Record<string, unknown>, input: DailyReminderRescheduleInput,
+): body is Record<string, unknown> & DailyReminderRescheduleReceipt {
+  return body.requestId === input.requestId && validDailyReminderFields(body) &&
+    body.seriesId === input.seriesId && body.localTime === input.localTime &&
+    validRescheduleVersion(body.version) && body.version === input.version + 1;
 }
 
 function validRecurringRows<T extends DailyReminderSummary>(
@@ -262,9 +287,7 @@ function recurringReminderRescheduleOperations(options: RecurringReminderResched
       const normalized = normalizeDailyReminderRescheduleInput(input);
       if (!normalized) throw new ReminderClientError(`无效的${label}改期参数`);
       const body = await reschedule(signal, JSON.stringify(normalized));
-      if (Object.keys(body).length !== 6 || body.requestId !== normalized.requestId ||
-          !validDailyReminderFields(body) || body.seriesId !== normalized.seriesId || body.localTime !== normalized.localTime ||
-          typeof body.version !== "number" || !Number.isSafeInteger(body.version) || body.version !== normalized.version + 1) {
+      if (Object.keys(body).length !== 6 || !validRescheduleReceiptFields(body, normalized)) {
         throw new ReminderClientError(`Runtime ${label}改期回执格式无效`);
       }
       const { requestId, seriesId, localTime, timeZone, nextAt, version } = body;
@@ -276,6 +299,8 @@ function recurringReminderRescheduleOperations(options: RecurringReminderResched
 export function createRecurringReminderRescheduleClient(options: RecurringReminderRescheduleClientOptions) {
   const daily = recurringReminderRescheduleOperations(options, "daily");
   const weekdays = recurringReminderRescheduleOperations(options, "weekdays");
+  const listWeekly = createPairedTransport("weekly-reminder-reschedule-targets", options);
+  const rescheduleWeekly = createPairedTransport("weekly-reminder-reschedule", options);
   return {
     listTargets: daily.listTargets,
     /** 使用已明确选定每日规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
@@ -283,5 +308,26 @@ export function createRecurringReminderRescheduleClient(options: RecurringRemind
     listWeekdayTargets: weekdays.listTargets,
     /** 使用已明确选定工作日规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
     rescheduleWeekdayReminder: weekdays.rescheduleReminder,
+    /** 结合星期集合定位规则，并取得改期所需的版本。 */
+    async listWeeklyTargets(signal?: AbortSignal): Promise<WeeklyReminderRescheduleTargetList> {
+      const body = await listWeekly(signal);
+      if (Object.keys(body).length !== 1 ||
+          !validRecurringRows(body.reminders, validWeeklyRescheduleTarget, MAX_WEEKLY_REMINDERS_PER_CLIENT)) {
+        throw new ReminderClientError("Runtime 按星期提醒改期目标列表格式无效");
+      }
+      return { reminders: body.reminders };
+    },
+    /** 使用已明确选定按星期规则的完整 ID 和查询所得版本，同一意图重试时保留原参数。 */
+    async rescheduleWeeklyReminder(input: DailyReminderRescheduleInput, signal?: AbortSignal): Promise<WeeklyReminderRescheduleReceipt> {
+      const normalized = normalizeDailyReminderRescheduleInput(input);
+      if (!normalized) throw new ReminderClientError("无效的按星期提醒改期参数");
+      const body = await rescheduleWeekly(signal, JSON.stringify(normalized));
+      if (Object.keys(body).length !== 7 || !validRescheduleReceiptFields(body, normalized) ||
+          !validCanonicalWeeklyDays(body.daysOfWeek)) {
+        throw new ReminderClientError("Runtime 按星期提醒改期回执格式无效");
+      }
+      const { requestId, seriesId, localTime, timeZone, nextAt, version, daysOfWeek } = body;
+      return { requestId, seriesId, localTime, timeZone, nextAt, version, daysOfWeek };
+    },
   };
 }

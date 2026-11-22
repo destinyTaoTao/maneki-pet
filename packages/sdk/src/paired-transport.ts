@@ -37,6 +37,10 @@ const weekdayReminderRescheduleEndpoint = {
   ...recurringReminderRescheduleEndpoint, path: "/v1/recurring-reminders/weekdays/reschedule", identity: "工作日提醒改期",
 } as const;
 
+const weeklyReminderRescheduleEndpoint = {
+  ...recurringReminderRescheduleEndpoint, path: "/v1/recurring-reminders/weekly/reschedule", identity: "按星期提醒改期",
+} as const;
+
 const endpoints = {
   expression: { scope: "express", path: "/v1/expressions/state", proofField: "expressionProof", label: "状态", identity: "表达", Error: ExpressionClientError, maxBytes: 1024, postStatus: 202 },
   briefing: { scope: "briefing_read", path: "/v1/briefing", proofField: "briefingProof", label: "简报", identity: "简报", Error: BriefingClientError, maxBytes: 32 * 1024, postStatus: 200 },
@@ -58,6 +62,8 @@ const endpoints = {
   "recurring-reminder-reschedule": { ...recurringReminderRescheduleEndpoint, label: "改期每日提醒", maxBytes: 1024 },
   "weekday-reminder-reschedule-targets": { ...weekdayReminderRescheduleEndpoint, path: "/v1/recurring-reminders/weekdays/reschedule/targets", label: "查询工作日提醒改期目标", maxBytes: 32 * 1024 },
   "weekday-reminder-reschedule": { ...weekdayReminderRescheduleEndpoint, label: "改期工作日提醒", maxBytes: 1024 },
+  "weekly-reminder-reschedule-targets": { ...weeklyReminderRescheduleEndpoint, path: "/v1/recurring-reminders/weekly/reschedule/targets", label: "查询按星期提醒改期目标", maxBytes: 32 * 1024 },
+  "weekly-reminder-reschedule": { ...weeklyReminderRescheduleEndpoint, label: "改期按星期提醒", maxBytes: 1024 },
 } as const;
 type Endpoint = typeof endpoints[keyof typeof endpoints];
 

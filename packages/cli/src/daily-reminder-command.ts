@@ -33,6 +33,8 @@ const usages = {
   "reschedule-daily-reminder": "maneki reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
   "weekday-reschedule-targets": "maneki weekday-reschedule-targets",
   "reschedule-weekday-reminder": "maneki reschedule-weekday-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
+  "weekly-reschedule-targets": "maneki weekly-reschedule-targets",
+  "reschedule-weekly-reminder": "maneki reschedule-weekly-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
 } as const;
 type RecurringReminderCommand = keyof typeof usages;
 
@@ -90,8 +92,11 @@ function parseOperation(command: RecurringReminderCommand, args: string[]): (() 
         return args.length === 0 ? () => recurringReminderRescheduleClient().listTargets() : null;
       case "weekday-reschedule-targets":
         return args.length === 0 ? () => recurringReminderRescheduleClient().listWeekdayTargets() : null;
+      case "weekly-reschedule-targets":
+        return args.length === 0 ? () => recurringReminderRescheduleClient().listWeeklyTargets() : null;
       case "reschedule-daily-reminder":
-      case "reschedule-weekday-reminder": {
+      case "reschedule-weekday-reminder":
+      case "reschedule-weekly-reminder": {
         const { values } = parseArgs({ args, options: { "request-id": option, "series-id": option, version: option, at: option } });
         const version = once(values.version);
         if (version === undefined || !/^\d+$/.test(version)) return null;
@@ -99,9 +104,14 @@ function parseOperation(command: RecurringReminderCommand, args: string[]): (() 
           requestId: once(values["request-id"]), seriesId: once(values["series-id"]),
           version: Number(version), localTime: once(values.at),
         });
-        return input && (() => command === "reschedule-daily-reminder"
-          ? recurringReminderRescheduleClient().rescheduleDailyReminder(input)
-          : recurringReminderRescheduleClient().rescheduleWeekdayReminder(input));
+        return input && (() => {
+          const client = recurringReminderRescheduleClient();
+          return {
+            "reschedule-daily-reminder": client.rescheduleDailyReminder,
+            "reschedule-weekday-reminder": client.rescheduleWeekdayReminder,
+            "reschedule-weekly-reminder": client.rescheduleWeeklyReminder,
+          }[command](input);
+        });
       }
     }
   } catch {
