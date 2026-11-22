@@ -119,6 +119,11 @@ export interface DailyReminderRescheduleTargetList {
   reminders: DailyReminderRescheduleTarget[];
 }
 
+export interface WeeklyReminderRescheduleInput extends DailyReminderRescheduleInput {
+  /** 提供时用这些 ISO 星期替换整个集合，省略时保留原集合。 */
+  daysOfWeek?: readonly number[];
+}
+
 export interface WeeklyReminderRescheduleReceipt extends WeeklyReminderReceipt {
   version: number;
 }
@@ -230,4 +235,14 @@ export function normalizeDailyReminderRescheduleInput(input: unknown): DailyRemi
       typeof localTime !== "string" || !DAILY_REMINDER_TIME_PATTERN.test(localTime)) return null;
   const normalized = normalizeDailyReminderCancelInput(target);
   return normalized ? { ...normalized, version, localTime } : null;
+}
+
+/** 按星期改期可替换整个星期集合，省略时保留原集合与原请求指纹。 */
+export function normalizeWeeklyReminderRescheduleInput(input: unknown): WeeklyReminderRescheduleInput | null {
+  if (typeof input !== "object" || !input || Array.isArray(input)) return null;
+  if (!Object.hasOwn(input, "daysOfWeek")) return normalizeDailyReminderRescheduleInput(input);
+  const { daysOfWeek, ...dailyFields } = input as Record<string, unknown>;
+  const normalizedDays = normalizeWeeklyReminderDays(daysOfWeek);
+  const daily = normalizeDailyReminderRescheduleInput(dailyFields);
+  return normalizedDays && daily ? { ...daily, daysOfWeek: normalizedDays } : null;
 }

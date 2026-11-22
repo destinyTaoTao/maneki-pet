@@ -13,6 +13,7 @@ import {
   normalizeDailyReminderRescheduleInput,
   normalizeWeeklyReminderDays,
   normalizeWeeklyReminderInput,
+  normalizeWeeklyReminderRescheduleInput,
   validDateOnly,
   validTimeZone,
   type DailyReminderCancelReceipt,
@@ -24,6 +25,7 @@ import {
   type DailyReminderSummary,
   type WeeklyReminderList,
   type WeeklyReminderReceipt,
+  type WeeklyReminderRescheduleInput,
   type WeeklyReminderRescheduleReceipt,
   type WeeklyReminderRescheduleTargetList,
 } from "@maneki-pet/core";
@@ -32,6 +34,8 @@ import type { AssistantStore } from "./assistant-store.js";
 
 const MAX_STATE_LENGTH = 100_000;
 const MAX_VERSIONS_LENGTH = 4096;
+const MAX_DATE_FLOORS_LENGTH = 8192;
+const WEEKLY_DATE_FLOORS_KEY = "weeklyReminderDateFloors.v1";
 const DAY_MS = 86_400_000;
 
 interface Occurrence {
@@ -50,6 +54,10 @@ interface State {
   version: 1;
   rules: StoredRule[];
 }
+interface DateFloor {
+  firstDate: string;
+  nextDate: string;
+}
 type Schedule = Pick<StoredRule, "timeZone" | "localTime" | "daysOfWeek">;
 type ScheduleDays = Pick<Schedule, "daysOfWeek">;
 type Cadence = "daily" | "weekday" | "weekly";
@@ -61,7 +69,9 @@ interface Delivery {
 }
 
 const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const nextDate = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10);
+const offsetDate = (date: string, days: number) =>
+  new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+const laterDate = (a: string, b: string) => a > b ? a : b;
 
 function compareOccurrences(a: Rule, b: Rule): number {
   return a.occurrence.nextAt - b.occurrence.nextAt || a.seriesId.localeCompare(b.seriesId);
@@ -79,6 +89,13 @@ function moveRule(rule: Rule, occurrence: Occurrence): Rule {
 function isValidEpoch(nextAt: unknown): nextAt is number {
   return typeof nextAt === "number" && Number.isSafeInteger(nextAt) &&
     nextAt > 0 && Number.isFinite(new Date(nextAt).getTime());
+}
+
+function isDateFloor(value: unknown): value is DateFloor {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 2) return false;
+  const { firstDate, nextDate } = value as Partial<DateFloor>;
+  return typeof firstDate === "string" && validDateOnly(firstDate) && typeof nextDate === "string" &&
+    validDateOnly(nextDate) && firstDate <= nextDate;
 }
 
 function isStoredRule(value: unknown, weekly: boolean): value is StoredRule {
@@ -130,7 +147,7 @@ export class RecurringReminders {
     // 限制本地时钟或时区数据异常时的同步查找工作量。
     // 每周只选一天时，今天的时刻已过且下周被 DST 跳过，需查到第 14 天。
     const limit = this.cadence === "weekly" ? 15 : 7;
-    for (let attempt = 0; attempt < limit && validDateOnly(date); attempt++, date = nextDate(date)) {
+    for (let attempt = 0; attempt < limit && validDateOnly(date); attempt++, date = offsetDate(date, 1)) {
       if (!this.eligibleDate(date, schedule)) continue;
       const time = localTimeToUtc(`${date}T${schedule.localTime}`, schedule.timeZone);
       if (time !== null && time > after) return { nextDate: date, nextAt: time };
@@ -177,10 +194,55 @@ export class RecurringReminders {
     }
   }
 
-  private save(rules: Rule[]): void {
+  private readWeeklyDateFloors(): Map<string, DateFloor> | null {
+    if (this.cadence !== "weekly") return null;
+    const raw = this.store.get(WEEKLY_DATE_FLOORS_KEY);
+    if (raw === null) return new Map();
+    if (typeof raw !== "string" || raw.length > MAX_DATE_FLOORS_LENGTH) throw this.unavailable();
+    let saved: { version?: unknown; bySeries?: unknown } | null;
+    try { saved = JSON.parse(raw); }
+    catch { throw this.unavailable(); }
+    if (saved?.version !== 1 || Object.keys(saved).length !== 2 ||
+        !saved.bySeries || typeof saved.bySeries !== "object" || Array.isArray(saved.bySeries)) {
+      throw this.unavailable();
+    }
+    const entries = Object.entries(saved.bySeries as Record<string, unknown>);
+    if (entries.length > this.maxRules) throw this.unavailable();
+    const floors = new Map<string, DateFloor>();
+    for (const [id, floor] of entries) {
+      if (!AGENT_REMINDER_UUID_PATTERN.test(id) || !isDateFloor(floor)) throw this.unavailable();
+      floors.set(id, floor);
+    }
+    return floors;
+  }
+
+  private weeklyFirstDate(rule: Rule, saved: DateFloor | undefined): string {
+    if (saved?.nextDate === rule.nextDate) return saved.firstDate;
+    // 旧 Runtime 只写下一次指定日期，前一次可能已认领，保守地从其后一天开始。
+    let firstDate = rule.nextDate;
+    for (let distance = 1; distance <= 7; distance++) {
+      const date = offsetDate(rule.nextDate, -distance);
+      if (this.eligibleDate(date, rule)) {
+        firstDate = offsetDate(date, 1);
+        break;
+      }
+    }
+    return saved ? laterDate(saved.firstDate, firstDate) : firstDate;
+  }
+
+  private save(rules: Rule[], dateFloors: Map<string, DateFloor> | null): void {
     const stored = rules.map(({ occurrence: _occurrence, ...rule }) => rule);
     const raw = JSON.stringify({ version: 1, rules: stored } satisfies State);
     this.store.set(this.stateKey, raw);
+    if (dateFloors) {
+      // 同一事务维护有界的活跃规则下界，也清理旧 Runtime 已取消的系列。
+      const bySeries: Record<string, DateFloor> = {};
+      for (const { seriesId } of rules) {
+        const floor = dateFloors.get(seriesId);
+        if (floor) bySeries[seriesId] = floor;
+      }
+      this.store.set(WEEKLY_DATE_FLOORS_KEY, JSON.stringify({ version: 1, bySeries }));
+    }
     // 后续读取仍比较 SQLite 原值，事务回滚时会重新读取已提交状态。
     this.parsed = { raw, rules };
   }
@@ -233,14 +295,17 @@ export class RecurringReminders {
       const timeZone = readAssistantSettings(this.store).timeZone;
       // 缓存的规则与返回给调用方的回执不共享星期数组。
       const schedule = days.daysOfWeek ? { localTime, timeZone, daysOfWeek: [...days.daysOfWeek] } : { localTime, timeZone };
-      const occurrence = this.nextOccurrence(schedule, localParts(now, timeZone).date, now);
+      const today = localParts(now, timeZone).date;
+      const occurrence = this.nextOccurrence(schedule, today, now);
       const seriesId = randomUUID();
       const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt, ...days };
+      const dateFloors = this.readWeeklyDateFloors();
+      dateFloors?.set(seriesId, { firstDate: today, nextDate: occurrence.nextDate });
       this.store.consumeAgentReminderQuota("daily_creation", clientId, now);
       this.save([...rules, {
         nextDate: occurrence.nextDate, occurrence, seriesId, clientId, localTime, message, timeZone,
         ...(schedule.daysOfWeek && { daysOfWeek: schedule.daysOfWeek }),
-      }]);
+      }], dateFloors);
       this.store.rememberMutation(owner, requestId, hash, receipt);
       return receipt;
     });
@@ -287,7 +352,14 @@ export class RecurringReminders {
       }
       const remaining = rules.filter((rule) => rule.seriesId !== seriesId || rule.clientId !== clientId);
       if (remaining.length === rules.length) throw new AssistantError(404, `${this.cadence}_reminder_not_found`);
-      this.save(remaining);
+      let dateFloors: Map<string, DateFloor> | null;
+      try { dateFloors = this.readWeeklyDateFloors(); }
+      catch (error) {
+        if (!(error instanceof AssistantError) || error.code !== "weekly_reminder_storage_unavailable") throw error;
+        // 损坏的下界仍可能含其他系列的历史，取消最后一个系列时才能安全清空。
+        dateFloors = remaining.length === 0 ? new Map() : null;
+      }
+      this.save(remaining, dateFloors);
       this.store.rememberMutation(owner, requestId, hash, receipt);
       return receipt;
     });
@@ -311,14 +383,32 @@ export class RecurringReminders {
           if (rule.occurrence.nextAt <= now && (!due || compareOccurrences(rule, due) < 0)) due = rule;
         }
       }
+      const advanced = current.some((rule, index) => rule !== rules[index]);
+      if (!due && !advanced) return null;
+      const dateFloors = this.readWeeklyDateFloors();
+      if (dateFloors && advanced) {
+        for (const [index, rule] of current.entries()) {
+          if (rule !== rules[index]) {
+            // currentOccurrence 跨日推进时已经按时区计算了本地日期。
+            const today = days.get(rule.timeZone)!;
+            const firstDate = laterDate(today, dateFloors.get(rule.seriesId)?.firstDate ?? today);
+            if (firstDate > rule.nextDate) throw this.unavailable();
+            dateFloors.set(rule.seriesId, { firstDate, nextDate: rule.nextDate });
+          }
+        }
+      }
       if (!due) {
-        if (current.some((rule, index) => rule !== rules[index])) this.save(current);
+        this.save(current, dateFloors);
         return null;
       }
       // 认领提交后该日期不再可调度，即使通知器失败或进程退出。
       const { nextDate: deliveryDate, nextAt } = due.occurrence;
-      const following = this.nextOccurrence(due, nextDate(deliveryDate));
-      this.save(current.map((rule) => rule === due ? moveRule(rule, following) : rule));
+      const saved = dateFloors?.get(due.seriesId);
+      if (saved && deliveryDate < saved.firstDate) throw this.unavailable();
+      const firstDate = offsetDate(deliveryDate, 1);
+      const following = this.nextOccurrence(due, firstDate);
+      dateFloors?.set(due.seriesId, { firstDate, nextDate: following.nextDate });
+      this.save(current.map((rule) => rule === due ? moveRule(rule, following) : rule), dateFloors);
       return {
         id: `${due.seriesId}:${deliveryDate}`,
         message: due.message,
@@ -376,22 +466,22 @@ export class RecurringReminders {
   }
 
   reschedule(actorId: string, ownerId: string, raw: unknown): { receipt: DailyReminderRescheduleReceipt; changed: boolean } {
-    return this.rescheduleRule(actorId, ownerId, raw, () => ({}));
+    return this.rescheduleRule(actorId, ownerId, normalizeDailyReminderRescheduleInput(raw), () => ({}));
   }
 
   rescheduleWeekly(actorId: string, ownerId: string, raw: unknown): { receipt: WeeklyReminderRescheduleReceipt; changed: boolean } {
-    return this.rescheduleRule(actorId, ownerId, raw, (source) => this.weeklyDays(source));
+    return this.rescheduleRule(actorId, ownerId, normalizeWeeklyReminderRescheduleInput(raw), (source) => this.weeklyDays(source));
   }
 
   private rescheduleRule<Days extends ScheduleDays>(
-    actorId: string, ownerId: string, raw: unknown, getDays: (source: ScheduleDays) => Days,
+    actorId: string, ownerId: string, input: WeeklyReminderRescheduleInput | null,
+    getDays: (source: ScheduleDays) => Days,
   ): { receipt: DailyReminderRescheduleReceipt & Days; changed: boolean } {
-    const input = normalizeDailyReminderRescheduleInput(raw);
     if (!input) throw new AssistantError(400, `${this.cadence}_reminder_reschedule_input_invalid`);
-    const { requestId, seriesId, localTime, version } = input;
+    const { requestId, seriesId, localTime, version, daysOfWeek } = input;
     const actor = `daily-reminder-reschedule:${actorId}`;
     // 各周期共用改期身份的请求 ID。每日保留原哈希，其他周期带周期名称。
-    const params = [ownerId, seriesId, localTime, version];
+    const params = daysOfWeek ? [ownerId, seriesId, localTime, version, daysOfWeek] : [ownerId, seriesId, localTime, version];
     const hash = fingerprint(this.cadence === "daily" ? params : [this.cadence, ...params]);
     const nextVersion = version + 1;
     return this.store.transaction(() => {
@@ -405,7 +495,8 @@ export class RecurringReminders {
         const timeZone = stored?.timeZone;
         if (!stored || !isValidEpoch(nextAt) || typeof timeZone !== "string" || !validTimeZone(timeZone) ||
             !Number.isSafeInteger(nextVersion)) throw this.unavailable();
-        const receipt = { requestId, seriesId, localTime, timeZone, nextAt, version: nextVersion, ...getDays(stored) };
+        const days = getDays(daysOfWeek ? { daysOfWeek: [...daysOfWeek] } : stored);
+        const receipt = { requestId, seriesId, localTime, timeZone, nextAt, version: nextVersion, ...days };
         if (cached.result !== JSON.stringify(receipt)) throw this.unavailable();
         return { receipt, changed: false };
       }
@@ -415,19 +506,26 @@ export class RecurringReminders {
       if (!rule) throw new AssistantError(404, `${this.cadence}_reminder_not_found`);
       const versions = this.readVersions();
       if ((versions.get(seriesId) ?? 1) !== version) throw new AssistantError(409, "version_conflict");
-      if (rule.localTime === localTime) throw new AssistantError(409, `${this.cadence}_reminder_time_unchanged`);
+      const daysChanged = daysOfWeek !== undefined && (daysOfWeek.length !== rule.daysOfWeek?.length ||
+        !daysOfWeek.every((day, index) => day === rule.daysOfWeek?.[index]));
+      if (rule.localTime === localTime && !daysChanged) {
+        throw new AssistantError(409, `${this.cadence}_reminder_time_unchanged`);
+      }
       if (!Number.isSafeInteger(nextVersion)) throw new AssistantError(409, `${this.cadence}_reminder_version_exhausted`);
 
       const now = this.now();
       const { timeZone } = rule;
       const today = localParts(now, timeZone).date;
-      // 认领和跨日推进都持久化日期。改期只能在该日期及之后安排下一次。
-      const firstDate = today > rule.nextDate ? today : rule.nextDate;
-      const updated = { ...rule, localTime };
+      const dateFloors = this.readWeeklyDateFloors();
+      const floor = dateFloors ? laterDate(today, this.weeklyFirstDate(rule, dateFloors.get(seriesId))) : today;
+      // 只改时刻沿用已选日期约束；更换星期可选日期下界后的其他日期。
+      const firstDate = daysChanged ? floor : laterDate(floor, rule.nextDate);
+      const updated = { ...rule, localTime, ...(daysOfWeek && { daysOfWeek: [...daysOfWeek] }) };
       const occurrence = this.nextOccurrence(updated, firstDate, now);
-      const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt, version: nextVersion, ...getDays(rule) };
+      const receipt = { requestId, seriesId, localTime, timeZone, nextAt: occurrence.nextAt, version: nextVersion, ...getDays(updated) };
+      dateFloors?.set(seriesId, { firstDate: floor, nextDate: occurrence.nextDate });
       this.store.consumeAgentReminderQuota("daily_reschedule", actorId, now);
-      this.save(rules.map((item) => item === rule ? moveRule(updated, occurrence) : item));
+      this.save(rules.map((item) => item === rule ? moveRule(updated, occurrence) : item), dateFloors);
       versions.set(seriesId, nextVersion);
       this.saveVersions(rules, versions);
       this.store.rememberMutation(actor, requestId, hash, receipt);

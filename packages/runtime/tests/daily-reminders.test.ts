@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { DailyQuotaPolicy, type SystemNotifier } from "@maneki-pet/core";
 import { afterEach, expect, it, vi } from "vitest";
 import { AssistantService } from "../src/assistant-service.js";
@@ -17,6 +18,7 @@ const weeklyStateKey = "weeklyReminders.v1";
 const versionsKey = "dailyReminderVersions.v1";
 const weekdayVersionsKey = "weekdayReminderVersions.v1";
 const weeklyVersionsKey = "weeklyReminderVersions.v1";
+const weeklyDateFloorsKey = "weeklyReminderDateFloors.v1";
 const dailyInput = { requestId: "create", localTime: "08:00", message: "复查备份" };
 const resources: Array<{ assistant: AssistantService; runtime: RuntimeStore }> = [];
 const directories: string[] = [];
@@ -1117,7 +1119,7 @@ it("旧指定星期规则以版本 1 列出，同日改期替换原时刻，取�
       nextAt: sameMessage.nextAt, daysOfWeek: [1], version: 1 },
   ] });
   const move = { requestId: "move", seriesId: original.seriesId, version: 1, localTime: "09:00" };
-  expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", { ...move, daysOfWeek: [1] }))
+  expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", { ...move, daysOfWeek: [1, 1] }))
     .toThrow(expect.objectContaining({ status: 400, code: "weekly_reminder_reschedule_input_invalid" }));
   expect(() => assistant.rescheduleWeeklyReminder("other-mover", "other", move))
     .toThrow(expect.objectContaining({ status: 404, code: "weekly_reminder_not_found" }));
@@ -1214,6 +1216,179 @@ it.each([
   expect(receipt.nextAt).toBe(Date.parse(nextAt));
 });
 
+it("旧指定星期规则可只改星期并提早到星期二，换序与取消后重试返回原回执", async () => {
+  vi.useFakeTimers();
+  setTime("2026-11-23T19:00:00Z");
+  const db = temporaryDatabase();
+  const before = start(db);
+  const { assistant, store } = before;
+  const seriesId = "11111111-1111-1111-1111-111111111111";
+  store.set(weeklyStateKey, JSON.stringify({ version: 1, rules: [{
+    seriesId, clientId: "owner", localTime: "08:00", message: dailyInput.message, timeZone: "UTC",
+    nextDate: "2026-11-27", daysOfWeek: [1, 5],
+  }] }));
+
+  expect(store.get(weeklyDateFloorsKey)).toBeNull();
+  const input = { requestId: "change-days", seriesId, version: 1, localTime: "08:00", daysOfWeek: [4, 2] };
+  expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", { ...input, daysOfWeek: [5, 1] }))
+    .toThrow(expect.objectContaining({ status: 409, code: "weekly_reminder_time_unchanged" }));
+  expect(() => assistant.rescheduleWeeklyReminder("other-mover", "other", input))
+    .toThrow(expect.objectContaining({ status: 404, code: "weekly_reminder_not_found" }));
+  const receipt = assistant.rescheduleWeeklyReminder("mover", "owner", input);
+  const { daysOfWeek: _days, ...timeOnly } = input;
+  expect(receipt).toEqual({
+    ...timeOnly, timeZone: "UTC", nextAt: Date.parse("2026-11-24T08:00:00Z"), version: 2, daysOfWeek: [2, 4],
+  });
+  expect(assistant.listWeeklyRescheduleTargets("owner").reminders[0]).toMatchObject({
+    message: dailyInput.message, nextAt: receipt.nextAt, version: 2, daysOfWeek: [2, 4],
+  });
+  for (const changed of [timeOnly, { ...input, daysOfWeek: [1, 4] }]) {
+    expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", changed))
+      .toThrow(expect.objectContaining({ status: 409, code: "request_id_conflict" }));
+  }
+  expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", { ...input, requestId: "stale" }))
+    .toThrow(expect.objectContaining({ status: 409, code: "version_conflict" }));
+  await wake(assistant, receipt.nextAt);
+  expect(before.notify.mock.calls.map(([item]) => item.id)).toEqual([`${seriesId}:2026-11-24`]);
+
+  assistant.cancelWeeklyReminder("owner", { requestId: "cancel", seriesId });
+  expect(JSON.parse(store.get(weeklyDateFloorsKey)!)).toEqual({ version: 1, bySeries: {} });
+  await before.close();
+  const after = start(db);
+  expect(after.assistant.rescheduleWeeklyReminder("mover", "owner", { ...input, daysOfWeek: [2, 4] })).toEqual(receipt);
+  expect(after.assistant.listWeeklyReminders("owner")).toEqual({ reminders: [] });
+  const connection = new DatabaseSync(db);
+  try {
+    connection.prepare("UPDATE assistant_mutations SET result=? WHERE client_id=? AND request_id=?")
+      .run(JSON.stringify({ ...receipt, daysOfWeek: [2, 5] }), "daily-reminder-reschedule:mover", input.requestId);
+  } finally { connection.close(); }
+  expect(() => after.assistant.rescheduleWeeklyReminder("mover", "owner", input))
+    .toThrow(expect.objectContaining({ status: 503, code: "weekly_reminder_storage_unavailable" }));
+});
+
+it("认领后重启且时钟回拨，连续改星期与时刻仍可选下界后的星期二", async () => {
+  vi.useFakeTimers();
+  setTime("2026-11-23T07:00:00Z");
+  const db = temporaryDatabase();
+  const before = start(db);
+  before.setZone("UTC");
+  const { seriesId, nextAt } = before.assistant.createWeeklyReminder("owner", { ...dailyInput, daysOfWeek: [1, 3, 5] });
+  await wake(before.assistant, nextAt);
+  expect(before.notify.mock.calls.map(([item]) => item.id)).toEqual([`${seriesId}:2026-11-23`]);
+  await before.close();
+
+  setTime("2026-11-23T07:00:00Z");
+  const after = start(db, before.notify);
+  const move = { seriesId, localTime: "08:00" };
+  const tuesday = after.assistant.rescheduleWeeklyReminder("mover", "owner", {
+    ...move, version: 1, requestId: "tue-thu", daysOfWeek: [2, 4],
+  });
+  expect(tuesday.nextAt).toBe(Date.parse("2026-11-24T08:00:00Z"));
+  const thursday = after.assistant.rescheduleWeeklyReminder("mover", "owner", {
+    ...move, version: 2, requestId: "mon-thu", daysOfWeek: [1, 4],
+  });
+  expect(thursday.nextAt).toBe(Date.parse("2026-11-26T08:00:00Z"));
+  const timeOnly = after.assistant.rescheduleWeeklyReminder("mover", "owner", {
+    ...move, version: 3, requestId: "thursday-later", localTime: "09:00", daysOfWeek: [4, 1],
+  });
+  expect(timeOnly.nextAt).toBe(Date.parse("2026-11-26T09:00:00Z"));
+  const combined = after.assistant.rescheduleWeeklyReminder("mover", "owner", {
+    ...move, version: 4, requestId: "combined", localTime: "09:24", daysOfWeek: [2, 1],
+  });
+  expect(combined).toMatchObject({ localTime: "09:24", nextAt: Date.parse("2026-11-24T09:24:00Z"), daysOfWeek: [1, 2] });
+  await wake(after.assistant, "2026-11-23T09:24:00Z");
+  expect(before.notify).toHaveBeenCalledTimes(1);
+  await wake(after.assistant, combined.nextAt);
+  expect(before.notify.mock.calls.map(([item]) => item.id)).toEqual([`${seriesId}:2026-11-23`, `${seriesId}:2026-11-24`]);
+});
+
+it("旧 Runtime 写入更晚的下一日期后，改星期采用较晚的已知日期下界", () => {
+  vi.useFakeTimers();
+  setTime("2026-11-20T07:00:00Z");
+  const { assistant, store, setZone } = start();
+  setZone("UTC");
+  const { seriesId } = assistant.createWeeklyReminder("owner", { ...dailyInput, daysOfWeek: [1, 5] });
+  const outdatedFloor = store.get(weeklyDateFloorsKey);
+  expect(JSON.parse(outdatedFloor!).bySeries[seriesId]).toEqual({ firstDate: "2026-11-20", nextDate: "2026-11-20" });
+  const legacy = JSON.parse(store.get(weeklyStateKey)!);
+  legacy.rules[0].nextDate = "2026-11-27";
+  store.set(weeklyStateKey, JSON.stringify(legacy));
+
+  setTime("2026-11-23T07:00:00Z");
+  const next = assistant.rescheduleWeeklyReminder("mover", "owner", {
+    requestId: "change", seriesId, version: 1, localTime: "08:00", daysOfWeek: [1, 2],
+  });
+  expect(next.nextAt).toBe(Date.parse("2026-11-24T08:00:00Z"));
+  expect(JSON.parse(store.get(weeklyDateFloorsKey)!).bySeries[seriesId]).toEqual({
+    firstDate: "2026-11-24", nextDate: "2026-11-24",
+  });
+});
+
+it("跨日跳过错过的旧星期，回拨后改星期仍从已推进的本地日期开始", async () => {
+  vi.useFakeTimers();
+  setTime("2026-11-23T07:00:00Z");
+  const { assistant, store, notify, setZone } = start();
+  setZone("UTC");
+  const { seriesId } = assistant.createWeeklyReminder("owner", { ...dailyInput, daysOfWeek: [1, 5] });
+  await wake(assistant, "2026-11-25T07:00:00Z");
+  expect(notify).not.toHaveBeenCalled();
+  expect(JSON.parse(store.get(weeklyDateFloorsKey)!).bySeries[seriesId]).toEqual({
+    firstDate: "2026-11-25", nextDate: "2026-11-27",
+  });
+  setTime("2026-11-24T07:00:00Z");
+  const next = assistant.rescheduleWeeklyReminder("mover", "owner", {
+    requestId: "change", seriesId, version: 1, localTime: "08:00", daysOfWeek: [2, 3],
+  });
+  expect(next.nextAt).toBe(Date.parse("2026-11-25T08:00:00Z"));
+});
+
+it("星期日期下界写入失败时回滚认领并保留当次通知", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "performance"] });
+  setTime("2026-11-23T07:00:00Z");
+  const { assistant, store, notify, setZone } = start();
+  setZone("UTC");
+  const { seriesId, nextAt } = assistant.createWeeklyReminder("owner", { ...dailyInput, daysOfWeek: [1, 3] });
+  const ruleBefore = store.get(weeklyStateKey);
+  const floorBefore = store.get(weeklyDateFloorsKey);
+  const save = store.set.bind(store);
+  const writes = vi.spyOn(store, "set").mockImplementation((key, value) => {
+    if (key === weeklyDateFloorsKey) throw new Error("fixture weekly date floor write error");
+    save(key, value);
+  });
+  await wake(assistant, nextAt);
+  expect(writes.mock.calls.some(([key]) => key === weeklyDateFloorsKey)).toBe(true);
+  expect(notify).not.toHaveBeenCalled();
+  expect(store.get(weeklyStateKey)).toBe(ruleBefore);
+  expect(store.get(weeklyDateFloorsKey)).toBe(floorBefore);
+  writes.mockRestore();
+  await vi.advanceTimersByTimeAsync(30_010);
+  expect(notify.mock.calls.map(([item]) => item.id)).toEqual([`${seriesId}:2026-11-23`]);
+  expect(JSON.parse(store.get(weeklyDateFloorsKey)!).bySeries[seriesId]).toEqual({
+    firstDate: "2026-11-24", nextDate: "2026-11-25",
+  });
+});
+
+it("日期下界损坏时暂停改期和认领，保留取消入口", async () => {
+  vi.useFakeTimers();
+  setTime("2026-11-23T07:00:00Z");
+  const { assistant, store, notify, setZone } = start();
+  setZone("UTC");
+  const weekly = assistant.createWeeklyReminder("owner", { ...dailyInput, daysOfWeek: [1, 3] });
+  const another = assistant.createWeeklyReminder("owner", { ...dailyInput, requestId: "another", daysOfWeek: [1] });
+  const damaged = "{invalid floor";
+  store.set(weeklyDateFloorsKey, damaged);
+  expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", {
+    requestId: "move", seriesId: weekly.seriesId, version: 1, localTime: "08:00", daysOfWeek: [2],
+  })).toThrow(expect.objectContaining({ status: 503, code: "weekly_reminder_storage_unavailable" }));
+  await wake(assistant, weekly.nextAt);
+  expect(notify).not.toHaveBeenCalled();
+  expect(assistant.cancelWeeklyReminder("owner", { requestId: "cancel", seriesId: weekly.seriesId }).cancelled).toBe(true);
+  expect(store.get(weeklyDateFloorsKey)).toBe(damaged);
+  expect(assistant.listWeeklyReminders("owner").reminders.map(({ seriesId }) => seriesId)).toEqual([another.seriesId]);
+  expect(assistant.cancelWeeklyReminder("owner", { requestId: "cancel-another", seriesId: another.seriesId }).cancelled).toBe(true);
+  expect(JSON.parse(store.get(weeklyDateFloorsKey)!)).toEqual({ version: 1, bySeries: {} });
+});
+
 it("指定星期改期的回执写入失败时回滚，版本存储损坏时原调度和回执继续可用", async () => {
   vi.useFakeTimers();
   setTime("2026-11-20T07:00:00Z");
@@ -1221,14 +1396,16 @@ it("指定星期改期的回执写入失败时回滚，版本存储损坏时原�
   setZone("UTC");
   const weekly = assistant.createWeeklyReminder("owner", { ...dailyInput, daysOfWeek: [5] });
   const daily = assistant.createDailyReminder("owner", { ...dailyInput, requestId: "daily" });
-  const input = { requestId: "weekly", seriesId: weekly.seriesId, version: 1, localTime: "09:00" };
+  const input = { requestId: "weekly", seriesId: weekly.seriesId, version: 1, localTime: "09:00", daysOfWeek: [1] };
   const snapshot = assistant.listWeeklyRescheduleTargets("owner");
+  const initialDateFloors = store.get(weeklyDateFloorsKey);
   const writeReceipt = vi.spyOn(store, "rememberMutation").mockImplementationOnce(() => {
     throw new Error("fixture reschedule receipt write error");
   });
   expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", input)).toThrow("fixture reschedule receipt write error");
   writeReceipt.mockRestore();
   expect(store.get(weeklyVersionsKey)).toBeNull();
+  expect(store.get(weeklyDateFloorsKey)).toBe(initialDateFloors);
   expect(store.get("dailyReminderRescheduleQuota.v1.mover")).toBeNull();
   expect(assistant.listWeeklyRescheduleTargets("owner")).toEqual(snapshot);
 
@@ -1239,9 +1416,9 @@ it("指定星期改期的回执写入失败时回滚，版本存储损坏时原�
   expect(() => assistant.rescheduleWeeklyReminder("mover", "owner", { ...input, requestId: "new", version: 2, localTime: "10:00" }))
     .toThrow(expect.objectContaining({ status: 503, code: "weekly_reminder_storage_unavailable" }));
   expect(assistant.rescheduleWeeklyReminder("mover", "owner", input)).toEqual(moved);
-  expect(assistant.rescheduleDailyReminder("mover", "owner", { ...input, requestId: "daily", seriesId: daily.seriesId, localTime: "10:00" }))
+  expect(assistant.rescheduleDailyReminder("mover", "owner", { requestId: "daily", seriesId: daily.seriesId, version: 1, localTime: "10:00" }))
     .toMatchObject({ version: 2 });
   await wake(assistant, moved.nextAt);
-  expect(notify.mock.calls.map(([item]) => item.id)).toEqual([`${weekly.seriesId}:2026-11-20`]);
+  expect(notify.mock.calls.map(([item]) => item.id)).toEqual([`${weekly.seriesId}:2026-11-23`]);
   expect(assistant.cancelWeeklyReminder("owner", { requestId: "cancel", seriesId: weekly.seriesId }).cancelled).toBe(true);
 });
