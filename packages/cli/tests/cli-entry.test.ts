@@ -139,9 +139,10 @@ it("提醒改期要求完整 ID、版本和整数延时，并且只读取改期�
 });
 
 it.each([
-  { name: "每日", createCommand: "remind-daily", listCommand: "daily-reminders", cancelCommand: "cancel-daily-reminder" },
-  { name: "工作日", createCommand: "remind-weekdays", listCommand: "weekday-reminders", cancelCommand: "cancel-weekday-reminder" },
-])("$name 提醒命令拒绝重复或多余参数、非规范时间与模糊 ID，并只读取周期提醒凭证", ({ createCommand, listCommand, cancelCommand }) => {
+  { name: "每日", createCommand: "remind-daily", listCommand: "daily-reminders", cancelCommand: "cancel-daily-reminder", daysOption: [] },
+  { name: "工作日", createCommand: "remind-weekdays", listCommand: "weekday-reminders", cancelCommand: "cancel-weekday-reminder", daysOption: [] },
+  { name: "按星期", createCommand: "remind-weekly", listCommand: "weekly-reminders", cancelCommand: "cancel-weekly-reminder", daysOption: ["--days", "7,1,3"] },
+])("$name 提醒命令拒绝重复或多余参数、非规范时间与模糊 ID，并只读取周期提醒凭证", ({ createCommand, listCommand, cancelCommand, daysOption }) => {
   const dir = mkdtempSync(join(tmpdir(), "maneki-cli-draft-"));
   fixtures.push(dir);
   const oneTimeCredential = join(dir, "one-time-client.json");
@@ -154,10 +155,12 @@ it.each([
       MANEKI_REMINDER_RESCHEDULE_TOKEN_FILE: oneTimeCredential, MANEKI_REMINDER_RECURRING_TOKEN_FILE: undefined },
     encoding: "utf8", timeout: 5000, windowsHide: true,
   });
-  const create = [createCommand, "--request-id", "recurring-1", "--message", "private-text"];
+  const createBase = [createCommand, "--request-id", "recurring-1", "--message", "private-text"];
+  const create = [...createBase, ...daysOption];
   const cancel = [cancelCommand, "--request-id", "cancel-1"];
   const seriesId = "ab000000-0000-4000-a000-000000000001";
-  const createUsage = `maneki ${createCommand} --request-id <id> --at <HH:mm> --message <text>`;
+  const daysUsage = daysOption.length ? " --days 1,3,5" : "";
+  const createUsage = `maneki ${createCommand} --request-id <id>${daysUsage} --at <HH:mm> --message <text>`;
   const cancelUsage = `maneki ${cancelCommand} --request-id <id> --series-id <uuid>`;
   for (const [args, usage] of [
     [[...create, "--at", "8:00"], createUsage], [[...create, "--at", "24:00"], createUsage],
@@ -174,6 +177,14 @@ it.each([
   for (const args of [[...create, "--at", "08:00"], [listCommand], [...cancel, "--series-id", seriesId]]) {
     const unpaired = command(...args);
     expect([unpaired.status, unpaired.stdout, unpaired.stderr.trim()]).toEqual([1, "", "需要可读的已配对 reminder_recurring 凭证文件"]);
+  }
+  if (daysOption.length) {
+    const base = [...createBase, "--at", "08:00"];
+    for (const args of [[], ["--days", "1", "--days", "2"],
+      ...["", "1, 2", "01", "+1", "1.0", "1,1", "1,8", "1,"].map((days) => ["--days", days])]) {
+      const invalid = command(...base, ...args);
+      expect([invalid.status, invalid.stdout, invalid.stderr.trim()]).toEqual([2, "", `usage: ${createUsage}`]);
+    }
   }
 });
 

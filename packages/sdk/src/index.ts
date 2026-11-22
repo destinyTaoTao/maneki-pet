@@ -13,7 +13,8 @@ export type {
   AgentReminderRescheduleInput, AgentReminderRescheduleReceipt, AgentReminderSummary,
   DailyReminderCancelInput, DailyReminderCancelReceipt, DailyReminderInput, DailyReminderList, DailyReminderReceipt,
   DailyReminderRescheduleInput, DailyReminderRescheduleReceipt, DailyReminderRescheduleTarget,
-  DailyReminderRescheduleTargetList, DailyReminderSummary, WorkBriefing,
+  DailyReminderRescheduleTargetList, DailyReminderSummary, WeeklyReminderInput, WeeklyReminderList, WeeklyReminderReceipt,
+  WeeklyReminderSummary, WorkBriefing,
 } from "@maneki-pet/core";
 export { BriefingClientError, ExpressionClientError, ReminderClientError } from "./paired-transport.js";
 export { expressionStates };

@@ -1,13 +1,15 @@
 import {
   AGENT_REMINDER_UUID_PATTERN, DAILY_REMINDER_TIME_PATTERN, MAX_AGENT_REMINDER_LIST_ITEMS,
-  MAX_AGENT_REMINDER_MESSAGE_LENGTH, MAX_DAILY_REMINDERS_PER_CLIENT,
+  MAX_AGENT_REMINDER_MESSAGE_LENGTH, MAX_DAILY_REMINDERS_PER_CLIENT, MAX_WEEKLY_REMINDERS_PER_CLIENT,
   normalizeAgentReminder, normalizeAgentReminderCancelInput, normalizeAgentReminderMessage, normalizeAgentReminderRescheduleInput,
-  normalizeDailyReminderCancelInput, normalizeDailyReminderInput, normalizeDailyReminderRescheduleInput, validTimeZone,
+  normalizeDailyReminderCancelInput, normalizeDailyReminderInput, normalizeDailyReminderRescheduleInput,
+  normalizeWeeklyReminderDays, normalizeWeeklyReminderInput, validTimeZone,
   type AgentReminderCancelInput, type AgentReminderCancelReceipt, type AgentReminderInput, type AgentReminderList,
   type AgentReminderReceipt, type AgentReminderRescheduleInput, type AgentReminderRescheduleReceipt,
   type AgentReminderSummary, type DailyReminderCancelInput, type DailyReminderCancelReceipt, type DailyReminderInput,
   type DailyReminderList, type DailyReminderReceipt, type DailyReminderRescheduleInput, type DailyReminderRescheduleReceipt,
   type DailyReminderRescheduleTarget, type DailyReminderRescheduleTargetList, type DailyReminderSummary,
+  type WeeklyReminderInput, type WeeklyReminderList, type WeeklyReminderReceipt, type WeeklyReminderSummary,
 } from "@maneki-pet/core";
 import { createPairedTransport, ReminderClientError, type PairedClientOptions } from "./paired-transport.js";
 
@@ -127,13 +129,25 @@ function validDailySummary(row: unknown): row is DailyReminderSummary {
   return validDailySummaryFields(row) && Object.keys(row).length === 5;
 }
 
+function matchesWeeklyDays(value: unknown, expected: readonly number[]): value is number[] {
+  return Array.isArray(value) && value.length === expected.length && expected.every((day, index) => value[index] === day);
+}
+
+function validWeeklySummary(row: unknown): row is WeeklyReminderSummary {
+  if (!validDailySummaryFields(row) || Object.keys(row).length !== 6 || !("daysOfWeek" in row)) return false;
+  const days = normalizeWeeklyReminderDays(row.daysOfWeek);
+  return days !== null && matchesWeeklyDays(row.daysOfWeek, days);
+}
+
 function validDailyRescheduleTarget(row: unknown): row is DailyReminderRescheduleTarget {
   return validDailySummaryFields(row) && Object.keys(row).length === 6 &&
     "version" in row && typeof row.version === "number" && Number.isSafeInteger(row.version) && row.version >= 1;
 }
 
-function validDailyRows<T extends DailyReminderSummary>(rows: unknown, validRow: (row: unknown) => row is T): rows is T[] {
-  if (!Array.isArray(rows) || rows.length > MAX_DAILY_REMINDERS_PER_CLIENT) return false;
+function validRecurringRows<T extends DailyReminderSummary>(
+  rows: unknown, validRow: (row: unknown) => row is T, limit = MAX_DAILY_REMINDERS_PER_CLIENT,
+): rows is T[] {
+  if (!Array.isArray(rows) || rows.length > limit) return false;
   const ids = new Set<string>();
   let previous: DailyReminderSummary | undefined;
   for (const row of rows) {
@@ -144,6 +158,20 @@ function validDailyRows<T extends DailyReminderSummary>(rows: unknown, validRow:
     previous = row;
   }
   return true;
+}
+
+function recurringReminderCancelOperation(cancel: ReturnType<typeof createPairedTransport>, label: string) {
+  return async (input: DailyReminderCancelInput, signal?: AbortSignal): Promise<DailyReminderCancelReceipt> => {
+    const normalized = normalizeDailyReminderCancelInput(input);
+    if (!normalized) throw new ReminderClientError(`无效的取消${label}参数`);
+    const body = await cancel(signal, JSON.stringify(normalized));
+    const { requestId, seriesId, cancelled } = body;
+    if (Object.keys(body).length !== 3 || requestId !== normalized.requestId ||
+        seriesId !== normalized.seriesId || cancelled !== true) {
+      throw new ReminderClientError(`Runtime 取消${label}回执格式无效`);
+    }
+    return { requestId, seriesId, cancelled };
+  };
 }
 
 function recurringReminderOperations(options: RecurringReminderClientOptions, recurrence: "daily" | "weekdays") {
@@ -166,28 +194,21 @@ function recurringReminderOperations(options: RecurringReminderClientOptions, re
     },
     async listReminders(signal?: AbortSignal): Promise<DailyReminderList> {
       const body = await list(signal);
-      if (Object.keys(body).length !== 1 || !validDailyRows(body.reminders, validDailySummary)) {
+      if (Object.keys(body).length !== 1 || !validRecurringRows(body.reminders, validDailySummary)) {
         throw new ReminderClientError(`Runtime ${label}列表格式无效`);
       }
       return { reminders: body.reminders };
     },
-    async cancelReminder(input: DailyReminderCancelInput, signal?: AbortSignal): Promise<DailyReminderCancelReceipt> {
-      const normalized = normalizeDailyReminderCancelInput(input);
-      if (!normalized) throw new ReminderClientError(`无效的取消${label}参数`);
-      const body = await cancel(signal, JSON.stringify(normalized));
-      const { requestId, seriesId, cancelled } = body;
-      if (Object.keys(body).length !== 3 || requestId !== normalized.requestId ||
-          seriesId !== normalized.seriesId || cancelled !== true) {
-        throw new ReminderClientError(`Runtime 取消${label}回执格式无效`);
-      }
-      return { requestId, seriesId, cancelled };
-    },
+    cancelReminder: recurringReminderCancelOperation(cancel, label),
   };
 }
 
 export function createRecurringReminderClient(options: RecurringReminderClientOptions) {
   const daily = recurringReminderOperations(options, "daily");
   const weekdays = recurringReminderOperations(options, "weekdays");
+  const createWeekly = createPairedTransport("weekly-reminder-create", options);
+  const listWeekly = createPairedTransport("weekly-reminder-list", options);
+  const cancelWeekly = createPairedTransport("weekly-reminder-cancel", options);
   return {
     /** 用户明确要求每日提醒时调用，同一意图重试时保留原参数。 */
     createDailyReminder: daily.createReminder,
@@ -199,6 +220,28 @@ export function createRecurringReminderClient(options: RecurringReminderClientOp
     listWeekdayReminders: weekdays.listReminders,
     /** 使用已明确选定工作日规则的完整 ID，同一意图重试时保留原参数。 */
     cancelWeekdayReminder: weekdays.cancelReminder,
+    /** 用户明确要求按指定星期提醒时调用，星期集合在发送前升序规范化。 */
+    async createWeeklyReminder(input: WeeklyReminderInput, signal?: AbortSignal): Promise<WeeklyReminderReceipt> {
+      const normalized = normalizeWeeklyReminderInput(input);
+      if (!normalized) throw new ReminderClientError("无效的按星期提醒参数");
+      const body = await createWeekly(signal, JSON.stringify(normalized));
+      if (Object.keys(body).length !== 6 || body.requestId !== normalized.requestId ||
+          !validDailyReminderFields(body) || body.localTime !== normalized.localTime ||
+          !matchesWeeklyDays(body.daysOfWeek, normalized.daysOfWeek)) {
+        throw new ReminderClientError("Runtime 按星期提醒回执格式无效");
+      }
+      const { requestId, seriesId, localTime, timeZone, nextAt, daysOfWeek } = body;
+      return { requestId, seriesId, localTime, timeZone, nextAt, daysOfWeek };
+    },
+    async listWeeklyReminders(signal?: AbortSignal): Promise<WeeklyReminderList> {
+      const body = await listWeekly(signal);
+      if (Object.keys(body).length !== 1 || !validRecurringRows(body.reminders, validWeeklySummary, MAX_WEEKLY_REMINDERS_PER_CLIENT)) {
+        throw new ReminderClientError("Runtime 按星期提醒列表格式无效");
+      }
+      return { reminders: body.reminders };
+    },
+    /** 使用已明确选定按星期规则的完整 ID，同一意图重试时保留原参数。 */
+    cancelWeeklyReminder: recurringReminderCancelOperation(cancelWeekly, "按星期提醒"),
   };
 }
 
@@ -210,7 +253,7 @@ function recurringReminderRescheduleOperations(options: RecurringReminderResched
   return {
     async listTargets(signal?: AbortSignal): Promise<DailyReminderRescheduleTargetList> {
       const body = await list(signal);
-      if (Object.keys(body).length !== 1 || !validDailyRows(body.reminders, validDailyRescheduleTarget)) {
+      if (Object.keys(body).length !== 1 || !validRecurringRows(body.reminders, validDailyRescheduleTarget)) {
         throw new ReminderClientError(`Runtime ${label}改期目标列表格式无效`);
       }
       return { reminders: body.reminders };

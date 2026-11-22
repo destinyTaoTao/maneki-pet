@@ -20,7 +20,8 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   args: ["state", "briefing", "remind", "reminders", "cancel-reminder", "reschedule-reminder",
     "remind-daily", "daily-reminders", "cancel-daily-reminder", "remind-weekdays", "weekday-reminders",
-    "cancel-weekday-reminder", "daily-reschedule-targets", "reschedule-daily-reminder",
+    "cancel-weekday-reminder", "remind-weekly", "weekly-reminders", "cancel-weekly-reminder",
+    "daily-reschedule-targets", "reschedule-daily-reminder",
     "weekday-reschedule-targets", "reschedule-weekday-reminder"].includes(process.argv[2] ?? "")
     ? process.argv.slice(2, 3) : process.argv.slice(2),
   options: {
@@ -83,6 +84,9 @@ async function main(): Promise<void> {
     case "remind-weekdays":
     case "weekday-reminders":
     case "cancel-weekday-reminder":
+    case "remind-weekly":
+    case "weekly-reminders":
+    case "cancel-weekly-reminder":
     case "daily-reschedule-targets":
     case "reschedule-daily-reminder":
     case "weekday-reschedule-targets":
@@ -200,7 +204,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      process.stderr.write("usage: maneki state get|set | briefing | remind | reminders | cancel-reminder | reschedule-reminder | remind-daily | daily-reminders | cancel-daily-reminder | remind-weekdays | weekday-reminders | cancel-weekday-reminder | daily-reschedule-targets | reschedule-daily-reminder | weekday-reschedule-targets | reschedule-weekday-reminder | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
+      process.stderr.write("usage: maneki state get|set | briefing | remind | reminders | cancel-reminder | reschedule-reminder | remind-daily | daily-reminders | cancel-daily-reminder | remind-weekdays | weekday-reminders | cancel-weekday-reminder | remind-weekly | weekly-reminders | cancel-weekly-reminder | daily-reschedule-targets | reschedule-daily-reminder | weekday-reschedule-targets | reschedule-weekday-reminder | platform draft|package|receipt|ops-import|douyin-check | experience-span\n");
       process.exit(2);
   }
 }

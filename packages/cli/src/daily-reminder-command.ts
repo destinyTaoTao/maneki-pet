@@ -1,5 +1,7 @@
 import { parseArgs } from "node:util";
-import { normalizeDailyReminderCancelInput, normalizeDailyReminderInput, normalizeDailyReminderRescheduleInput } from "@maneki-pet/core";
+import {
+  normalizeDailyReminderCancelInput, normalizeDailyReminderInput, normalizeDailyReminderRescheduleInput, normalizeWeeklyReminderInput,
+} from "@maneki-pet/core";
 import { createRecurringReminderClient, createRecurringReminderRescheduleClient } from "@maneki-pet/sdk";
 import { safeReminderError } from "./reminder-command.js";
 
@@ -24,6 +26,9 @@ const usages = {
   "remind-weekdays": "maneki remind-weekdays --request-id <id> --at <HH:mm> --message <text>",
   "weekday-reminders": "maneki weekday-reminders",
   "cancel-weekday-reminder": "maneki cancel-weekday-reminder --request-id <id> --series-id <uuid>",
+  "remind-weekly": "maneki remind-weekly --request-id <id> --days 1,3,5 --at <HH:mm> --message <text>",
+  "weekly-reminders": "maneki weekly-reminders",
+  "cancel-weekly-reminder": "maneki cancel-weekly-reminder --request-id <id> --series-id <uuid>",
   "daily-reschedule-targets": "maneki daily-reschedule-targets",
   "reschedule-daily-reminder": "maneki reschedule-daily-reminder --request-id <id> --series-id <uuid> --version <n> --at <HH:mm>",
   "weekday-reschedule-targets": "maneki weekday-reschedule-targets",
@@ -53,15 +58,33 @@ function parseOperation(command: RecurringReminderCommand, args: string[]): (() 
         return args.length === 0 ? () => recurringReminderClient().listDailyReminders() : null;
       case "weekday-reminders":
         return args.length === 0 ? () => recurringReminderClient().listWeekdayReminders() : null;
+      case "remind-weekly": {
+        const { values } = parseArgs({ args, options: { "request-id": option, days: option, at: option, message: option } });
+        const days = once(values.days);
+        if (days === undefined || !/^[1-7](?:,[1-7]){0,6}$/.test(days)) return null;
+        const input = normalizeWeeklyReminderInput({
+          requestId: once(values["request-id"]), localTime: once(values.at), message: once(values.message),
+          daysOfWeek: days.split(",").map(Number),
+        });
+        return input && (() => recurringReminderClient().createWeeklyReminder(input));
+      }
+      case "weekly-reminders":
+        return args.length === 0 ? () => recurringReminderClient().listWeeklyReminders() : null;
       case "cancel-daily-reminder":
-      case "cancel-weekday-reminder": {
+      case "cancel-weekday-reminder":
+      case "cancel-weekly-reminder": {
         const { values } = parseArgs({ args, options: { "request-id": option, "series-id": option } });
         const input = normalizeDailyReminderCancelInput({
           requestId: once(values["request-id"]), seriesId: once(values["series-id"]),
         });
-        return input && (() => command === "cancel-daily-reminder"
-          ? recurringReminderClient().cancelDailyReminder(input)
-          : recurringReminderClient().cancelWeekdayReminder(input));
+        return input && (() => {
+          const client = recurringReminderClient();
+          return {
+            "cancel-daily-reminder": client.cancelDailyReminder,
+            "cancel-weekday-reminder": client.cancelWeekdayReminder,
+            "cancel-weekly-reminder": client.cancelWeeklyReminder,
+          }[command](input);
+        });
       }
       case "daily-reschedule-targets":
         return args.length === 0 ? () => recurringReminderRescheduleClient().listTargets() : null;
