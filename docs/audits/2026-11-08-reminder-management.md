@@ -34,3 +34,9 @@
 SQLite v5→v6 前生成 `runtime.db.bak-5`（更早库按源版本备份），事务增加 nullable seen_at 列，旧记录默认 null。桌面/Runtime 一起更新；旧 Runtime 拒绝 v6，回退须先停止后台并显式恢复对应备份，恢复旧备份会丢失其后的修改。此前云端语音配置及密钥引用保持原值。
 
 仍保留：真实休眠/恢复/时钟变化、通知可见性与 OS 重投表现、正常负载通知调用 p95、长期资源、安装器升级/卸载、原生配对/退出确认、云端账号计费与音频设备、macOS/Linux。未更新已安装应用或真实用户数据库；不以本轮局部验证勾选 M1/M2/M3/M4 整体出口。
+
+## 2026-11-22 · 单次提醒调度延迟样本（#23）
+
+Windows 11 build 26200、i5-13600K、Node 24.12.0。启动隔离 Runtime，经正式 HTTP 创建 24 条单次提醒，到期时刻相隔 300 ms。使用真实墙钟、真实定时器、默认通知预算和本地 SQLite。每条仅调用一次接入的通知器，均未早于到期时刻。到期至通知器入口的延迟为最小 21 ms、p95 71 ms、最大 72 ms。
+
+运行 `corepack pnpm -r build` 后执行 `node scripts/acceptance-reminder-timing.mjs` 可复验。该脚本在通知器入口采样并返回合成受理结果。Windows 通知命令执行、系统横幅、真实睡眠恢复及桌宠和 dsh 同时工作的负载仍各自验收。[复验脚本](../../scripts/acceptance-reminder-timing.mjs)
