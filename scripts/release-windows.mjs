@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pnpmInvocation } from "./lib/pnpm-invocation.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => JSON.parse(readFileSync(join(root, path), "utf8"));
@@ -86,15 +87,14 @@ async function main() {
     process.version !== "v24.12.0"
   )
     throw new Error("Release requires Windows x64 / Node 24.12.0");
-  const manager = process.env.npm_execpath;
-  if (!manager || !existsSync(manager))
-    throw new Error("Run with pnpm release:windows");
-  const run = (args) =>
-    execFileSync(process.execPath, [manager, ...args], {
+  const run = (args) => {
+    const [command, commandArgs] = pnpmInvocation("release:windows", args);
+    return execFileSync(command, commandArgs, {
       cwd: root,
       stdio: "inherit",
       windowsHide: true,
     });
+  };
   run(["-r", "build"]);
   const { version, pluginVersion } = await releaseInputs();
   run(["-r", "test"]);

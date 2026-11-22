@@ -14,6 +14,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
+import { pnpmInvocation } from "./lib/pnpm-invocation.mjs";
 
 const exec = promisify(execFile),
   repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,7 +22,7 @@ const cli = join(repo, "apps/desktop/node_modules/@tauri-apps/cli/tauri.js");
 const read = (path) => JSON.parse(readFileSync(path, "utf8"));
 const digest = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
-const marker = join(repo, "dist/acceptance-current.json");
+const marker = resolve(process.env.MANEKI_WINDOWS_ACCEPTANCE_RECORD ?? join(repo, "dist/acceptance-current.json"));
 const release = read(
   join(repo, "apps/desktop/src-tauri/tauri.conf.json"),
 ).version;
@@ -74,10 +75,20 @@ function validatedMetadata() {
   assert.equal(dirname(realpathSync(appdata)), lab);
   return meta;
 }
+async function stopInstalledRuntime(install, config, env) {
+  const result = await run(join(install, "maneki-runtime.exe"), [
+    join(install, "resources/maneki-runtime-bundle.js"), "--config-dir", config,
+    "--port", "18100", "--assistant-manager", "quit", "--client", "acceptance",
+  ], env);
+  assert.equal(JSON.parse(result.stdout).state, "stopped");
+}
 async function main() {
   assert.equal(process.platform, "win32");
   assert.equal(process.arch, "x64");
   const mode = process.argv[2] ?? "prepare";
+  const flags = process.argv.slice(3);
+  assert(flags.length === 0 || (flags.length === 1 && flags[0] === "--headless" && mode !== "finish"),
+    "Usage: pnpm acceptance:windows [prepare|repeat] [--headless] or pnpm acceptance:windows finish");
   if (mode === "finish") {
     const meta = validatedMetadata(),
       lab = meta.lab;
@@ -89,20 +100,22 @@ async function main() {
     const config = join(env.APPDATA, "com.manekipet.desktop/runtime");
     // 仅关闭本次验收可执行文件的视图；不是原生退出/授权验收。
     await run(join(meta.install, meta.binary), ["--close-view"], env);
-    const root = readFileSync(join(config, "root-token"), "utf8").trim();
-    if (await health())
-      await fetch("http://127.0.0.1:18100/v1/shutdown", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${root}`,
-          "content-type": "application/json",
-        },
-        body: "{}",
-      });
-    await waitFor(
-      async () => !existsSync(join(config, "runtime.lock")),
-      "test Runtime shutdown",
-    );
+    if (await health()) await stopInstalledRuntime(meta.install, config, env);
+    const lockPath = join(config, "runtime.lock");
+    await waitFor(async () => {
+      if (await health()) return false;
+      if (!existsSync(lockPath)) return true;
+      // 失败中断可能留下锁文件。只有取得隔离目录的原生独占锁后才清理残留。
+      const { InstanceLock, LockBusyError } = await import("../packages/runtime/dist/lifecycle.js");
+      const lock = new InstanceLock(lockPath);
+      try { lock.acquire(); }
+      catch (error) {
+        if (error instanceof LockBusyError) return false;
+        throw error;
+      }
+      lock.release();
+      return true;
+    }, "test Runtime shutdown");
     const database = digest(join(config, "runtime.db"));
     // close-view 的 IPC 应答可能早于 WebView 释放句柄；32 表示安装器未改文件。
     await waitFor(async () => {
@@ -137,6 +150,12 @@ async function main() {
     return;
   }
   assert(["prepare", "repeat"].includes(mode));
+  const dshEntry = resolve(process.env.MANEKI_DSH_ENTRY ??
+    join(process.env.APPDATA, "npm/node_modules/@deepseek-ai/dsh/lib/bin.js"));
+  assert(existsSync(dshEntry), "Set MANEKI_DSH_ENTRY to installed dsh lib/bin.js");
+  const dshVersion = read(join(dirname(dshEntry), "../package.json")).version;
+  const supportedDsh = read(join(repo, "apps/dsh-plugin/package.json")).engines.dsh.split(/\s*\|\|\s*/);
+  assert(supportedDsh.includes(dshVersion), `dsh ${dshVersion} is outside the Maneki plugin's tested versions`);
   assert.equal(
     await health(),
     undefined,
@@ -172,6 +191,7 @@ async function main() {
     identifier: `com.manekipet.acceptance.${id}`,
     mainBinaryName: binary.slice(0, -4),
   };
+  const [packCommand, packArgs] = pnpmInvocation("acceptance:windows", ["--filter", "@maneki-pet/dsh-plugin", "pack", "--pack-destination", lab]);
   assert(
     !existsSync(join(install, binary)),
     "Finish the previous isolated installation before repeating",
@@ -215,6 +235,7 @@ async function main() {
   const evidence = {
     product,
     release,
+    dshVersion,
     previousInstallerMetadata: "0.1.9 (same current source)",
     productionIdentityUntouched: true,
   };
@@ -352,19 +373,7 @@ async function main() {
   console.log(
     "PASS running install and uninstall rejected without killing Runtime",
   );
-  const root = readFileSync(join(config, "root-token"), "utf8").trim();
-  await fetch("http://127.0.0.1:18100/v1/shutdown", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${root}`,
-      "content-type": "application/json",
-    },
-    body: "{}",
-  });
-  await waitFor(
-    async () => !existsSync(join(config, "runtime.lock")),
-    "shutdown before upgrade",
-  );
+  await stopInstalledRuntime(install, config, env);
   // 锁在关库后释放，仍等待监听端口关闭，避免把同 PID 的关闭阶段当作新服务。
   await waitFor(async () => !(await health()), "old listener close");
   await run(
@@ -396,37 +405,26 @@ async function main() {
   evidence.upgradeDataAndV5MigrationPreserved = true;
   evidence.personalAssistantFromBundledNode = true;
   evidence.voiceAndCloudDisabledByDefault = true;
-  const dshEntry =
-    process.env.MANEKI_DSH_ENTRY ??
-    join(process.env.APPDATA, "npm/node_modules/@deepseek-ai/dsh/lib/bin.js");
-  assert(
-    existsSync(dshEntry),
-    "Set MANEKI_DSH_ENTRY to installed dsh lib/bin.js",
-  );
-  assert.equal(
-    read(join(dirname(dshEntry), "../package.json")).version,
-    "0.2.1-rc.5",
-  );
   const plugin = join(lab, "maneki-pet-dsh-plugin-0.3.0.tgz");
-  const manager = process.env.npm_execpath;
-  assert(manager, "Run with pnpm acceptance:windows");
+  await run(packCommand, packArgs, process.env, { cwd: repo, timeout: 60000 });
+  const dshEnv = Object.fromEntries(["SystemRoot", "COMSPEC", "PATH", "PATHEXT"]
+    .map((key) => [key, env[key]]).filter((entry) => entry[1]));
+  Object.assign(dshEnv, { APPDATA: env.APPDATA, DSH_HOME: env.DSH_HOME, DSH_TELEMETRY_DISABLED: "1" });
+  for (const [key, folder] of Object.entries({ USERPROFILE: "user", LOCALAPPDATA: "local", TEMP: "tmp", TMP: "tmp" })) {
+    dshEnv[key] = join(lab, folder);
+    mkdirSync(dshEnv[key], { recursive: true });
+  }
+  // 只装配插件需要的宿主服务，避免启动 Web 和在线模型插件。
+  const profile = "maneki-acceptance";
+  const profileDir = join(env.DSH_HOME, "profiles", profile);
+  mkdirSync(profileDir, { recursive: true });
+  writeFileSync(join(profileDir, "package.json"), JSON.stringify({ name: profile, private: true, dsh: { profile: { bundles: [] } } }));
+  writeFileSync(join(profileDir, "cordis.patch.yml"), JSON.stringify([{ insert: ["session", "typert-registry", "commands"]
+    .map((id) => ({ id, name: `@deepseek-ai/dsh-${id}` })) }]));
   await run(
     process.execPath,
-    [
-      manager,
-      "--filter",
-      "@maneki-pet/dsh-plugin",
-      "pack",
-      "--pack-destination",
-      lab,
-    ],
-    process.env,
-    { cwd: repo, timeout: 60000 },
-  );
-  await run(
-    process.execPath,
-    [dshEntry, "plugin", "--profile", "web", "add", plugin],
-    env,
+    [dshEntry, "plugin", "--profile", profile, "add", plugin],
+    dshEnv,
     { timeout: 60000 },
   );
   console.log("PASS actual dsh local plugin install");
@@ -446,17 +444,13 @@ async function main() {
     [
       dshEntry,
       "--profile",
-      "web",
+      profile,
       "--patch",
       patch,
-      "--host",
-      "127.0.0.1",
-      "--port",
-      "0",
-      "--no-open",
     ],
-    { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+    { env: dshEnv, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
   );
+  const hostClosed = new Promise((done) => host.once("close", done));
   let log = "";
   host.stdout.on("data", (c) => (log += c));
   host.stderr.on("data", (c) => (log += c));
@@ -466,16 +460,18 @@ async function main() {
     assert.match(read(proof).result.text, /正在运行/);
     evidence.actualDshInstalledAndStatusHandler = true;
   } finally {
-    host.kill();
-    await new Promise((done) =>
-      host.exitCode !== null ? done() : host.once("exit", done),
-    );
+    if (host.exitCode === null && host.signalCode === null) host.kill();
+    await hostClosed;
     writeFileSync(join(lab, "dsh.log"), log);
   }
   assert.equal((await native("status")).state, "ready");
   evidence.hostExitPreservesRuntime = true;
   writeFileSync(marker, JSON.stringify(meta, null, 2));
   writeFileSync(join(lab, "evidence.json"), JSON.stringify(evidence, null, 2));
+  if (flags.includes("--headless")) {
+    console.log(`PASS: isolated installer, upgrade, Runtime and actual dsh. Run pnpm acceptance:windows finish. Evidence ${lab}`);
+    return;
+  }
   const view = spawn(join(install, binary), ["--assistant-view"], {
     env,
     windowsHide: true,

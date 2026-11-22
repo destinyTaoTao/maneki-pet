@@ -47,3 +47,11 @@
 - macOS/Linux 未在本机验证；本轮只交付 Windows x64，不证明 M1/M2/M3/M4 整阶段出口或反向工程派发闭环通过。
 
 安装、升级、回退和配置步骤见 [Windows 指南](../install-windows.md)及[语音指南](../voice.md)。安装器依据 [Tauri 官方 Windows 安装说明](https://v2.tauri.app/distribute/windows-installer/)、[官方配置](https://v2.tauri.app/reference/config/)和[对应固定版本模板](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.4/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi)。
+
+## 2026-11-22 · 当前源码隔离安装复验
+
+Windows 11 x64、Node 24.12.0、pnpm 12.16.1、dsh 0.2.2-rc.1。旧验收脚本在安装后才检查旧 dsh 版本，并把原生 `pnpm-native.exe` 当 JS 加载。现提前使用插件声明检查 dsh 版本，原生 pnpm 直接启动，发行脚本复用同一调用规则。dsh 验收 profile 只装配会话与命令服务，使用独立目录及环境白名单。
+
+实际 NSIS 初次安装、固定入口注册、打包 Runtime 文字助手、运行中拒绝覆盖/卸载、升级与 v5 → v6 迁移、真实 dsh tgz 安装与命令注册、宿主退出后后台继续运行、卸载保留数据库均通过。失败轮遗留锁文件，经原生排他锁确认无人持有后回收，随后卸载并核对数据库哈希。升级夹具仍使用当前源码配 `0.1.9` 版本元数据。源码构建来自带独立 EverNook 未提交改动的本地工作区，本轮验证范围为安装、入口与个人事项。
+
+复验使用独立 `MANEKI_WINDOWS_ACCEPTANCE_RECORD` 路径，先运行 `corepack pnpm acceptance:windows prepare --headless`，接着运行 `corepack pnpm acceptance:windows finish`。已有同版夹具可使用 `repeat --headless`。本轮未打开助手窗口、替换生产安装或更新封存安装包，原生确认、焦点和真实旧版迁移继续单独验收。[验收脚本](../../scripts/acceptance-windows.mjs)
