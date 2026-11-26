@@ -12,6 +12,7 @@ openai-tokenizer = ["tiktoken==0.12.0"]
 hf-tokenizer = ["tokenizers==0.22.2"]
 # 注意：不声明 evernook 依赖——EverNook 未发布到 PyPI；本包必须安装在
 # 已 `pip install -e <evernook-checkout>` 的虚拟环境中（见 README）。
+# 已激活账本要求 Core >=0.1.98 的公开 ServiceClient；0.1.97 仍可访问未激活的嵌入账本。
 
 [tool.setuptools.packages.find]
 include = ["maneki_evernook_adapter*"]

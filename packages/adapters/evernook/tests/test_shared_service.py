@@ -11,9 +11,10 @@ import sys
 import time
 
 import pytest
-from evernook import MemoryFailure, initialize, pair_client
+from evernook import Event, MemoryFailure, Source, initialize, pair_client
 from evernook.service import ENDPOINT, ServiceClient
 
+from maneki_evernook_adapter import ManekiSurface
 from maneki_evernook_adapter.service_ledger import host_bundle
 from test_cli_memory import cli, event
 
@@ -76,6 +77,21 @@ def test_service_pair_capture_tool_read_revocation_and_offline(tmp_path):
     (config.parent / ENDPOINT).unlink()
     assert cli(config, "capture-message", event("offline", "offline"))[0] == 1
     assert cli(config, "pair")[0] == 1
+
+
+def test_legacy_sdk_keeps_embedded_capture_but_requires_upgrade_after_activation(tmp_path, monkeypatch):
+    monkeypatch.setattr(ServiceClient, "for_ledger", None, raising=False)
+    config, owner = initialize(tmp_path / "ordinary", client_id="owner", entry="owner")
+    surface = ManekiSurface(config)
+    surface.pair("maneki-desktop", "maneki")
+    message = Event(Source("maneki", "synthetic", "main", "one"), "user", 1, None, "complete", "fixture")
+    receipt = surface.capture(message)
+    assert surface.read_back(receipt.message.message_id).event == message
+    owner_path = config.parent / "mcp-access-owner.json"
+    owner_path.write_text(json.dumps(asdict(owner)), encoding="utf-8")
+    with running_service(config, "--activate-owner", owner_path):
+        with pytest.raises(MemoryFailure, match="evernook_sdk_upgrade_required"):
+            ManekiSurface(config)
 
 
 def test_shared_context_across_native_dsh_client_and_maneki_shim(tmp_path):

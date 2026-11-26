@@ -1,6 +1,6 @@
 # maneki-evernook-adapter
 
-Maneki 桌宠的 EverNook 适配器 shim 实现 `evernook.adapters.surface.AdapterSurface`。未激活的普通库使用嵌入式接口。已激活账本通过本机服务访问，要求该版本提供普通 `handshake`、`capture`、`read` 和 `context` 操作。
+Maneki 桌宠的 EverNook 适配器 shim 实现 `evernook.adapters.surface.AdapterSurface`。未激活的普通库使用嵌入式接口。已激活账本通过本机服务访问，要求 Core 0.1.98 及以上，使用公开 Python 客户端的服务发现、配对核验、采集、回读与预算上下文接口。Core 0.1.97 仍可用于未激活的嵌入式普通账本。
 
 ## 前置
 

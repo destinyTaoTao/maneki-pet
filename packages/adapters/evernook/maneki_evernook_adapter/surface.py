@@ -17,10 +17,9 @@ from evernook import Capture
 from evernook.adapters import AdapterGap, AdapterSurface
 from evernook.context import ContextBundle, ContextBuilder, ContextPolicy, SemanticRecall
 from evernook.models import Access, CaptureReceipt, Event, MemoryFailure, StoredMessage
-from evernook.paths import external
-from evernook.runtime import HARNESS_DEFAULT_SCOPES, MemoryRuntime, pair_client, _load
-from evernook.service import ENDPOINT
-from .service_ledger import ServiceLedger
+from evernook.runtime import HARNESS_DEFAULT_SCOPES, MemoryRuntime, pair_client
+from evernook.service import ServiceClient
+from .service_ledger import host_bundle
 
 TOOL_KINDS = ("tool_call", "tool_result")
 COVERED_EVENTS = (
@@ -55,14 +54,22 @@ class ManekiSurface(AdapterSurface):
         experience_ids: tuple[str, ...] = (),
         clock: Callable[[], datetime] | None = None,
     ):
-        config = external(config_path)
-        if (config.parent / ENDPOINT).exists() or _load(config).get("service_mode"):
-            self.runtime = ServiceLedger(config)
+        select_service = getattr(ServiceClient, "for_ledger", None)
+        service = select_service(config_path) if select_service is not None else None
+        if service is not None:
+            self.runtime = service
+            root = service.config.parent
             self.recall = None
         else:
-            self.runtime = MemoryRuntime(config)
+            try:
+                self.runtime = MemoryRuntime(config_path)
+            except MemoryFailure as error:
+                if select_service is None and error.code == "service_required":
+                    raise MemoryFailure("evernook_sdk_upgrade_required") from None
+                raise
+            root = self.runtime.root
             self.recall = SemanticRecall(self.runtime)
-        self.access_path = access_path or (self.runtime.root / "mcp-access-maneki.json")
+        self.access_path = access_path or (root / "mcp-access-maneki.json")
         self._client_id = client_id
         self._entry_name = entry
         self._access: Access | None = None
@@ -84,7 +91,7 @@ class ManekiSurface(AdapterSurface):
         return access
 
     def pair(self, client_id: str, entry: str) -> Access:
-        if isinstance(self.runtime, ServiceLedger):
+        if isinstance(self.runtime, ServiceClient):
             if (client_id, entry) != (self._client_id, self._entry_name):
                 raise MemoryFailure("unauthorized")
             return self.connect()
@@ -146,17 +153,19 @@ class ManekiSurface(AdapterSurface):
             else policy
         )
         as_of = self._clock().astimezone(timezone.utc).isoformat()
-        if isinstance(self.runtime, ServiceLedger):
+        if isinstance(self.runtime, ServiceClient):
             if merged != ContextPolicy(merged.normal_tokens, merged.normal_tokens, 0, 30, 4000):
                 raise MemoryFailure("unsupported_service_context_policy")
-            return self.runtime.context(self._require_access(), query, merged.normal_tokens, as_of, counter)
+            value = self.runtime.context(self._require_access(), query, model_id=counter.model_id,
+                max_tokens=merged.normal_tokens, as_of=as_of, mode="normal", timeout=4, transport_timeout=10)
+            return host_bundle(value, merged.normal_tokens, as_of, counter)
         builder = ContextBuilder(self.runtime, self.recall, merged, counter)  # type: ignore[arg-type]
         return builder.build(self._require_access(), query, as_of=as_of, mode="normal", timeout=4)
 
     def attempt_out_of_scope(self) -> str:
         try:
-            if isinstance(self.runtime, ServiceLedger):
-                self.runtime.client.call(self._require_access(), "cli", {"command": "scheduler-status", "input": {}})
+            if isinstance(self.runtime, ServiceClient):
+                self.runtime.call(self._require_access(), "cli", {"command": "scheduler-status", "input": {}})
             else:
                 self.runtime.refresh_lexical(self._require_access())
         except MemoryFailure as failure:

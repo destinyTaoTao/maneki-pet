@@ -1,56 +1,11 @@
-"""Maneki 对已激活普通账本的访问。身份检查和证据可见性归属 EverNook。"""
+"""Maneki 验证服务上下文并以消费模型的 tokenizer 复核交付载荷。"""
 from __future__ import annotations
 
-import base64
-from dataclasses import asdict
 import json
-from pathlib import Path
 import re
 
 from evernook.context import ContextBundle, OmittedEvidence
-from evernook.models import (AttachmentInfo, CaptureReceipt, Event, MemoryFailure, Receipt,
-                             Source, StoredMessage)
-from evernook.service import ServiceClient, client_access
-
-
-class ServiceLedger:
-    def __init__(self, config: Path):
-        self.client = ServiceClient(config)
-        self.root = self.client.config.parent
-
-    def access_from_file(self, path):
-        return client_access(self.client.config, path)
-
-    def handshake(self, access):
-        return self.client.call(access, "handshake", {})
-
-    def submit_capture(self, access, envelope):
-        attachments = []
-        for attachment in envelope.attachments:
-            wire = asdict(attachment)
-            chunks = wire.pop("chunks")
-            wire["chunks_base64"] = None if chunks is None else [base64.b64encode(chunk).decode("ascii") for chunk in chunks]
-            attachments.append(wire)
-        value = self.client.call(access, "capture", {"event": asdict(envelope.event), "kind": envelope.kind,
-            "input_id": envelope.input_id, "tool_name": envelope.tool_name, "attachments": attachments,
-            "provided": envelope.provided, "text_chunks": envelope.text_chunks})
-        return CaptureReceipt(**{**value, "message": Receipt(**value["message"]),
-            "attachments": tuple(AttachmentInfo(**item) for item in value["attachments"]), "gaps": tuple(value["gaps"])})
-
-    def read(self, access, message_id):
-        try:
-            value = self.client.call(access, "read", {"message_id": message_id})
-        except MemoryFailure as error:
-            if error.code == "message_not_found":
-                return None
-            raise
-        event = value["event"]
-        return StoredMessage(Event(**{**event, "source": Source(**event["source"])}), Receipt(**value["receipt"]))
-
-    def context(self, access, query, limit, as_of, counter):
-        value = self.client.call(access, "context", {"query": query, "model_id": counter.model_id,
-            "max_tokens": limit, "as_of": as_of, "mode": "normal", "timeout": 4}, timeout=10)
-        return host_bundle(value, limit, as_of, counter)
+from evernook.models import MemoryFailure
 
 
 def host_bundle(value, limit, as_of, counter):
