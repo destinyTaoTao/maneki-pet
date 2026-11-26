@@ -37,8 +37,9 @@ PATTERN = "|".join([
 class OpenAITokenCounter:
     counter_id = "tiktoken-0.12.0-o200k_base"
 
-    def __init__(self, encoding):
+    def __init__(self, encoding, model_id: str):
         self._encoding = encoding
+        self.model_id = model_id
 
     def count(self, text: str) -> int:
         # 记忆内容全部作为普通数据；特殊 token 的文本不获得控制语义。
@@ -46,9 +47,10 @@ class OpenAITokenCounter:
 
 
 class HfTokenCounter:
-    def __init__(self, tokenizer, counter_id: str):
+    def __init__(self, tokenizer, counter_id: str, model_id: str):
         self._tokenizer = tokenizer
         self.counter_id = counter_id
+        self.model_id = model_id
 
     def count(self, text: str) -> int:
         return len(self._tokenizer.encode(text, add_special_tokens=False).ids)
@@ -73,7 +75,7 @@ def _create_hf_counter(model: str) -> HfTokenCounter:
         tokenizer = Tokenizer.from_str(contents.decode("utf-8"))
         tokenizer.no_truncation()
         tokenizer.no_padding()
-        return HfTokenCounter(tokenizer, counter_id)
+        return HfTokenCounter(tokenizer, counter_id, model)
     except Exception:
         raise MemoryFailure("tokenizer_unavailable") from None
 
@@ -98,6 +100,6 @@ def create_counter(model: str) -> OpenAITokenCounter | HfTokenCounter:
             ranks[base64.b64decode(token, validate=True)] = int(rank)
         encoding = Encoding(name="o200k_base", pat_str=PATTERN, mergeable_ranks=ranks,
                             special_tokens={"<|endoftext|>": 199999, "<|endofprompt|>": 200018})
-        return OpenAITokenCounter(encoding)
+        return OpenAITokenCounter(encoding, model)
     except Exception:
         raise MemoryFailure("tokenizer_unavailable") from None

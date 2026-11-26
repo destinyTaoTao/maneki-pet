@@ -1,6 +1,6 @@
 # maneki-evernook-adapter
 
-Maneki 桌宠的 EverNook 适配器 shim：实现官方 `evernook.adapters.surface.AdapterSurface`，通过 `evernook.adapters.conformance.ConformanceSuite` 全套件验收（adapter-conformance-v1 §5）。**EverNook 仓库零改动**。
+Maneki 桌宠的 EverNook 适配器 shim 实现 `evernook.adapters.surface.AdapterSurface`。未激活的普通库使用嵌入式接口。已激活账本通过本机服务访问，要求该版本提供普通 `handshake`、`capture`、`read` 和 `context` 操作。
 
 ## 前置
 
@@ -43,7 +43,9 @@ C:\maneki-lab\venv-py314\Scripts\python.exe -m maneki_evernook_adapter conforman
 
 覆盖范围：文本轮次与工具事件；gaps 披露语音/ASR、视觉、Live2D、平台写操作执行过程、运营数据导出原件。
 
-普通命令必须显式提供 `--config`，可提供同库内的 `--access`。首次部署必须主动执行 `pair`；其他命令只通过 owning `access_from_file`/`handshake` 读取既有身份，校验 client_id、entry 与 scope，不创建身份或恢复已撤销权限。默认身份为 `maneki-desktop`/`maneki`；可选 CLI 身份必须与 access 匹配，不能借用管理员身份。配对文件中的 token 不写入 stdout。
+普通命令必须显式提供 `--config`，可提供同库内的 `--access`。嵌入模式首次部署显式执行 `pair`。服务模式下，由可信操作者在 EverNook 使用 `service-pair` 预配 `maneki-desktop` / `maneki`，将返回的 access 文件路径填入小招，再点击配对核验。管理员材料留在 EverNook。每次启动 shim 均检查实际身份、入口与作用域，拒绝其他身份或超出 capture/recall 的权限。服务离线时采集和召回失败，停止服务后持久激活标记继续生效。
+
+服务端通过 `--context-config` 绑定与小招所选模型同名的 tokenizer，并将普通上下文预算配置为至少小招请求的值。小招只接收普通证据信封；服务保留原始载荷中的计数器身份，小招以固定哈希验证过的本地词表复算同一载荷，按实际消费计数和请求上限验收。服务未配置上下文时仍可保存或按 ID 回读。服务模式暂不支持由小招另传经验清单。
 
 `inject` 拒绝未知字段及旧 `{policy,counter}` 形状；query 最长 4000 字符，tokenLimit 为 128..2048 整数。生产时间取当前 UTC；内部 Python `inject(query, policy, counter)` 继续接受 TokenCounter 对象，构造器的 clock 仅为测试 seam。固定策略 recent_days=30、recent_target_chars=4000、pinned/persona/profile/topic 预算为 0，不自动生成画像。返回 `payload/used_tokens/token_limit/omitted/degraded/complete/counter_id/as_of/sources`；sources 只提取最终 payload.items 的 evidence_id，去重且最多 8 个，不含被预算淘汰的候选。写入回执保留 owning 的 message_id、original_saved 与 status，敏感投影不能伪报原文已保存。
 

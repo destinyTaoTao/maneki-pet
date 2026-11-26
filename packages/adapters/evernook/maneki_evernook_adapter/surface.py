@@ -17,7 +17,10 @@ from evernook import Capture
 from evernook.adapters import AdapterGap, AdapterSurface
 from evernook.context import ContextBundle, ContextBuilder, ContextPolicy, SemanticRecall
 from evernook.models import Access, CaptureReceipt, Event, MemoryFailure, StoredMessage
-from evernook.runtime import HARNESS_DEFAULT_SCOPES, MemoryRuntime, pair_client
+from evernook.paths import external
+from evernook.runtime import HARNESS_DEFAULT_SCOPES, MemoryRuntime, pair_client, _load
+from evernook.service import ENDPOINT
+from .service_ledger import ServiceLedger
 
 TOOL_KINDS = ("tool_call", "tool_result")
 COVERED_EVENTS = (
@@ -52,7 +55,13 @@ class ManekiSurface(AdapterSurface):
         experience_ids: tuple[str, ...] = (),
         clock: Callable[[], datetime] | None = None,
     ):
-        self.runtime = MemoryRuntime(config_path)
+        config = external(config_path)
+        if (config.parent / ENDPOINT).exists() or _load(config).get("service_mode"):
+            self.runtime = ServiceLedger(config)
+            self.recall = None
+        else:
+            self.runtime = MemoryRuntime(config)
+            self.recall = SemanticRecall(self.runtime)
         self.access_path = access_path or (self.runtime.root / "mcp-access-maneki.json")
         self._client_id = client_id
         self._entry_name = entry
@@ -60,7 +69,6 @@ class ManekiSurface(AdapterSurface):
         self._entry: str | None = None
         self._experience_ids = tuple(experience_ids)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self.recall = SemanticRecall(self.runtime)
 
     def connect(self) -> Access:
         """仅加载既有身份；连接不能恢复被撤销的 scope 或创建配对文件。"""
@@ -76,6 +84,10 @@ class ManekiSurface(AdapterSurface):
         return access
 
     def pair(self, client_id: str, entry: str) -> Access:
+        if isinstance(self.runtime, ServiceLedger):
+            if (client_id, entry) != (self._client_id, self._entry_name):
+                raise MemoryFailure("unauthorized")
+            return self.connect()
         self._access = pair_client(
             self.runtime.root / "runtime.json",
             client_id=client_id,
@@ -133,13 +145,20 @@ class ManekiSurface(AdapterSurface):
             if self._experience_ids and policy.experience_ids == ()
             else policy
         )
-        builder = ContextBuilder(self.runtime, self.recall, merged, counter)  # type: ignore[arg-type]
         as_of = self._clock().astimezone(timezone.utc).isoformat()
+        if isinstance(self.runtime, ServiceLedger):
+            if merged != ContextPolicy(merged.normal_tokens, merged.normal_tokens, 0, 30, 4000):
+                raise MemoryFailure("unsupported_service_context_policy")
+            return self.runtime.context(self._require_access(), query, merged.normal_tokens, as_of, counter)
+        builder = ContextBuilder(self.runtime, self.recall, merged, counter)  # type: ignore[arg-type]
         return builder.build(self._require_access(), query, as_of=as_of, mode="normal", timeout=4)
 
     def attempt_out_of_scope(self) -> str:
         try:
-            self.runtime.refresh_lexical(self._require_access())
+            if isinstance(self.runtime, ServiceLedger):
+                self.runtime.client.call(self._require_access(), "cli", {"command": "scheduler-status", "input": {}})
+            else:
+                self.runtime.refresh_lexical(self._require_access())
         except MemoryFailure as failure:
             return failure.code
         return "ok"

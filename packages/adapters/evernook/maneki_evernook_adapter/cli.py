@@ -150,7 +150,7 @@ def _run(argv):
         attachments = tuple(AttachmentInput(item["attachment_id"], item["label"], item["mime_type"],
                                             (item["bytes"].encode("utf-8"),)) for item in payload.get("attachments", []))
         receipt = surface.capture_tool_event(_event_from_json(payload["event"]), args.kind, args.input_id, args.tool_name, attachments)
-        return {**_receipt(receipt), "gaps": [gap.reason for gap in receipt.gaps]}
+        return {**_receipt(receipt), "gaps": list(receipt.gaps)}
     if args.command in {"read-back", "experience-span"}:
         if not args.message_id:
             _invalid()

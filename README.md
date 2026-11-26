@@ -12,7 +12,7 @@
 | 找到等待回应的会话 | 当前源码支持按项目目录名、会话 ID 和阶段查看进度。真实 dsh 的等待、完成、续接、取消和失联均有对照记录。[会话验收](./docs/audits/2026-11-14-session-observations.md) |
 | 按住说话与朗读 | 麦克风、识别和合成分别启用。可选本地引擎、百炼，或单独授权 dsh 提供只读进度查询所需的转写。真实录音与第二个会话同时完成的组合场景仍待验收。[语音配置](./docs/voice.md) |
 | 形象、动作与轻陪伴 | 源码支持动作包、点播、模板气泡、「来一句」及暂停。自动台词遵守勿扰和独立预算。正式素材另行准备；长时间节奏、真实休眠及多屏观感待验。[轻陪伴验证](./docs/audits/2026-11-14-template-companionship.md) |
-| 长期记忆 | EverNook 的保存与召回分别授权，记忆有来源，tokenizer 在本地匹配模型。已做隔离身份联验，跨天自然问句的产品体验仍在验收。[配置与证据](./packages/adapters/evernook/README.md) |
+| 长期记忆 | 小招与 dsh 可通过同一个 EverNook 本机服务读写普通记忆，各用自己的身份。小招分别控制保存与召回，并用所选模型的本地 tokenizer 复算注入预算。跨天自然问句和长期桌面体验仍在验收。[配置与证据](./packages/adapters/evernook/README.md) |
 | 让 personal agent 安排休息 | 对已授权的 agent 说「半小时后提醒我休息」。小招保存一次提醒，宿主退出后，仍由后台到点投递。[配对与重试示例](#agent-reminders) |
 | 让 personal agent 定期提醒你 | 对已授权的 agent 说「每周一、三、五上午九点提醒我休息」。小招按个人时区调度。[指定星期](#weekly-reminders) · [改时间](#weekly-reminder-reschedule) · [换星期](#weekly-reminder-change-days) · [每日提醒](#daily-reminders) · [工作日提醒](#weekday-reminders) |
 | 让 personal agent 管理自己安排的提醒 | 权限分别授予。agent 可查询尚未开始投递的提醒，并精确取消或改期其中一条。[查询与取消](#agent-reminder-management) · [改期](#agent-reminder-reschedule) |
