@@ -1312,7 +1312,11 @@ v0.2 → v0.3：Runtime 改为可由插件独立启动的共享本地进程；�
 - **抖音公开证据**：截至本次核查，官方[创建视频文档](https://developer.open-douyin.com/docs/resource/zh-CN/dop/develop/openapi/video-management/douyin/create-video/video-create)列出 `video.create.bind` 权限申请与用户授权要求，发布后仍需审核；不再沿用“代投稿已全部收回”的笼统判断。该页面不能证明个人开发者或用户账号一定能获批；资质、实际 scope、OAuth 与状态对账验证前保持发布能力关闭，保留人工发布路径。
 - **元数据 JSON 与运营数据模板**是 Maneki 与 EverNook 共同的数据契约：字段定义在本文与扩展文档，JSON Schema 随实现入库（`packages/adapters/platform-bilibili/schemas/`）；视频成片等大资产不进 EverNook 账本，仅以路径/哈希/时长元数据引用。
 
-### 10.3 EverNook 集成形态（零 EverNook 改动）
+### 10.3 EverNook 集成形态
+
+同一主人在 dsh 与小招间共享记忆时，已激活账本由 EverNook 本机服务持有。小招使用自己的低权限身份访问普通采集、回读与预算上下文；配对授权由可信操作者在 EverNook 完成。小招的配对按钮可以核验预置身份。服务离线或身份被撤销时返回失败，已发送的写入保留未知结果语义。未激活的普通账本继续支持现有嵌入方式。
+
+服务返回的上下文仍须由小招按所选模型的本地 tokenizer 检查实际载荷和预算。保存、召回分别受原设置控制；关闭长期记忆不删除共享账本。跨宿主更正与停用应当在下一次新查询生效。
 
 - **2026-11-15 主会话显式记忆增量（用户已授权实施，验收另记）**：Runtime 在现有 assistant/settings 权限下提供独立 `memory` 设置：`{recallEnabled:boolean,writeEnabled:boolean,pythonPath:string,configPath:string,accessPath:string,tokenizerDataDir:string}`，默认 false/false/空路径。Python 为用户选择的受信 EverNook venv 绝对路径；其余为本机绝对路径，数据目录仅存固定词表文件。旧设置缺 memory 使用关闭默认，新 Runtime 的 PUT 省略 memory 保留旧值；降级旧 Runtime 可能丢弃新增设置，再升级默认关闭，不自动重授授权。HTTP/settings 仍为 schemaVersion=1，SQLite v6 无迁移；旧客户端忽略新字段。
 - 新 `POST /v1/assistant/memory/pair` 仅接受空对象，要求 assistant+settings 或 admin，显式点击后调用固定 Python shim `pair`，只返回 `{paired:true}`，不返回 token。设置保存、启动、聊天和其他 shim 命令不得自动配对或恢复被撤销权限。shim 非 pair 操作使用 owning `access_from_file` 核验已配对身份、entry 和 scopes；主会话固定使用 maneki-desktop/maneki 身份，不复用其他外壳 access。用户先保存本地路径，再明确配对；未配对提示不可用，不影响提醒和文字。
